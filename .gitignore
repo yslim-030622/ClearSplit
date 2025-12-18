@@ -22,5 +22,6 @@ xcuserdata/
 
 # SwiftPM local artifacts (ok to ignore)
 .swiftpm/
+.build/
 # Node/others
 node_modules/

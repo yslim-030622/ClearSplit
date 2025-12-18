@@ -8,6 +8,7 @@ public protocol HealthChecking {
     func fetchHealth() async throws -> HealthResponse
 }
 
+@available(macOS 12.0, iOS 15.0, *)
 public struct HealthClient: HealthChecking {
     private let baseURL: URL
     private let session: URLSession
