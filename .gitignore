@@ -12,10 +12,16 @@ __pycache__/
 .ruff_cache/
 
 # Swift/Apple
-*.xcworkspace/
-*.xcodeproj/
 DerivedData/
-.swiftpm/
+xcuserdata/
+*.xcuserstate
 
+# Ignore user data inside Xcode projects/workspaces
+**/*.xcodeproj/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+
+# SwiftPM local artifacts (ok to ignore)
+.swiftpm/
+.build/
 # Node/others
 node_modules/

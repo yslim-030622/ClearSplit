@@ -1,5 +1,6 @@
 import SwiftUI
 
+@available(macOS 12.0, iOS 15.0, *)
 public final class HealthViewModel: ObservableObject {
     @Published public var statusText: String = "Checking..."
     @Published public var isError: Bool = false
@@ -23,6 +24,7 @@ public final class HealthViewModel: ObservableObject {
     }
 }
 
+@available(macOS 12.0, iOS 15.0, *)
 public struct ContentView: View {
     @StateObject private var viewModel: HealthViewModel
 
@@ -44,6 +46,9 @@ public struct ContentView: View {
     }
 }
 
+#if DEBUG
+@available(macOS 12.0, iOS 15.0, *)
 #Preview {
     ContentView()
 }
+#endif
