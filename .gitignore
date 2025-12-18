@@ -1,0 +1,21 @@
+# General
+.DS_Store
+.env
+.venv
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# Python build
+*.egg-info/
+.ruff_cache/
+
+# Swift/Apple
+*.xcworkspace/
+*.xcodeproj/
+DerivedData/
+.swiftpm/
+
+# Node/others
+node_modules/
