@@ -266,7 +266,7 @@ async def test_activity_log_model(session: AsyncSession):
         actor_membership=membership.id,
         event_type="expense.created",
         subject_id=uuid.uuid4(),
-        metadata={"key": "value"},
+        activity_metadata={"key": "value"},
     )
     session.add(log)
     await session.commit()
@@ -274,7 +274,7 @@ async def test_activity_log_model(session: AsyncSession):
 
     assert log.id is not None
     assert log.event_type == "expense.created"
-    assert log.metadata == {"key": "value"}
+    assert log.activity_metadata == {"key": "value"}
 
 
 @pytest.mark.asyncio

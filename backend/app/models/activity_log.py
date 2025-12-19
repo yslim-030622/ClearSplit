@@ -36,7 +36,9 @@ class ActivityLog(Base):
     )
     event_type: Mapped[str] = mapped_column(Text(), nullable=False)
     subject_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSONB(), nullable=True)
+    activity_metadata: Mapped[dict | None] = mapped_column(
+        JSONB(), name="metadata", nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
