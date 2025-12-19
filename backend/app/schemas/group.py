@@ -8,12 +8,14 @@ from pydantic import Field, field_validator
 from app.schemas.base import BaseSchema, TimestampMixin, VersionMixin
 
 
-class GroupRead(BaseSchema, TimestampMixin, VersionMixin):
+class GroupRead(BaseSchema):
     """Group read schema."""
 
     id: UUID
     name: str
     currency: str = Field(..., description="ISO 4217 currency code (e.g., USD)")
+    created_at: datetime
+    updated_at: datetime
     version: int
 
 

@@ -164,5 +164,3 @@ async def list_group_expenses(
 
     return expense_responses
 
-
-

@@ -21,13 +21,15 @@ class SettlementRead(BaseSchema):
     created_at: datetime
 
 
-class SettlementBatchRead(BaseSchema, TimestampMixin, VersionMixin):
+class SettlementBatchRead(BaseSchema):
     """Settlement batch read schema."""
 
     id: UUID
     group_id: UUID
     status: SettlementStatus
     total_settlements: int = Field(..., ge=0, description="Number of settlements in batch")
+    created_at: datetime
+    updated_at: datetime
     version: int
     voided_reason: str | None = None
     # Optional: include settlements if needed

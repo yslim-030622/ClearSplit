@@ -8,6 +8,13 @@ from pydantic import Field, field_validator
 from app.schemas.base import BaseSchema, TimestampMixin, VersionMixin
 
 
+class ExpenseSplitCreate(BaseSchema):
+    """Expense split creation schema."""
+
+    membership_id: UUID = Field(..., description="Membership ID for this split")
+    share_cents: int = Field(..., ge=0, description="Share amount in cents (>= 0)")
+
+
 class ExpenseSplitRead(BaseSchema):
     """Expense split read schema."""
 
@@ -18,7 +25,7 @@ class ExpenseSplitRead(BaseSchema):
     created_at: datetime
 
 
-class ExpenseRead(BaseSchema, TimestampMixin, VersionMixin):
+class ExpenseRead(BaseSchema):
     """Expense read schema."""
 
     id: UUID
@@ -29,6 +36,8 @@ class ExpenseRead(BaseSchema, TimestampMixin, VersionMixin):
     paid_by: UUID = Field(..., description="Membership ID of payer")
     expense_date: date
     memo: str | None = None
+    created_at: datetime
+    updated_at: datetime
     version: int
     # Optional: include splits if needed
     splits: list[ExpenseSplitRead] | None = None

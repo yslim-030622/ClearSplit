@@ -11,7 +11,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=30, alias="REFRESH_TOKEN_EXPIRE_DAYS")
 
-    model_config = SettingsConfigDict(env_file=(".env", "../.env"), case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"),
+        case_sensitive=False,
+        extra="ignore",  # Ignore extra fields in .env that aren't in Settings
+    )
 
 
 @lru_cache

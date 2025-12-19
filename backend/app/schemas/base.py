@@ -18,14 +18,14 @@ class BaseSchema(BaseModel):
     )
 
 
-class TimestampMixin(BaseSchema):
+class TimestampMixin:
     """Mixin for models with created_at and updated_at timestamps."""
 
     created_at: datetime
     updated_at: datetime
 
 
-class VersionMixin(BaseSchema):
+class VersionMixin:
     """Mixin for models with optimistic locking version."""
 
     version: int
