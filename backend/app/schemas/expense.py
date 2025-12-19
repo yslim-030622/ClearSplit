@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from app.schemas.base import BaseSchema, TimestampMixin, VersionMixin
 
@@ -16,13 +16,6 @@ class ExpenseSplitRead(BaseSchema):
     membership_id: UUID
     share_cents: int = Field(..., ge=0, description="Share amount in cents (>= 0)")
     created_at: datetime
-
-
-class ExpenseSplitCreate(BaseSchema):
-    """Expense split creation schema."""
-
-    membership_id: UUID = Field(..., description="Membership ID for this split")
-    share_cents: int = Field(..., ge=0, description="Share amount in cents (>= 0)")
 
 
 class ExpenseRead(BaseSchema, TimestampMixin, VersionMixin):
@@ -41,8 +34,13 @@ class ExpenseRead(BaseSchema, TimestampMixin, VersionMixin):
     splits: list[ExpenseSplitRead] | None = None
 
 
-class ExpenseCreate(BaseSchema):
-    """Expense creation schema."""
+class ExpenseCreateEqualSplit(BaseSchema):
+    """Expense creation schema for MVP (equal split only).
+
+    For MVP, we only support equal splits. The amount is divided equally
+    among the specified membership_ids, with any remainder distributed
+    to the first members in the list.
+    """
 
     title: str = Field(..., min_length=1, max_length=500, description="Expense title")
     amount_cents: int = Field(..., gt=0, description="Expense amount in cents (> 0)")
@@ -52,13 +50,13 @@ class ExpenseCreate(BaseSchema):
         max_length=3,
         description="ISO 4217 currency code",
     )
-    paid_by: UUID = Field(..., description="Membership ID of payer")
+    paid_by: UUID = Field(..., description="Membership ID of payer (must be in group)")
     expense_date: date = Field(..., description="Date of expense")
     memo: str | None = Field(None, max_length=2000, description="Optional memo")
-    splits: list[ExpenseSplitCreate] = Field(
+    split_among: list[UUID] = Field(
         ...,
         min_length=1,
-        description="List of expense splits (must sum to amount_cents)",
+        description="List of membership IDs to split expense among (equal split)",
     )
 
     @field_validator("currency")
@@ -66,25 +64,6 @@ class ExpenseCreate(BaseSchema):
     def validate_currency(cls, v: str) -> str:
         """Validate currency code is uppercase."""
         return v.upper()
-
-    @field_validator("splits")
-    @classmethod
-    def validate_splits_not_empty(cls, v: list[ExpenseSplitCreate]) -> list[ExpenseSplitCreate]:
-        """Validate that splits list is not empty."""
-        if not v:
-            raise ValueError("At least one split is required")
-        return v
-
-    @model_validator(mode="after")
-    def validate_splits_sum(self) -> "ExpenseCreate":
-        """Validate that splits sum to amount_cents."""
-        if self.splits:
-            total = sum(split.share_cents for split in self.splits)
-            if total != self.amount_cents:
-                raise ValueError(
-                    f"Splits sum ({total} cents) must equal amount_cents ({self.amount_cents} cents)"
-                )
-        return self
 
 
 class ExpenseUpdate(BaseSchema):
@@ -101,11 +80,6 @@ class ExpenseUpdate(BaseSchema):
     paid_by: UUID | None = Field(None, description="Membership ID of payer")
     expense_date: date | None = Field(None, description="Date of expense")
     memo: str | None = Field(None, max_length=2000, description="Optional memo")
-    splits: list[ExpenseSplitCreate] | None = Field(
-        None,
-        min_length=1,
-        description="List of expense splits (must sum to amount_cents if provided)",
-    )
 
     @field_validator("currency")
     @classmethod
@@ -114,23 +88,3 @@ class ExpenseUpdate(BaseSchema):
         if v is not None:
             return v.upper()
         return v
-
-    @field_validator("splits")
-    @classmethod
-    def validate_splits_not_empty(cls, v: list[ExpenseSplitCreate] | None) -> list[ExpenseSplitCreate] | None:
-        """Validate that splits are not empty if provided."""
-        if v is not None and not v:
-            raise ValueError("At least one split is required")
-        return v
-
-    @model_validator(mode="after")
-    def validate_splits_sum(self) -> "ExpenseUpdate":
-        """Validate that splits sum to amount_cents if both are provided."""
-        if self.splits is not None and self.amount_cents is not None:
-            total = sum(split.share_cents for split in self.splits)
-            if total != self.amount_cents:
-                raise ValueError(
-                    f"Splits sum ({total} cents) must equal amount_cents ({self.amount_cents} cents)"
-                )
-        return self
-
