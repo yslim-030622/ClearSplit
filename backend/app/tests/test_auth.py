@@ -213,7 +213,7 @@ async def test_expired_token(client: AsyncClient, session: AsyncSession):
             "type": "access",
             "exp": expire,
         },
-        settings.jwt_secret,
+        settings.get_jwt_secret(),
         algorithm=settings.jwt_algorithm,
     )
 

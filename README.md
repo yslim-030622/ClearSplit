@@ -36,32 +36,39 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
 
 1. **Create environment file:**
    ```bash
-   cp .env.example .env
-   # Edit .env and ensure DATABASE_URL and JWT_SECRET are set
+   cp .env.example .env.local
+   # Generate a JWT secret:
+   openssl rand -hex 32
+   # Edit .env.local and fill in real values (DATABASE_URL, JWT_SECRET)
+   # NEVER commit .env.local - it's gitignored!
    ```
 
 2. **Start PostgreSQL database:**
    ```bash
-   docker-compose up -d db
+   docker-compose --env-file .env.local up -d db
    ```
    Expected: Container starts and healthcheck passes. Verify with `docker-compose ps`.
 
 3. **Install Python dependencies:**
    ```bash
    cd backend
-   make install
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
    ```
    Expected: Packages install successfully.
 
 4. **Run database migrations:**
    ```bash
+   # Ensure .env.local is in backend/ or parent directory
    alembic upgrade head
    ```
-   Expected: Migration `20241218_0001_initial` applies successfully. Tables created in Postgres.
+   Expected: Migration applies successfully. Tables created in Postgres.
 
 5. **Start backend server:**
    ```bash
-   make run
+   # With .env.local in backend/ directory:
+   uvicorn app.main:app --reload
    ```
    Expected: Server starts on `http://0.0.0.0:8000`. Test with:
    ```bash
@@ -71,9 +78,29 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
 
 6. **Run tests:**
    ```bash
-   make test
+   # Tests use dummy secrets from conftest fixtures
+   pytest -q
    ```
-   Expected: `test_health` passes.
+   Expected: All 48 tests pass.
+
+### Security Setup
+
+**Before committing any code:**
+
+```bash
+# Run the secret scanner
+./scripts/secret-scan.sh
+```
+
+This detects hardcoded secrets. If found, **DO NOT COMMIT**. See `SECURITY.md` for details.
+
+**Key security rules:**
+- ✅ Use `.env.local` (gitignored) for local secrets
+- ✅ Generate strong JWT secrets: `openssl rand -hex 32`
+- ❌ Never commit real secrets to git
+- ❌ Never hardcode passwords in code
+
+See `SECURITY.md` for complete security policy.
 
 ### iOS Setup
 

@@ -15,7 +15,7 @@ if is_testing:
     # Test mode: NullPool + no pool_pre_ping to avoid event loop issues
     # Each SessionLocal() call gets a fresh connection
     engine = create_async_engine(
-        settings.database_url,
+        settings.get_database_url(),
         future=True,
         poolclass=NullPool,
         echo=False,  # Set to True for debugging
@@ -23,7 +23,7 @@ if is_testing:
 else:
     # Production mode: standard connection pooling
     engine = create_async_engine(
-        settings.database_url,
+        settings.get_database_url(),
         future=True,
         pool_size=5,
         max_overflow=10,

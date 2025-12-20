@@ -30,7 +30,7 @@ def create_access_token(user_id: UUID, email: str) -> str:
         "exp": expire,
     }
     return jwt.encode(
-        payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+        payload, settings.get_jwt_secret(), algorithm=settings.jwt_algorithm
     )
 
 
@@ -54,7 +54,7 @@ def create_refresh_token(user_id: UUID, email: str) -> str:
         "exp": expire,
     }
     return jwt.encode(
-        payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+        payload, settings.get_jwt_secret(), algorithm=settings.jwt_algorithm
     )
 
 
@@ -73,7 +73,7 @@ def decode_token(token: str, token_type: str = "access") -> dict:
     """
     try:
         payload = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            token, settings.get_jwt_secret(), algorithms=[settings.jwt_algorithm]
         )
         if payload.get("type") != token_type:
             raise JWTError("Invalid token type")

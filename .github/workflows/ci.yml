@@ -48,10 +48,13 @@ jobs:
 
       - name: Create .env file for tests
         run: |
+          # SECURITY NOTE: These are DUMMY secrets for CI testing only
+          # NEVER use these values in production!
+          # Production secrets must be stored in GitHub Secrets
           cat > .env << EOF
           ENV=test
           DATABASE_URL=postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
-          JWT_SECRET=test-secret-key-for-ci-only-not-for-production
+          JWT_SECRET=test-secret-key-for-ci-only-not-for-production-minimum-32-chars
           JWT_ALGORITHM=HS256
           ACCESS_TOKEN_EXPIRE_MINUTES=15
           REFRESH_TOKEN_EXPIRE_DAYS=30

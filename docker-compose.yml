@@ -4,8 +4,10 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
+    # Use .env.local for local secrets (gitignored)
+    # Or override with: docker-compose --env-file .env.local up
     env_file:
-      - .env
+      - .env.local
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-clearsplit}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clearsplit}
@@ -23,9 +25,10 @@ services:
   api:
     build:
       context: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # Use .env.local for local secrets (gitignored)
     env_file:
-      - .env
+      - .env.local
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-clearsplit}:${POSTGRES_PASSWORD:-clearsplit}@db:5432/${POSTGRES_DB:-clearsplit}
       ENV: local

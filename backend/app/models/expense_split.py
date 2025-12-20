@@ -63,4 +63,4 @@ class ExpenseSplit(Base):
 
     # Relationships
     expense: Mapped["Expense"] = relationship(back_populates="splits")
-    membership: Mapped["Membership"] = relationship(overlaps="expense,splits")
+    membership: Mapped["Membership"] = relationship()
