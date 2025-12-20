@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.membership import Membership, MembershipRole
@@ -90,7 +91,7 @@ async def add_member_to_group(
     )
     session.add(membership)
     await session.commit()
-    await session.refresh(membership)
+    await session.refresh(membership, attribute_names=["user"])
 
     return membership
 
@@ -109,8 +110,8 @@ async def get_group_members(
     """
     result = await session.execute(
         select(Membership)
+        .options(selectinload(Membership.user))
         .where(Membership.group_id == group_id)
         .order_by(Membership.created_at.asc())
     )
     return list(result.scalars().all())
-

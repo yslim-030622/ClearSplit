@@ -40,6 +40,12 @@ USER_ID=$(echo "$SIGNUP_RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' 
 if [ -z "$ACCESS_TOKEN" ]; then
     echo -e "${RED}✗ Signup failed${NC}"
     echo "Response: $SIGNUP_RESPONSE"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check server logs for detailed error"
+    echo "  2. Verify database is running: docker-compose ps"
+    echo "  3. Run migrations: alembic upgrade head"
+    echo "  4. Check DATABASE_URL in .env file"
     exit 1
 fi
 

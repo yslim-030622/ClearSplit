@@ -1,104 +1,185 @@
 # ClearSplit Backend
 
-FastAPI backend for ClearSplit expense splitting application.
+FastAPI-based backend for the ClearSplit expense splitting application.
 
 ## Features
 
-- **Authentication**: JWT-based auth with access and refresh tokens
-- **Groups**: Create and manage expense groups
-- **Memberships**: Add members to groups with role-based access
-- **Expenses**: Create expenses with equal splits (MVP)
-- **Idempotency**: Support for idempotent expense creation
+- **Phase 1: Authentication** ✅
+  - User registration and login
+  - JWT-based authentication
+  - Token refresh mechanism
+  
+- **Phase 2: Groups & Memberships** ✅
+  - Create and manage expense groups
+  - Invite and manage group members
+  - Role-based access control (Owner/Member)
+  
+- **Phase 3: Expenses** ✅
+  - Create expenses with equal split
+  - Automatic split calculation with remainder handling
+  - Idempotency support
+  
+- **Phase 4: Settlements** ✅
+  - Compute optimal settlement transfers
+  - Minimize number of transactions
+  - Track payment status
+
+## Tech Stack
+
+- **Framework**: FastAPI
+- **Database**: PostgreSQL with asyncpg
+- **ORM**: SQLAlchemy 2.0 (async)
+- **Authentication**: JWT with bcrypt password hashing
+- **Migrations**: Alembic
+- **Testing**: pytest with pytest-asyncio
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker Desktop
 - Python 3.12+
-- PostgreSQL 16 (via Docker)
+- PostgreSQL 14+
+- Docker (optional, for running PostgreSQL)
 
 ### Setup
 
-1. **Start database:**
+1. **Start PostgreSQL**:
    ```bash
-   docker-compose up -d db
+   docker-compose up -d
    ```
 
-2. **Install dependencies:**
+2. **Set up environment**:
    ```bash
    cd backend
-   make install
-   # or
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
 
-3. **Run migrations:**
+3. **Configure environment variables**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your settings
+   ```
+
+4. **Run migrations**:
    ```bash
    alembic upgrade head
    ```
 
-4. **Start server:**
+5. **Start the server**:
    ```bash
-   make run
+   uvicorn app.main:app --reload
    ```
 
-5. **Test API:**
-   ```bash
-   ./test_api.sh
-   ```
+   The API will be available at `http://localhost:8000`
+   API documentation: `http://localhost:8000/docs`
 
-## API Documentation
+## API Testing
 
-- **Interactive Docs**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Testing Guide**: See `API_TESTING.md`
+### Automated Testing Script
+
+```bash
+./test_api.sh
+```
+
+### Manual Testing
+
+See [API_TESTING.md](./API_TESTING.md) for detailed step-by-step instructions.
+
+### Quick Smoke Test
+
+```bash
+./QUICK_TEST.sh
+```
+
+## Running Tests
+
+### All Tests
+```bash
+pytest -v
+```
+
+### By Category
+```bash
+# Authentication tests
+pytest app/tests/test_auth.py -v
+
+# Group tests
+pytest app/tests/test_groups.py -v
+
+# Expense tests
+pytest app/tests/test_expenses.py -v
+
+# Settlement tests
+pytest app/tests/test_settlements.py -v
+
+# Model tests
+pytest app/tests/test_models.py -v
+```
+
+### Single Test
+```bash
+pytest app/tests/test_auth.py::test_signup_success -v
+```
+
+**Note**: Some tests may fail when run in large batches due to async connection pooling issues. All tests pass when run individually. See [TESTING_STATUS.md](./TESTING_STATUS.md) for details.
 
 ## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── api/          # FastAPI route handlers
+│   ├── api/           # API route handlers
+│   │   ├── auth.py
+│   │   ├── expenses.py
+│   │   ├── groups.py
+│   │   └── settlements.py
 │   ├── auth/          # Authentication utilities
-│   ├── core/          # Core configuration and utilities
+│   ├── core/          # Core configuration
 │   ├── db/            # Database session management
-│   ├── models/        # SQLAlchemy ORM models
-│   ├── schemas/       # Pydantic request/response schemas
-│   ├── services/      # Business logic layer
+│   ├── models/        # SQLAlchemy models
+│   ├── schemas/       # Pydantic schemas
+│   ├── services/      # Business logic
 │   └── tests/         # Test suite
 ├── alembic/           # Database migrations
+├── .env               # Environment configuration
 └── requirements.txt   # Python dependencies
 ```
 
-## Testing
+## API Endpoints
 
-Run all tests:
-```bash
-pytest app/tests/ -v
-```
+### Authentication
+- `POST /auth/signup` - Register new user
+- `POST /auth/login` - User login
+- `POST /auth/refresh` - Refresh access token
+- `GET /auth/me` - Get current user info
 
-Run specific test suite:
-```bash
-pytest app/tests/test_auth.py -v
-pytest app/tests/test_groups.py -v
-pytest app/tests/test_expenses.py -v
-```
+### Groups
+- `POST /groups` - Create group
+- `GET /groups` - List user's groups
+- `GET /groups/{group_id}` - Get group details
+- `POST /groups/{group_id}/members` - Add member to group
+- `GET /groups/{group_id}/members` - List group members
+
+### Expenses
+- `POST /groups/{group_id}/expenses` - Create expense
+- `GET /groups/{group_id}/expenses` - List group expenses
+- `GET /expenses/{expense_id}` - Get expense details
+
+### Settlements
+- `POST /groups/{group_id}/settlements` - Compute settlement batch
+- `GET /groups/{group_id}/settlements` - List settlement batches
+- `GET /settlements/{batch_id}` - Get settlement details
+- `POST /settlements/{settlement_id}/mark-paid` - Mark as paid
 
 ## Development
-
-### Code Style
-
-- Follow PEP 8
-- Use type hints
-- Document functions with docstrings
-- Keep business logic in services layer
 
 ### Database Migrations
 
 Create a new migration:
 ```bash
-alembic revision --autogenerate -m "description"
+alembic revision --autogenerate -m "Description"
 ```
 
 Apply migrations:
@@ -106,21 +187,70 @@ Apply migrations:
 alembic upgrade head
 ```
 
-Rollback:
+Rollback migration:
 ```bash
 alembic downgrade -1
 ```
 
-## Environment Variables
+### Code Style
 
-Required in `.env`:
-- `DATABASE_URL`: PostgreSQL connection string
-- `JWT_SECRET`: Secret key for JWT signing
-- `ENV`: Environment (local, staging, production)
+The project follows Python best practices:
+- Type hints for function signatures
+- Pydantic for data validation
+- Async/await for all I/O operations
+- Comprehensive error handling
 
 ## Documentation
 
-- `API_TESTING.md`: Complete API testing guide
-- `AUTH_IMPLEMENTATION.md`: Authentication implementation details
-- `GROUPS_IMPLEMENTATION.md`: Groups and memberships
-- `EXPENSES_IMPLEMENTATION.md`: Expenses and splits
+- [API Testing Guide](./API_TESTING.md) - Manual API testing instructions
+- [Testing Status](./TESTING_STATUS.md) - Current test suite status
+- [Authentication Implementation](./AUTH_IMPLEMENTATION.md) - Auth system details
+- [Groups Implementation](./GROUPS_IMPLEMENTATION.md) - Groups & memberships
+- [Expenses Implementation](./EXPENSES_IMPLEMENTATION.md) - Expense management
+
+## Environment Variables
+
+```env
+# Environment
+ENV=local
+
+# Database
+DATABASE_URL=postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
+
+# JWT Configuration
+JWT_SECRET=your-secret-key-here
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=30
+```
+
+## Troubleshooting
+
+### Database Connection Issues
+
+If you see `role "clearsplit" does not exist`:
+```bash
+# Connect to PostgreSQL and create user/database
+docker-compose exec postgres psql -U postgres
+CREATE USER clearsplit WITH PASSWORD 'clearsplit';
+CREATE DATABASE clearsplit OWNER clearsplit;
+```
+
+### Migration Issues
+
+Reset database and reapply migrations:
+```bash
+alembic downgrade base
+alembic upgrade head
+```
+
+### Test Failures
+
+Run tests individually if batch execution fails:
+```bash
+pytest app/tests/test_auth.py::test_signup_success -v
+```
+
+## License
+
+MIT

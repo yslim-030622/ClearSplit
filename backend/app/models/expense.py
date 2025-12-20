@@ -62,7 +62,7 @@ class Expense(Base):
     splits: Mapped[list["ExpenseSplit"]] = relationship(
         back_populates="expense",
         cascade="all, delete-orphan",
+        lazy="selectin",
     )
     # paid_by_membership relationship would need composite FK handling
     # We'll access via group.memberships filter
-

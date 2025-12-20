@@ -20,8 +20,13 @@ def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
     op.execute('CREATE EXTENSION IF NOT EXISTS citext;')
 
-    membership_role = postgresql.ENUM("owner", "member", "viewer", name="membership_role")
-    settlement_status = postgresql.ENUM("suggested", "paid", "voided", name="settlement_status")
+    # Explicitly create enums once and prevent table DDL from recreating them
+    membership_role = postgresql.ENUM(
+        "owner", "member", "viewer", name="membership_role", create_type=False
+    )
+    settlement_status = postgresql.ENUM(
+        "suggested", "paid", "voided", name="settlement_status", create_type=False
+    )
     membership_role.create(op.get_bind(), checkfirst=True)
     settlement_status.create(op.get_bind(), checkfirst=True)
 

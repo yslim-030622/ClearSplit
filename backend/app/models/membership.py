@@ -44,7 +44,11 @@ class Membership(Base):
         nullable=False,
     )
     role: Mapped[MembershipRole] = mapped_column(
-        SQLEnum(MembershipRole, name="membership_role"),
+        SQLEnum(
+            MembershipRole,
+            name="membership_role",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -61,5 +65,4 @@ class Membership(Base):
 
     # Relationships
     group: Mapped["Group"] = relationship(back_populates="memberships")
-    user: Mapped["User"] = relationship()
-
+    user: Mapped["User"] = relationship(lazy="selectin")

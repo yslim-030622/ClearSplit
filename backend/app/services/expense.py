@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.expense import Expense
@@ -152,7 +153,7 @@ async def create_expense_with_equal_splits(
         session.add(split)
 
     await session.commit()
-    await session.refresh(expense)
+    await session.refresh(expense, attribute_names=["splits"])
 
     return expense
 
@@ -173,7 +174,11 @@ async def get_expense_by_id(
     Raises:
         HTTPException: If expense not found or user is not a member
     """
-    result = await session.execute(select(Expense).where(Expense.id == expense_id))
+    result = await session.execute(
+        select(Expense)
+        .options(selectinload(Expense.splits))
+        .where(Expense.id == expense_id)
+    )
     expense = result.scalar_one_or_none()
 
     if not expense:
@@ -233,6 +238,7 @@ async def get_group_expenses(
     # Get expenses
     result = await session.execute(
         select(Expense)
+        .options(selectinload(Expense.splits))
         .where(Expense.group_id == group_id)
         .order_by(Expense.expense_date.desc(), Expense.created_at.desc())
     )
@@ -251,4 +257,3 @@ def compute_request_hash(request_body: dict) -> str:
     # Sort keys for consistent hashing
     sorted_json = json.dumps(request_body, sort_keys=True)
     return hashlib.sha256(sorted_json.encode("utf-8")).hexdigest()
-

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, func
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKeyConstraint, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -45,12 +45,22 @@ class ExpenseSplit(Base):
 
     __table_args__ = (
         CheckConstraint("share_cents >= 0", name="chk_expense_splits_share_nonnegative"),
-        # Composite FKs are handled at DB level via deferred constraints
-        # ForeignKey(["expense_id", "group_id"], ["expenses.id", "expenses.group_id"], ondelete="CASCADE"),
-        # ForeignKey(["group_id", "membership_id"], ["memberships.group_id", "memberships.id"], ondelete="RESTRICT"),
+        ForeignKeyConstraint(
+            ["expense_id", "group_id"],
+            ["expenses.id", "expenses.group_id"],
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "membership_id"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
     )
 
     # Relationships
     expense: Mapped["Expense"] = relationship(back_populates="splits")
-    membership: Mapped["Membership"] = relationship()
-
+    membership: Mapped["Membership"] = relationship(overlaps="expense,splits")

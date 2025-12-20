@@ -2,7 +2,17 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, Enum as SQLEnum, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Enum as SQLEnum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,7 +49,11 @@ class SettlementBatch(Base):
         nullable=False,
     )
     status: Mapped[SettlementStatus] = mapped_column(
-        SQLEnum(SettlementStatus, name="settlement_status"),
+        SQLEnum(
+            SettlementStatus,
+            name="settlement_status",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         server_default="'suggested'",
         nullable=False,
     )
@@ -97,7 +111,11 @@ class Settlement(Base):
     )
     amount_cents: Mapped[int] = mapped_column(BigInteger(), nullable=False)
     status: Mapped[SettlementStatus] = mapped_column(
-        SQLEnum(SettlementStatus, name="settlement_status"),
+        SQLEnum(
+            SettlementStatus,
+            name="settlement_status",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
         server_default="'suggested'",
         nullable=False,
     )
@@ -110,7 +128,27 @@ class Settlement(Base):
     __table_args__ = (
         CheckConstraint("amount_cents > 0", name="chk_settlements_amount_positive"),
         CheckConstraint("from_membership <> to_membership", name="chk_settlements_from_to_diff"),
-        # Composite FKs are handled at DB level via deferred constraints
+        ForeignKeyConstraint(
+            ["batch_id", "group_id"],
+            ["settlement_batches.id", "settlement_batches.group_id"],
+            ondelete="CASCADE",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "from_membership"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "to_membership"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
     )
 
     # Relationships
@@ -121,4 +159,3 @@ class Settlement(Base):
     to_membership_rel: Mapped["Membership"] = relationship(
         foreign_keys=[to_membership],
     )
-
