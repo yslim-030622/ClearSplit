@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, fix/*]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Test Backend
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: clearsplit
+          POSTGRES_PASSWORD: clearsplit
+          POSTGRES_DB: clearsplit
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    defaults:
+      run:
+        working-directory: ./backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create .env file for tests
+        run: |
+          cat > .env << EOF
+          ENV=test
+          DATABASE_URL=postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
+          JWT_SECRET=test-secret-key-for-ci-only-not-for-production
+          JWT_ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=15
+          REFRESH_TOKEN_EXPIRE_DAYS=30
+          EOF
+
+      - name: Run database migrations
+        run: |
+          alembic upgrade head
+
+      - name: Run tests
+        run: |
+          pytest -q --tb=short
+
+      - name: Run tests with verbose output (on failure)
+        if: failure()
+        run: |
+          pytest -v --tb=short
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ $? -eq 0 ]; then
+            echo "✅ All tests passed!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Tests failed. Check logs above." >> $GITHUB_STEP_SUMMARY
+          fi
+
