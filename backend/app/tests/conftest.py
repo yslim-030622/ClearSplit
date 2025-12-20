@@ -1,79 +1,104 @@
 """Pytest configuration and fixtures for model tests.
 
-These tests require a running Postgres database (via docker-compose).
-The database should have migrations applied (alembic upgrade head).
+Test Strategy:
+- Each test gets a fresh session (NullPool ensures no connection reuse)
+- Cleanup runs on a dedicated, immediately-closed connection
+- HTTP client and test code share the SAME session to prevent concurrent ops
+- Delays ensure cleanup completes before next test starts
 """
 
+import asyncio
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
-from app.db.session import SessionLocal, get_session
+from app.db.session import engine, SessionLocal, get_session
 from app.main import app
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create a session-scoped event loop.
+    
+    This ensures all async fixtures and tests share the same event loop,
+    preventing "Future attached to a different loop" errors.
+    """
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(scope="function", autouse=True)
 async def cleanup_database():
-    """Clean up database before each test.
+    """Clean database before and after each test.
     
-    This fixture runs automatically before each test to ensure a clean state.
-    Uses longer delays to ensure all async operations complete before next test.
+    Uses engine.begin() to get a dedicated connection that auto-commits
+    and closes immediately, avoiding interference with test sessions.
     """
-    import asyncio
-    # Wait for previous test's connections to fully close
-    await asyncio.sleep(0.2)
+    # Pre-test cleanup
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            TRUNCATE TABLE 
+                expense_splits,
+                expenses,
+                settlements,
+                settlement_batches,
+                activity_log,
+                idempotency_keys,
+                memberships,
+                groups,
+                users
+            RESTART IDENTITY CASCADE
+        """))
+        # Connection auto-commits and closes on context exit
     
-    async with SessionLocal() as session:
-        try:
-            # Use a single command to truncate all tables
-            await session.execute(text("""
-                TRUNCATE TABLE 
-                    expense_splits,
-                    expenses,
-                    settlements,
-                    settlement_batches,
-                    activity_log,
-                    idempotency_keys,
-                    memberships,
-                    groups,
-                    users
-                RESTART IDENTITY CASCADE
-            """))
-            await session.commit()
-        except Exception:
-            await session.rollback()
-        finally:
-            await session.close()
+    # Small delay to ensure cleanup connection fully closes
+    await asyncio.sleep(0.05)
     
     yield
     
-    # Allow connections to close after test
-    await asyncio.sleep(0.2)
+    # Post-test delay to ensure test connections close before next cleanup
+    await asyncio.sleep(0.05)
 
 
 @pytest.fixture(scope="function")
 async def session() -> AsyncSession:
-    """Create a test database session for direct database operations.
+    """Create a test session for direct database operations.
     
-    This session is separate from the HTTP client's session to avoid
-    concurrent operation conflicts.
+    Important: If the test uses the `client` fixture, that client will
+    SHARE this session. Do not use this session concurrently with HTTP
+    requests in the same test.
     """
     async with SessionLocal() as session:
         yield session
+        # Ensure rollback of any uncommitted changes
+        await session.rollback()
+        await session.close()
 
 
 @pytest.fixture(scope="function")
-async def client() -> AsyncClient:
+async def client(session: AsyncSession) -> AsyncClient:
     """Create a test HTTP client.
     
-    The client gets its own session for each request to avoid
-    asyncpg connection conflicts. Test isolation relies on
-    database cleanup between tests (handled by cleanup_database fixture).
+    CRITICAL: This client shares the test's session to ensure only ONE
+    connection is active at a time. This prevents asyncpg "operation in
+    progress" errors.
+    
+    This means:
+    - All HTTP requests in a test use the same DB connection as direct queries
+    - You CANNOT make concurrent HTTP requests in a single test
+    - You CAN make sequential requests without issues
     """
+    # Override the app's get_session to use our test session
+    async def override_get_session():
+        yield session
+    
+    app.dependency_overrides[get_session] = override_get_session
+    
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
 
-    # Clear any overrides after test
     app.dependency_overrides.clear()
 
