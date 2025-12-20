@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Scripts (not needed in image)
+scripts/
+test_api.sh
+QUICK_TEST.sh
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
