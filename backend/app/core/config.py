@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     
     @field_validator("jwt_secret")
     @classmethod
-    def validate_jwt_secret(cls, v: SecretStr) -> SecretStr:
+    def validate_jwt_secret(cls, v: SecretStr, info) -> SecretStr:
         """Validate JWT secret is strong enough."""
         secret = v.get_secret_value()
         if len(secret) < 32:
@@ -60,8 +60,10 @@ class Settings(BaseSettings):
                 "JWT_SECRET must be at least 32 characters long. "
                 "Generate with: openssl rand -hex 32"
             )
-        if secret in ("changeme", "secret", "test-secret", "your-secret-key-here"):
-            if cls.__dict__.get("env", "local") == "production":
+        # Only check for weak secrets in production
+        env = info.data.get("env", "local")
+        if env == "production":
+            if secret in ("changeme", "secret", "test-secret", "your-secret-key-here"):
                 raise ValueError(
                     "Weak JWT_SECRET detected! Use a strong random secret in production."
                 )
@@ -123,7 +125,5 @@ def get_settings() -> Settings:
         print("  REFRESH_TOKEN_EXPIRE_DAYS=30", file=sys.stderr)
         print("="*60 + "\n", file=sys.stderr)
         
-        # In production or test, fail hard
-        if sys.argv[0].endswith(("uvicorn", "gunicorn", "pytest")):
-            sys.exit(1)
+        # Re-raise the exception for all environments
         raise
