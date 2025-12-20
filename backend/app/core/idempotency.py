@@ -58,13 +58,19 @@ async def store_idempotency_response(
         response_body: Response body as dict
         status_code: HTTP status code
     """
+    from fastapi.encoders import jsonable_encoder
+    
     request_hash = compute_request_hash(request_body)
+    
+    # Normalize response_body to ensure JSONB compatibility
+    # Converts UUID -> str, Enum -> value, datetime -> ISO string
+    normalized_response = jsonable_encoder(response_body)
 
     idempotency_key = IdempotencyKey(
         endpoint=endpoint,
         user_id=user_id,
         request_hash=request_hash,
-        response_body=response_body,
+        response_body=normalized_response,
         status_code=status_code,
     )
     session.add(idempotency_key)

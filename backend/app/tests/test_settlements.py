@@ -199,6 +199,15 @@ async def test_permissions_enforced(client: AsyncClient, session: AsyncSession):
     member = await _create_user(session, "member@example.com")
     group, memberships = await _create_group_with_members(session, [owner, member])
 
+    # Create an expense so settlements are generated
+    await _add_expense(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,  # owner pays
+        amount=1000,
+        splits=[(memberships[1].id, 1000)],  # member owes
+    )
+
     resp = await client.post(
         f"/groups/{group.id}/settlements/compute",
         headers=_auth_header(outsider),

@@ -44,17 +44,21 @@ class Group(Base):
     memberships: Mapped[list["Membership"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
+        lazy="selectin",  # Async-friendly eager loading
     )
     expenses: Mapped[list["Expense"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
+        lazy="selectin",  # Async-friendly eager loading
     )
     settlement_batches: Mapped[list["SettlementBatch"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
+        lazy="selectin",  # Async-friendly eager loading
     )
     activity_logs: Mapped[list["ActivityLog"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
+        lazy="selectin",  # Async-friendly eager loading
     )
 
