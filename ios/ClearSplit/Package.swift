@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "ClearSplit",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v16),
         .macOS(.v12)
     ],
     products: [
