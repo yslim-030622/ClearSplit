@@ -52,6 +52,9 @@ xcuserdata/
 **/*.xcodeproj/xcuserdata/
 **/*.xcworkspace/xcuserdata/
 
+# Local configuration with secrets (NEVER commit!)
+**/Config.xcconfig
+
 # SwiftPM local artifacts
 .swiftpm/
 .build/
