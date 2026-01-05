@@ -247,9 +247,6 @@ async def get_group_expenses(
 
 def compute_request_hash(request_body: dict) -> str:
     """Compute hash of request body for idempotency.
-    
-    Handles non-JSON-serializable types (date, datetime, UUID, Enum, Decimal)
-    by normalizing them before hashing.
 
     Args:
         request_body: Request body as dict
@@ -257,12 +254,6 @@ def compute_request_hash(request_body: dict) -> str:
     Returns:
         SHA256 hash as hex string
     """
-    from fastapi.encoders import jsonable_encoder
-    
-    # Normalize to JSON-serializable types
-    # date -> "YYYY-MM-DD", UUID -> str, Enum -> value, etc.
-    normalized = jsonable_encoder(request_body)
-    
-    # Sort keys for consistent hashing, compact format
-    sorted_json = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    # Sort keys for consistent hashing
+    sorted_json = json.dumps(request_body, sort_keys=True)
     return hashlib.sha256(sorted_json.encode("utf-8")).hexdigest()

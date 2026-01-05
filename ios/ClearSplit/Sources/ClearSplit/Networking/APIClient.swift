@@ -74,7 +74,6 @@ final class APIClient {
         self.auth = AuthCoordinator(store: tokenStore)
 
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
         decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
 

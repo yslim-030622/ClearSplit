@@ -5,7 +5,7 @@ struct RootView: View {
 
     var body: some View {
         NavigationStack {
-            SwiftUI.Group {
+            Group {
                 if appState.user != nil {
                     GroupsListView(appState: appState) {
                         Task { await appState.logout() }

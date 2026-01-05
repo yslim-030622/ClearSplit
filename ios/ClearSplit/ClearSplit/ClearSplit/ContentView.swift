@@ -2,12 +2,20 @@
 //  ContentView.swift
 //  ClearSplit
 //
+//  Created by Yeongseok Lim on 12/18/25.
+//
+
 import SwiftUI
 
-/// Legacy placeholder. RootView is the actual entry point.
 struct ContentView: View {
     var body: some View {
-        RootView()
+        VStack {
+            Image(systemName: "globe")
+                .imageScale(.large)
+                .foregroundStyle(.tint)
+            Text("Hello, world!")
+        }
+        .padding()
     }
 }
 

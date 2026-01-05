@@ -104,44 +104,23 @@ async def compute_settlement_batch(
     balances = await _compute_balances(session, group_id, memberships)
     transfers = _generate_transfers(balances)
 
-    # Create batch and settlements
-    # Use begin_nested if already in a transaction, otherwise begin
-    if session.in_transaction():
-        async with session.begin_nested():
-            batch = SettlementBatch(
-                group_id=group_id, total_settlements=len(transfers), status=SettlementStatus.SUGGESTED
-            )
-            session.add(batch)
-            await session.flush()  # ensure batch.id is available
+    async with session.begin():
+        batch = SettlementBatch(
+            group_id=group_id, total_settlements=len(transfers), status=SettlementStatus.SUGGESTED
+        )
+        session.add(batch)
+        await session.flush()  # ensure batch.id is available
 
-            for debtor_id, creditor_id, amount in transfers:
-                settlement = Settlement(
-                    batch_id=batch.id,
-                    group_id=group_id,
-                    from_membership=debtor_id,
-                    to_membership=creditor_id,
-                    amount_cents=amount,
-                    status=SettlementStatus.SUGGESTED,
-                )
-                session.add(settlement)
-    else:
-        async with session.begin():
-            batch = SettlementBatch(
-                group_id=group_id, total_settlements=len(transfers), status=SettlementStatus.SUGGESTED
+        for debtor_id, creditor_id, amount in transfers:
+            settlement = Settlement(
+                batch_id=batch.id,
+                group_id=group_id,
+                from_membership=debtor_id,
+                to_membership=creditor_id,
+                amount_cents=amount,
+                status=SettlementStatus.SUGGESTED,
             )
-            session.add(batch)
-            await session.flush()  # ensure batch.id is available
-
-            for debtor_id, creditor_id, amount in transfers:
-                settlement = Settlement(
-                    batch_id=batch.id,
-                    group_id=group_id,
-                    from_membership=debtor_id,
-                    to_membership=creditor_id,
-                    amount_cents=amount,
-                    status=SettlementStatus.SUGGESTED,
-                )
-                session.add(settlement)
+            session.add(settlement)
 
     await session.refresh(batch, attribute_names=["settlements"])
     # Ensure deterministic ordering for responses
