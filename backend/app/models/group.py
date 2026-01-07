@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.expense import Expense
     from app.models.membership import Membership
     from app.models.settlement import SettlementBatch
+    from app.models.shopping_session import ShoppingSession
 
 
 class Group(Base):
@@ -54,6 +55,10 @@ class Group(Base):
         cascade="all, delete-orphan",
     )
     activity_logs: Mapped[list["ActivityLog"]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+    )
+    shopping_sessions: Mapped[list["ShoppingSession"]] = relationship(
         back_populates="group",
         cascade="all, delete-orphan",
     )

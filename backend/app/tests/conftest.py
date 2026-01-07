@@ -20,11 +20,10 @@ async def session() -> AsyncSession:
     Ensure migrations are applied before running tests.
     """
     async with SessionLocal() as session:
-        # Start a transaction
-        async with session.begin():
-            yield session
-            # Rollback after test
-            await session.rollback()
+        yield session
+        # Rollback any uncommitted changes after test
+        await session.rollback()
+        await session.close()
 
 
 @pytest.fixture(scope="function")

@@ -17,6 +17,7 @@ class GroupRead(BaseSchema):
     created_at: datetime
     updated_at: datetime
     version: int
+    user_membership_id: UUID | None = None  # Current user's membership in this group
 
 
 class GroupCreate(BaseSchema):
