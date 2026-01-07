@@ -28,6 +28,18 @@ from app.schemas.settlement import (
     SettlementRead,
     SettlementUpdate,
 )
+from app.schemas.shopping import (
+    ParticipantSetRequest,
+    ReceiptUploadRead,
+    SharersSetRequest,
+    SharersSetResponse,
+    ShoppingItemCreate,
+    ShoppingItemRead,
+    ShoppingItemSplitRead,
+    ShoppingSessionCreate,
+    ShoppingSessionParticipantRead,
+    ShoppingSessionRead,
+)
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 
 __all__ = [
@@ -62,5 +74,16 @@ __all__ = [
     "SettlementBatchUpdate",
     "SettlementRead",
     "SettlementUpdate",
+    # Shopping
+    "ParticipantSetRequest",
+    "ReceiptUploadRead",
+    "SharersSetRequest",
+    "SharersSetResponse",
+    "ShoppingItemCreate",
+    "ShoppingItemRead",
+    "ShoppingItemSplitRead",
+    "ShoppingSessionCreate",
+    "ShoppingSessionParticipantRead",
+    "ShoppingSessionRead",
 ]
 

@@ -11,14 +11,24 @@ from app.models.group import Group
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.group import GroupCreate, GroupRead
-from app.schemas.membership import AddMemberRequest, MembershipRead
+from app.schemas.membership import (
+    AddMemberRequest,
+    MemberPreviewRequest,
+    MemberPreviewResponse,
+    MembershipRead,
+)
+from app.schemas.user import UserRead
 from app.services.group import (
     create_group_with_owner,
     get_group_by_id,
     get_user_groups,
     require_owner_role,
 )
-from app.services.membership import add_member_to_group, get_group_members
+from app.services.membership import (
+    add_member_to_group,
+    find_user_by_email,
+    get_group_members,
+)
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -59,10 +69,28 @@ async def list_my_groups(
         session: Database session
 
     Returns:
-        List of groups
+        List of groups with user's membership ID
     """
+    from sqlalchemy import select
+    
     groups = await get_user_groups(session, current_user.id)
-    return [GroupRead.model_validate(group) for group in groups]
+    result_groups = []
+    
+    for group in groups:
+        # Find user's membership in this group
+        membership_result = await session.execute(
+            select(Membership).where(
+                Membership.group_id == group.id,
+                Membership.user_id == current_user.id
+            )
+        )
+        membership = membership_result.scalar_one_or_none()
+        
+        group_dict = GroupRead.model_validate(group).model_dump()
+        group_dict['user_membership_id'] = membership.id if membership else None
+        result_groups.append(GroupRead.model_validate(group_dict))
+    
+    return result_groups
 
 
 @router.get("/{group_id}", response_model=GroupRead)
@@ -88,6 +116,71 @@ async def get_group(
     """
     group = await get_group_by_id(session, group_id, current_user.id)
     return GroupRead.model_validate(group)
+
+
+@router.post("/{group_id}/members/preview", response_model=MemberPreviewResponse)
+async def preview_member_invite(
+    group_id: UUID,
+    request: MemberPreviewRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> MemberPreviewResponse:
+    """Preview member invite by checking if user exists and membership status.
+    
+    Only group owners can preview invites. Rate limiting recommended
+    to prevent email enumeration attacks.
+    
+    Args:
+        group_id: Group UUID
+        request: Preview request with email
+        current_user: Current authenticated user
+        session: Database session
+        
+    Returns:
+        Preview response indicating if user exists and membership status
+        
+    Raises:
+        HTTPException: If user is not owner or group not found
+    """
+    # Verify user is owner (only owners can invite)
+    await require_owner_role(session, group_id, current_user.id)
+    
+    # Verify group exists
+    await get_group_by_id(session, group_id, current_user.id)
+    
+    # Find user by email
+    user = await find_user_by_email(session, request.email)
+    
+    if not user:
+        # User not found - return minimal response
+        return MemberPreviewResponse(found=False)
+    
+    # Check if already a member
+    from sqlalchemy import select
+    result = await session.execute(
+        select(Membership).where(
+            Membership.group_id == group_id,
+            Membership.user_id == user.id
+        )
+    )
+    existing_membership = result.scalar_one_or_none()
+    
+    if existing_membership:
+        # Already a member
+        return MemberPreviewResponse(
+            found=True,
+            already_member=True,
+            user=UserRead.model_validate(user),
+            membership_id=existing_membership.id,
+            role=existing_membership.role,
+        )
+    
+    # User exists but not a member yet
+    return MemberPreviewResponse(
+        found=True,
+        already_member=False,
+        user=UserRead.model_validate(user),
+    )
 
 
 @router.post(

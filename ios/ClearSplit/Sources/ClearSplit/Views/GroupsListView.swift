@@ -2,9 +2,11 @@ import SwiftUI
 
 struct GroupsListView: View {
     @StateObject private var viewModel: GroupsViewModel
+    let appState: AppState
     let onLogout: () -> Void
 
     init(appState: AppState, onLogout: @escaping () -> Void) {
+        self.appState = appState
         _viewModel = StateObject(wrappedValue: GroupsViewModel(appState: appState))
         self.onLogout = onLogout
     }
@@ -18,9 +20,13 @@ struct GroupsListView: View {
                     ContentUnavailableView("No Groups", systemImage: "person.3", description: Text("Pull to refresh."))
                 } else {
                     List(viewModel.groups) { group in
-                        VStack(alignment: .leading) {
-                            Text(group.name).font(.headline)
-                            Text(group.currency).font(.subheadline).foregroundColor(.secondary)
+                        NavigationLink {
+                            GroupDetailView(appState: appState, group: group)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(group.name).font(.headline)
+                                Text(group.currency).font(.subheadline).foregroundColor(.secondary)
+                            }
                         }
                     }
                     .listStyle(.insetGrouped)

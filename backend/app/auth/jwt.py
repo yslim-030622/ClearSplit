@@ -12,6 +12,8 @@ settings = get_settings()
 
 def create_access_token(user_id: UUID, email: str) -> str:
     """Create a JWT access token.
+    
+    
 
     Args:
         user_id: User UUID

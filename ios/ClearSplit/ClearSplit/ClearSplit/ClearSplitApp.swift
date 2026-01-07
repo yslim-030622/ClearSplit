@@ -30,6 +30,101 @@ struct Group: Codable, Identifiable, Equatable, Hashable {
     let createdAt: Date
     let updatedAt: Date
     let version: Int
+    let userMembershipId: UUID?  // Current user's membership in this group
+}
+
+struct Membership: Codable, Identifiable {
+    let id: UUID
+    let groupId: UUID
+    let userId: UUID
+    let role: String
+    let createdAt: Date
+    let user: User?  // Embedded user info
+    
+    var displayName: String {
+        if let email = user?.email {
+            return email.components(separatedBy: "@").first ?? email
+        }
+        return String(userId.uuidString.prefix(8)) + "..."
+    }
+}
+
+// MARK: - Member Preview Models
+
+struct MemberPreviewRequest: Codable {
+    let email: String
+}
+
+struct MemberPreviewResponse: Codable {
+    let found: Bool
+    let alreadyMember: Bool?
+    let user: User?
+    let membershipId: UUID?
+    let role: String?
+}
+
+// MARK: - Settlements/Balances Models
+
+struct Settlement: Codable, Identifiable {
+    let id: UUID
+    let batchId: UUID
+    let fromMembership: UUID
+    let toMembership: UUID
+    let amountCents: Int
+    let status: String
+    let createdAt: Date
+    
+    var displayAmount: String {
+        let amountInDollars = Double(amountCents) / 100.0
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD" // TODO: use group currency
+        return formatter.string(from: NSNumber(value: amountInDollars)) ?? "$\(amountInDollars)"
+    }
+}
+
+struct SettlementBatch: Codable, Identifiable {
+    let id: UUID
+    let groupId: UUID
+    let status: String
+    let totalSettlements: Int
+    let createdAt: Date
+    let updatedAt: Date
+    let version: Int
+    let voidedReason: String?
+    let settlements: [Settlement]?
+}
+
+// MARK: - Expense Models
+
+struct Expense: Codable, Identifiable {
+    let id: UUID
+    let groupId: UUID
+    let title: String
+    let amountCents: Int
+    let currency: String
+    let paidBy: UUID
+    let paidByUser: User?
+    let expenseDate: String
+    let createdAt: Date
+    let updatedAt: Date?
+    
+    var displayAmount: String {
+        let amountInDollars = Double(amountCents) / 100.0
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency
+        return formatter.string(from: NSNumber(value: amountInDollars)) ?? "\(currency) \(amountInDollars)"
+    }
+}
+
+struct CreateExpenseRequest: Codable {
+    let title: String
+    let amountCents: Int
+    let currency: String
+    let paidBy: UUID
+    let expenseDate: String  // ISO8601 date string
+    let splitAmong: [UUID]
 }
 
 // MARK: - Configuration
@@ -54,6 +149,7 @@ enum APIError: Error, LocalizedError {
     case invalidResponse
     case unauthorized
     case decodingError(Error)
+    case validationError(String)
     case serverError(Int, String?)
     case unknown
     
@@ -69,6 +165,8 @@ enum APIError: Error, LocalizedError {
             return "Unauthorized - please log in again"
         case .decodingError(let error):
             return "Failed to decode response: \(error.localizedDescription)"
+        case .validationError(let message):
+            return message
         case .serverError(let code, let message):
             return message ?? "Server error (\(code))"
         case .unknown:
@@ -84,6 +182,11 @@ final class AppState: ObservableObject {
     @Published var user: User?
     @Published var groups: [Group] = []
     @Published var isLoading: Bool = false
+    @Published var expensesByGroupId: [UUID: [Expense]] = [:]
+    @Published var isLoadingExpenses: Bool = false
+    @Published var membershipsByGroupId: [UUID: [Membership]] = [:]
+    @Published var settlementsByGroupId: [UUID: [Settlement]] = [:]
+    @Published var isLoadingBalances: Bool = false
 
     private let keychain = KeychainService()
     private lazy var apiClient = APIClient(
@@ -193,6 +296,88 @@ final class AppState: ObservableObject {
         
         // Refresh groups list
         try await loadGroups()
+    }
+    
+    func loadExpenses(groupId: UUID) async throws {
+        print("[AppState] Loading expenses for group: \(groupId)")
+        isLoadingExpenses = true
+        defer { isLoadingExpenses = false }
+        
+        let expenses = try await apiClient.getGroupExpenses(groupId: groupId)
+        expensesByGroupId[groupId] = expenses
+        print("[AppState] Loaded \(expenses.count) expenses")
+    }
+    
+    func loadMembers(groupId: UUID) async throws {
+        print("[Members] Loading members for group: \(groupId)")
+        let members = try await apiClient.getGroupMembers(groupId: groupId)
+        membershipsByGroupId[groupId] = members
+        print("[Members] Loaded \(members.count) members")
+    }
+    
+    func previewMemberInvite(groupId: UUID, email: String) async throws -> MemberPreviewResponse {
+        print("[AppState] Previewing invite for: \(email)")
+        return try await apiClient.previewMemberInvite(groupId: groupId, email: email)
+    }
+    
+    func addMember(groupId: UUID, email: String) async throws {
+        print("[AppState] Adding member \(email) to group: \(groupId)")
+        isLoading = true
+        defer { isLoading = false }
+        
+        let newMembership = try await apiClient.addGroupMember(groupId: groupId, email: email)
+        print("[AppState] Member added: \(newMembership.id)")
+        
+        // Refresh members list
+        try await loadMembers(groupId: groupId)
+    }
+    
+    func getUserMembership(groupId: UUID) -> Membership? {
+        guard let userId = user?.id else { return nil }
+        return membershipsByGroupId[groupId]?.first(where: { $0.userId == userId })
+    }
+    
+    func loadBalances(groupId: UUID) async throws {
+        print("[Balances] Loading balances for group: \(groupId)")
+        isLoadingBalances = true
+        defer { isLoadingBalances = false }
+        
+        if let batch = try await apiClient.getLatestSettlements(groupId: groupId) {
+            settlementsByGroupId[groupId] = batch.settlements ?? []
+            print("[Balances] Loaded \(batch.settlements?.count ?? 0) settlements")
+        } else {
+            settlementsByGroupId[groupId] = []
+            print("[Balances] No settlements yet (group has no balances)")
+        }
+    }
+    
+    func createExpense(groupId: UUID, request: CreateExpenseRequest) async throws {
+        print("[AppState] Creating expense: \(request.title)")
+        isLoading = true
+        defer { isLoading = false }
+        
+        let expense = try await apiClient.createExpense(groupId: groupId, request: request)
+        print("[AppState] Created expense: \(expense.id)")
+        
+        // Append to local cache
+        var currentExpenses = expensesByGroupId[groupId] ?? []
+        currentExpenses.insert(expense, at: 0)
+        expensesByGroupId[groupId] = currentExpenses
+        
+        // Refresh expenses and balances after creating expense
+        async let expensesTask = loadExpenses(groupId: groupId)
+        async let balancesTask = loadBalances(groupId: groupId)
+        
+        try await expensesTask
+        try await balancesTask
+    }
+    
+    func expenses(for groupId: UUID) -> [Expense] {
+        expensesByGroupId[groupId] ?? []
+    }
+    
+    func settlements(for groupId: UUID) -> [Settlement] {
+        settlementsByGroupId[groupId] ?? []
     }
 
     // Refresh tokens without routing through AuthService to avoid init cycles.
@@ -370,6 +555,87 @@ final class APIClient {
         requiresAuth: Bool = true
     ) async throws -> T {
         try await performRequest(path, method: method, body: body, requiresAuth: requiresAuth, isRetry: false)
+    }
+    
+    func getGroupExpenses(groupId: UUID) async throws -> [Expense] {
+        print("[APIClient] Fetching expenses for group: \(groupId)")
+        return try await request(
+            "/groups/\(groupId.uuidString)/expenses",
+            method: "GET",
+            body: Optional<String>.none,
+            requiresAuth: true
+        )
+    }
+    
+    func getGroupMembers(groupId: UUID) async throws -> [Membership] {
+        print("[APIClient] Fetching members for group: \(groupId)")
+        return try await request(
+            "/groups/\(groupId.uuidString)/members",
+            method: "GET",
+            body: Optional<String>.none,
+            requiresAuth: true
+        )
+    }
+    
+    func previewMemberInvite(groupId: UUID, email: String) async throws -> MemberPreviewResponse {
+        print("[APIClient] Previewing invite for \(email) in group: \(groupId)")
+        
+        let preview: MemberPreviewResponse = try await request(
+            "/groups/\(groupId.uuidString)/members/preview",
+            method: "POST",
+            body: MemberPreviewRequest(email: email),
+            requiresAuth: true
+        )
+        
+        print("[APIClient] Preview result: found=\(preview.found), alreadyMember=\(preview.alreadyMember ?? false)")
+        return preview
+    }
+    
+    func addGroupMember(groupId: UUID, email: String) async throws -> Membership {
+        print("[APIClient] Adding member \(email) to group: \(groupId)")
+        
+        struct AddMemberRequest: Encodable {
+            let email: String
+            let role: String = "member"
+        }
+        
+        let membership: Membership = try await request(
+            "/groups/\(groupId.uuidString)/members",
+            method: "POST",
+            body: AddMemberRequest(email: email),
+            requiresAuth: true
+        )
+        
+        print("[APIClient] Member added successfully")
+        return membership
+    }
+    
+    func getLatestSettlements(groupId: UUID) async throws -> SettlementBatch? {
+        print("[APIClient] Fetching latest settlements for group: \(groupId)")
+        do {
+            let batch: SettlementBatch = try await request(
+                "/groups/\(groupId.uuidString)/settlements/latest",
+                method: "GET",
+                body: Optional<String>.none,
+                requiresAuth: true
+            )
+            return batch
+        } catch APIError.serverError(404, _) {
+            // No settlements yet - this is normal for new groups
+            print("[APIClient] No settlements found (404) - group has no balances yet")
+            return nil
+        }
+    }
+    
+    func createExpense(groupId: UUID, request: CreateExpenseRequest) async throws -> Expense {
+        print("[APIClient] Creating expense in group: \(groupId)")
+        print("[APIClient] Expense: \(request.title) - $\(Double(request.amountCents)/100.0) \(request.currency)")
+        return try await self.request(
+            "/groups/\(groupId.uuidString)/expenses",
+            method: "POST",
+            body: request,
+            requiresAuth: true
+        )
     }
 
     private func performRequest<T: Decodable>(
@@ -931,59 +1197,675 @@ struct GroupDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                HStack {
-                    Text("Members")
-                    Spacer()
-                    Text("Coming soon")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
+                NavigationLink {
+                    MembersListView(group: group)
+                } label: {
+                    HStack {
+                        Text("Members")
+                        Spacer()
+                        let memberCount = appState.membershipsByGroupId[group.id]?.count ?? 0
+                        Text("\(memberCount)")
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
                 }
             }
             
-            // Expenses Section (Placeholder)
-            Section(header: Text("Expenses")) {
-                HStack {
-                    Image(systemName: "dollarsign.circle")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading) {
-                        Text("No expenses yet")
-                            .foregroundStyle(.secondary)
-                        Text("Tap + to add your first expense")
+            // Shopping Sessions Section
+            Section(header: Text("Shopping Sessions")) {
+                if let membershipId = group.userMembershipId {
+                    NavigationLink {
+                        VStack(spacing: 20) {
+                            Image(systemName: "cart.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(.blue)
+                            Text("Shopping Sessions")
+                                .font(.title)
+                                .fontWeight(.bold)
+                            Text("Full shopping UI coming next!")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding()
+                            Text("Your membership ID:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(membershipId.uuidString)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.gray)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .navigationTitle("Shopping")
+                    } label: {
+                        HStack {
+                            Image(systemName: "cart.fill")
+                                .foregroundColor(.blue)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("View Shopping Sessions")
+                                    .font(.headline)
+                                Text("Track itemized receipts & splits")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                } else {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text("Shopping unavailable - please re-login")
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundColor(.secondary)
                     }
                 }
-                .padding(.vertical, 8)
             }
             
-            // Balances Section (Placeholder)
-            Section(header: Text("Balances")) {
-                HStack {
-                    Image(systemName: "chart.pie")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading) {
-                        Text("No balances to show")
-                            .foregroundStyle(.secondary)
-                        Text("Add expenses to see who owes whom")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.vertical, 8)
-            }
         }
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.large)
+        .refreshable {
+            await loadMembers()
+        }
+        .task {
+            await loadMembers()
+        }
+    }
+    
+    private func loadMembers() async {
+        do {
+            try await appState.loadMembers(groupId: group.id)
+        } catch {
+            print("[GroupDetail] Failed to load members: \(error)")
+        }
+    }
+}
+
+// MARK: - Members List View
+
+struct MembersListView: View {
+    let group: Group
+    @EnvironmentObject private var appState: AppState
+    @State private var showingInvite = false
+    
+    var body: some View {
+        List {
+            let members = appState.membershipsByGroupId[group.id] ?? []
+            
+            if members.isEmpty {
+                HStack {
+                    Image(systemName: "person.2")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading) {
+                        Text("No members yet")
+                            .foregroundStyle(.secondary)
+                            Text("Tap + to invite members")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                    }
+                }
+                .padding(.vertical, 8)
+            } else {
+                ForEach(members) { member in
+                    HStack(spacing: 12) {
+                        Image(systemName: member.role == "owner" ? "crown.fill" : "person.circle.fill")
+                            .foregroundStyle(member.role == "owner" ? .yellow : .blue)
+                            .font(.title2)
+                        
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(member.displayName)
+                                .font(.headline)
+                            
+                            if let email = member.user?.email {
+                                Text(email)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            
+                            Text(member.role.capitalized)
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        Spacer()
+                        
+                        // Show checkmark if it's the current user
+                        if member.userId == appState.user?.id {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("Members")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    // TODO: Add expense
-                    print("[GroupDetail] Add expense tapped")
+                    showingInvite = true
                 } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
+                    Image(systemName: "plus")
                 }
             }
+        }
+        .sheet(isPresented: $showingInvite) {
+            InviteMemberSheet(groupId: group.id)
+        }
+    }
+}
+
+// MARK: - Invite Member Sheet
+
+struct InviteMemberSheet: View {
+    let groupId: UUID
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var email: String = ""
+    @State private var isPreviewing: Bool = false
+    @State private var isInviting: Bool = false
+    @State private var previewResult: MemberPreviewResponse?
+    @State private var previewTask: Task<Void, Never>?
+    @State private var errorMessage: String?
+    @State private var showError: Bool = false
+    
+    private var isValidEmail: Bool {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let emailRegex = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
+        let predicate = NSPredicate(format: "SELF MATCHES[c] %@", emailRegex)
+        return !trimmed.isEmpty && predicate.evaluate(with: trimmed)
+    }
+    
+    private var canSendInvite: Bool {
+        guard let preview = previewResult else { return false }
+        return preview.found && preview.alreadyMember != true
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Email", text: $email)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                        .autocorrectionDisabled()
+                        .disabled(isPreviewing || isInviting)
+                        .onChange(of: email) { _ in
+                            // Cancel preview when email changes
+                            previewTask?.cancel()
+                            previewResult = nil
+                        }
+                } header: {
+                    Text("Invite by Email")
+                } footer: {
+                    Text("The person must already have a ClearSplit account.")
+                        .font(.caption)
+                }
+                
+                // Check Account Button
+                Section {
+                    Button {
+                        Task { await checkAccount() }
+                    } label: {
+                        HStack {
+                            if isPreviewing {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                            Text("Check Account")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(!isValidEmail || isPreviewing || isInviting)
+                }
+                
+                // Preview Result Card
+                if let preview = previewResult {
+                    Section {
+                        if preview.found {
+                            if preview.alreadyMember == true {
+                                // Already a member
+                                HStack(spacing: 12) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                        .font(.title2)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Already a Member")
+                                            .font(.headline)
+                                        if let user = preview.user {
+                                            Text(user.email)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        if let role = preview.role {
+                                            Text("Current role: \(role.capitalized)")
+                                                .font(.caption2)
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            } else {
+                                // Account found - ready to invite
+                                HStack(spacing: 12) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                        .font(.title2)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Account Found")
+                                            .font(.headline)
+                                            .foregroundStyle(.green)
+                                        if let user = preview.user {
+                                            Text(user.email)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Text("Ready to invite")
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        } else {
+                            // Not found
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle.badge.xmark")
+                                    .foregroundStyle(.red)
+                                    .font(.title2)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("No Account Found")
+                                        .font(.headline)
+                                        .foregroundStyle(.red)
+                                    Text("This person needs to sign up first")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+                
+                // Send Invite Button
+                if previewResult != nil {
+                    Section {
+                        Button {
+                            Task { await inviteMember() }
+                        } label: {
+                            HStack {
+                                if isInviting {
+                                    ProgressView()
+                                        .progressViewStyle(.circular)
+                                }
+                                Text("Send Invite")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .disabled(!canSendInvite || isInviting)
+                    }
+                }
+            }
+            .navigationTitle("Invite Member")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        previewTask?.cancel()
+                        dismiss()
+                    }
+                    .disabled(isInviting)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? "Unknown error")
+            }
+        }
+    }
+    
+    private func checkAccount() async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard isValidEmail else {
+            errorMessage = "Please enter a valid email address"
+            showError = true
+            return
+        }
+        
+        // Cancel any existing preview
+        previewTask?.cancel()
+        
+        isPreviewing = true
+        previewResult = nil
+        
+        previewTask = Task {
+            do {
+                print("[InvitePreview] Checking account: \(trimmedEmail)")
+                let preview = try await appState.previewMemberInvite(
+                    groupId: groupId,
+                    email: trimmedEmail
+                )
+                
+                // Check if task was cancelled
+                guard !Task.isCancelled else {
+                    print("[InvitePreview] Cancelled")
+                    return
+                }
+                
+                await MainActor.run {
+                    isPreviewing = false
+                    previewResult = preview
+                    print("[InvitePreview] Result: found=\(preview.found), alreadyMember=\(preview.alreadyMember ?? false)")
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                
+                await MainActor.run {
+                    isPreviewing = false
+                    print("[InvitePreview] Failed: \(error)")
+                    
+                    if let apiError = error as? APIError {
+                        switch apiError {
+                        case .serverError(403, _):
+                            errorMessage = "Only group owners can invite members."
+                        case .unauthorized:
+                            errorMessage = "Session expired. Please login again."
+                        case .networkError:
+                            errorMessage = "Cannot connect to server"
+                        default:
+                            errorMessage = apiError.localizedDescription
+                        }
+                    } else {
+                        errorMessage = "Failed to check account"
+                    }
+                    showError = true
+                }
+            }
+        }
+    }
+    
+    private func inviteMember() async {
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard canSendInvite else {
+            return
+        }
+        
+        isInviting = true
+        
+        do {
+            print("[InviteMember] Inviting: \(trimmedEmail) to group: \(groupId)")
+            try await appState.addMember(groupId: groupId, email: trimmedEmail)
+            print("[InviteMember] Success!")
+            dismiss()
+        } catch {
+            isInviting = false
+            print("[InviteMember] Failed: \(error)")
+            
+            if let apiError = error as? APIError {
+                switch apiError {
+                case .serverError(404, _):
+                    errorMessage = "No user found with email \(trimmedEmail). They need to sign up first."
+                case .serverError(400, let message):
+                    if message?.contains("already a member") == true {
+                        errorMessage = "This user is already a member of the group."
+                    } else {
+                        errorMessage = message ?? "Cannot add member"
+                    }
+                case .serverError(409, _):
+                    errorMessage = "This user is already a member of the group."
+                case .unauthorized:
+                    errorMessage = "Session expired. Please login again."
+                case .serverError(403, _):
+                    errorMessage = "Only group owners can invite members."
+                case .validationError(let message):
+                    errorMessage = message
+                case .networkError:
+                    errorMessage = "Cannot connect to server"
+                default:
+                    errorMessage = apiError.localizedDescription
+                }
+            } else {
+                errorMessage = "Failed to invite member"
+            }
+            showError = true
+        }
+    }
+}
+
+struct AddExpenseSheet: View {
+    let groupId: UUID
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var expenseDescription: String = ""
+    @State private var expenseAmount: String = ""
+    @State private var selectedCurrency: String = "USD"
+    @State private var selectedPayerId: UUID?
+    @State private var selectedParticipantIds: Set<UUID> = []
+    @State private var isCreating: Bool = false
+    @State private var errorMessage: String?
+    @State private var showError: Bool = false
+    
+    let currencies = ["USD", "EUR", "GBP", "JPY", "KRW", "CNY", "CAD", "AUD"]
+    
+    private var members: [Membership] {
+        appState.membershipsByGroupId[groupId] ?? []
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Expense Details")) {
+                    TextField("Description", text: $expenseDescription)
+                        .textInputAutocapitalization(.sentences)
+                        .disabled(isCreating)
+                    
+                    TextField("Amount", text: $expenseAmount)
+                        .keyboardType(.decimalPad)
+                        .disabled(isCreating)
+                    
+                    Picker("Currency", selection: $selectedCurrency) {
+                        ForEach(currencies, id: \.self) { currency in
+                            Text(currency).tag(currency)
+                        }
+                    }
+                    .disabled(isCreating)
+                }
+                
+                // Paid By Section
+                Section(header: Text("Paid By")) {
+                    if members.isEmpty {
+                        Text("Loading members...")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Paid by", selection: $selectedPayerId) {
+                            ForEach(members) { member in
+                                HStack {
+                                    Text(member.displayName)
+                                    if member.userId == appState.user?.id {
+                                        Text("(You)")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .tag(Optional(member.id))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(isCreating)
+                    }
+                }
+                
+                // Split Among Section
+                Section(header: Text("Split Among")) {
+                    if members.isEmpty {
+                        Text("Loading members...")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(members) { member in
+                            Button {
+                                if selectedParticipantIds.contains(member.id) {
+                                    selectedParticipantIds.remove(member.id)
+                                } else {
+                                    selectedParticipantIds.insert(member.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: selectedParticipantIds.contains(member.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selectedParticipantIds.contains(member.id) ? .blue : .secondary)
+                                    
+                                    Text(member.displayName)
+                                        .foregroundStyle(.primary)
+                                    
+                                    if member.userId == appState.user?.id {
+                                        Text("(You)")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                    }
+                                    
+                                    Spacer()
+                                }
+                            }
+                            .disabled(isCreating)
+                        }
+                    }
+                }
+                
+                Section {
+                    Button {
+                        Task { await createExpense() }
+                    } label: {
+                        HStack {
+                            if isCreating {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                            Text("Create Expense")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(expenseDescription.isEmpty || expenseAmount.isEmpty || selectedParticipantIds.isEmpty || isCreating)
+                }
+            }
+            .navigationTitle("New Expense")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? "Unknown error")
+            }
+            .task {
+                // Initialize defaults when sheet appears
+                if let userMembership = appState.getUserMembership(groupId: groupId) {
+                    selectedPayerId = userMembership.id
+                }
+                // Select all members by default
+                selectedParticipantIds = Set(members.map { $0.id })
+            }
+        }
+    }
+    
+    private func createExpense() async {
+        let trimmedDescription = expenseDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !trimmedDescription.isEmpty else {
+            errorMessage = "Description is required"
+            showError = true
+            return
+        }
+        
+        guard let amountValue = Decimal(string: expenseAmount), amountValue > 0 else {
+            errorMessage = "Amount must be greater than 0"
+            showError = true
+            return
+        }
+        
+        guard let payerId = selectedPayerId else {
+            errorMessage = "Please select who paid"
+            showError = true
+            return
+        }
+        
+        guard !selectedParticipantIds.isEmpty else {
+            errorMessage = "Please select at least one participant"
+            showError = true
+            return
+        }
+        
+        isCreating = true
+        
+        do {
+            print("[AddExpense] Creating expense: \(trimmedDescription) - \(amountValue) \(selectedCurrency)")
+            print("[AddExpense] Paid by: \(payerId)")
+            print("[AddExpense] Split among \(selectedParticipantIds.count) members")
+            
+            // Convert dollars to cents
+            let amountCents = Int(NSDecimalNumber(decimal: amountValue * 100).intValue)
+            
+            // Get current date in ISO8601 format (YYYY-MM-DD)
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            dateFormatter.timeZone = TimeZone.current
+            let todayString = dateFormatter.string(from: Date())
+            
+            let request = CreateExpenseRequest(
+                title: trimmedDescription,
+                amountCents: amountCents,
+                currency: selectedCurrency,
+                paidBy: payerId,
+                expenseDate: todayString,
+                splitAmong: Array(selectedParticipantIds)
+            )
+            
+            try await appState.createExpense(groupId: groupId, request: request)
+            
+            print("[AddExpense] Success!")
+            dismiss()
+        } catch {
+            isCreating = false
+            print("[AddExpense] Failed: \(error)")
+            
+            if let apiError = error as? APIError {
+                switch apiError {
+                case .validationError(let message):
+                    errorMessage = message
+                case .serverError(let code, let message):
+                    errorMessage = message ?? "Server error (\(code))"
+                case .unauthorized:
+                    errorMessage = "Session expired. Please login again."
+                case .networkError:
+                    errorMessage = "Cannot connect to server"
+                default:
+                    errorMessage = apiError.localizedDescription
+                }
+            } else {
+                errorMessage = "Failed to create expense"
+            }
+            showError = true
         }
     }
 }

@@ -58,3 +58,26 @@ class AddMemberRequest(BaseSchema):
         if self.email and self.user_id:
             raise ValueError("Provide either email or user_id, not both")
 
+
+class MemberPreviewRequest(BaseSchema):
+    """Preview member invite request."""
+
+    email: str = Field(..., description="Email to check")
+
+
+class MemberPreviewResponse(BaseSchema):
+    """Preview member invite response."""
+
+    found: bool = Field(..., description="Whether user exists")
+    already_member: bool | None = Field(
+        None, description="Whether user is already a member (only if found=true)"
+    )
+    user: UserRead | None = Field(
+        None, description="Minimal user info (only if found=true)"
+    )
+    membership_id: UUID | None = Field(
+        None, description="Membership ID if already a member"
+    )
+    role: MembershipRole | None = Field(
+        None, description="Current role if already a member"
+    )

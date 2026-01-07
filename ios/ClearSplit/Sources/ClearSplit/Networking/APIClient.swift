@@ -50,11 +50,19 @@ actor AuthCoordinator {
     }
 }
 
-struct APIRequest {
+struct APIRequest<T: Decodable> {
     let path: String
     var method: String = "GET"
     var body: Encodable?
     var requiresAuth: Bool = true
+    var contentType: String?
+    
+    init(path: String, method: String = "GET", body: Encodable? = nil, requiresAuth: Bool = true) {
+        self.path = path
+        self.method = method
+        self.body = body
+        self.requiresAuth = requiresAuth
+    }
 }
 
 final class APIClient {
@@ -94,11 +102,15 @@ final class APIClient {
         try? await auth.setTokens(tokens)
     }
 
-    func request<T: Decodable>(_ apiRequest: APIRequest) async throws -> T {
+    func request<T: Decodable>(_ apiRequest: APIRequest<T>) async throws -> T {
         return try await perform(apiRequest, retryingOn401: true)
     }
+    
+    func upload<T: Decodable>(request: APIRequest<T>, body: Data) async throws -> T {
+        return try await performUpload(request, body: body, retryingOn401: true)
+    }
 
-    private func perform<T: Decodable>(_ apiRequest: APIRequest, retryingOn401: Bool) async throws -> T {
+    private func perform<T: Decodable>(_ apiRequest: APIRequest<T>, retryingOn401: Bool) async throws -> T {
         var request = try await buildRequest(apiRequest)
         let (data, response): (Data, URLResponse)
 
@@ -142,7 +154,34 @@ final class APIClient {
         }
     }
 
-    private func buildRequest(_ apiRequest: APIRequest) async throws -> URLRequest {
+    private func performUpload<T: Decodable>(_ apiRequest: APIRequest<T>, body: Data, retryingOn401: Bool) async throws -> T {
+        var request = try await buildUploadRequest(apiRequest, body: body)
+        let (data, response): (Data, URLResponse)
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.network(error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.server(status: -1, message: "Invalid response")
+        }
+
+        if http.statusCode == 401, retryingOn401, apiRequest.requiresAuth {
+            // attempt refresh once
+            let refreshed = try await auth.refresh { current in
+                try await self.refreshTokens(refreshToken: current.refreshToken)
+            }
+            request.setValue("Bearer \(refreshed.accessToken)", forHTTPHeaderField: "Authorization")
+            let (retryData, retryResponse) = try await session.data(for: request)
+            return try decodeResponse(data: retryData, response: retryResponse)
+        }
+
+        return try decodeResponse(data: data, response: response)
+    }
+
+    private func buildRequest<T: Decodable>(_ apiRequest: APIRequest<T>) async throws -> URLRequest {
         let url = baseURL.appendingPathComponent(apiRequest.path)
         var request = URLRequest(url: url)
         request.httpMethod = apiRequest.method
@@ -158,9 +197,27 @@ final class APIClient {
 
         return request
     }
+    
+    private func buildUploadRequest<T: Decodable>(_ apiRequest: APIRequest<T>, body: Data) async throws -> URLRequest {
+        let url = baseURL.appendingPathComponent(apiRequest.path)
+        var request = URLRequest(url: url)
+        request.httpMethod = apiRequest.method
+        
+        if let contentType = apiRequest.contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        
+        request.httpBody = body
+
+        if apiRequest.requiresAuth, let tokens = await auth.getTokens() {
+            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        return request
+    }
 
     private func refreshTokens(refreshToken: String) async throws -> AuthTokens {
-        let request = APIRequest(
+        let request = APIRequest<TokenResponse>(
             path: "auth/refresh",
             method: "POST",
             body: RefreshRequest(refreshToken: refreshToken),

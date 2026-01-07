@@ -10,6 +10,21 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
 - `docker-compose.yml` — Local dev stack (API + Postgres).
 - `.env.example` — Environment variables for local and CI.
 
+## Product Features
+
+ClearSplit is now focused on **Shopping Sessions** — a powerful roommates grocery receipt splitting tool with item-level equal splits.
+
+### Shopping Sessions
+- Create shopping trips with title, date, and payer
+- Add participants from your group members
+- Upload receipt images (optional)
+- Add line items manually (name, price, quantity)
+- Assign sharers to each item
+- Automatic equal split calculations
+- Deterministic remainder distribution
+
+See [SHOPPING_MODEL.md](./SHOPPING_MODEL.md) and [HOW_TO_TEST_SHOPPING.md](./HOW_TO_TEST_SHOPPING.md) for comprehensive documentation.
+
 ## Non-negotiables
 - Money stored as integer cents (bigint); no floats/decimals.
 - Expense creation is atomic (single DB transaction).
@@ -23,7 +38,8 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
 2. Groups & Membership (roles: owner, member, optional viewer).
 3. Expenses (equal split only; splits recorded).
 4. Settlement Engine (minimal transfers; snapshot + status tracking).
-5. CI/CD & Deployment (staging auto-deploy on PR, required checks).
+5. **Shopping Sessions (NEW)** — Grocery receipt splitting with item-level equal splits.
+6. CI/CD & Deployment (staging auto-deploy on PR, required checks).
 
 ## Local Setup (macOS)
 
@@ -57,7 +73,9 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
    ```bash
    alembic upgrade head
    ```
-   Expected: Migration `20241218_0001_initial` applies successfully. Tables created in Postgres.
+   Expected: Migrations apply successfully:
+   - `20241218_0001_initial` — Core tables (users, groups, expenses, etc.)
+   - `20250107_0002_add_shopping_tables` — Shopping sessions and items
 
 5. **Start backend server:**
    ```bash

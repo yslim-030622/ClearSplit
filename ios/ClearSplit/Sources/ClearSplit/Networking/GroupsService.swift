@@ -12,6 +12,6 @@ final class GroupsService: GroupsServicing {
     }
 
     func listGroups() async throws -> [CSGroup] {
-        try await client.request(APIRequest(path: "groups"))
+        try await client.request(APIRequest<[CSGroup]>(path: "groups"))
     }
 }

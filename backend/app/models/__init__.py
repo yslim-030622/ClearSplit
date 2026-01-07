@@ -6,7 +6,12 @@ from app.models.expense_split import ExpenseSplit
 from app.models.group import Group
 from app.models.idempotency_key import IdempotencyKey
 from app.models.membership import Membership, MembershipRole
+from app.models.receipt_upload import ReceiptUpload
 from app.models.settlement import Settlement, SettlementBatch, SettlementStatus
+from app.models.shopping_item import ShoppingItem
+from app.models.shopping_item_split import ShoppingItemSplit
+from app.models.shopping_session import ShoppingSession
+from app.models.shopping_session_participant import ShoppingSessionParticipant
 from app.models.user import User
 
 __all__ = [
@@ -17,9 +22,14 @@ __all__ = [
     "IdempotencyKey",
     "Membership",
     "MembershipRole",
+    "ReceiptUpload",
     "Settlement",
     "SettlementBatch",
     "SettlementStatus",
+    "ShoppingItem",
+    "ShoppingItemSplit",
+    "ShoppingSession",
+    "ShoppingSessionParticipant",
     "User",
 ]
 

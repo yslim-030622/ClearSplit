@@ -22,6 +22,7 @@ from app.services.expense import (
     get_expense_by_id,
     get_group_expenses,
 )
+from app.services.settlement import compute_settlement_batch
 
 router = APIRouter(prefix="/groups", tags=["expenses"])
 
@@ -104,6 +105,14 @@ async def create_expense(
     expense_response.splits = [
         ExpenseSplitRead.model_validate(split) for split in expense.splits
     ]
+
+    # Auto-compute settlements after expense creation
+    # This ensures balances are always up-to-date
+    try:
+        await compute_settlement_batch(session, group_id)
+    except Exception as e:
+        # Log error but don't fail expense creation
+        print(f"[Expenses] Warning: Failed to auto-compute settlements: {e}")
 
     # Store idempotency key if provided
     if idempotency_key_header:

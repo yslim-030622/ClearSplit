@@ -9,12 +9,14 @@ final class AppState: ObservableObject {
     let apiClient: APIClient
     let authService: AuthService
     let groupsService: GroupsService
+    let shoppingService: ShoppingService
 
     init() {
         let client = APIClient()
         self.apiClient = client
         self.authService = AuthService(client: client)
         self.groupsService = GroupsService(client: client)
+        self.shoppingService = ShoppingService(client: client)
     }
 
     func bootstrap() async {

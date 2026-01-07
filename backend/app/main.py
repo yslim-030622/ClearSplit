@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api import auth, expenses, groups
+from app.api import auth, expenses, groups, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
 from app.db.session import get_session
@@ -20,6 +20,7 @@ app.include_router(auth.router)
 app.include_router(groups.router)
 app.include_router(expenses.router)
 app.include_router(settlements.router)
+app.include_router(shopping.router)
 
 
 # Separate route for GET /expenses/{expense_id} (not under /groups prefix)
