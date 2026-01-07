@@ -48,7 +48,7 @@ async def create_session(
     group_id: UUID,
     request: ShoppingSessionCreate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> ShoppingSessionRead:
     """Create a new shopping session.
 
@@ -56,7 +56,7 @@ async def create_session(
         group_id: Group UUID
         request: Shopping session creation request
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Created shopping session
@@ -65,18 +65,18 @@ async def create_session(
         HTTPException: If validations fail
     """
     # Verify user is a member of the group
-    await verify_user_is_group_member(session, current_user.id, group_id)
+    await verify_user_is_group_member(db, current_user.id, group_id)
 
     # Create shopping session
     shopping_session = await create_shopping_session(
-        session,
+        db,
         group_id=group_id,
         title=request.title,
         paid_by_membership_id=request.paid_by,
         shopping_date=request.shopping_date,
     )
 
-    await session.commit()
+    await db.commit()
 
     # Convert to read schema
     return ShoppingSessionRead.model_validate(shopping_session)
@@ -89,14 +89,14 @@ async def create_session(
 async def list_sessions(
     group_id: UUID,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> list[ShoppingSessionRead]:
     """List all shopping sessions for a group.
 
     Args:
         group_id: Group UUID
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         List of shopping sessions
@@ -105,10 +105,10 @@ async def list_sessions(
         HTTPException: If user is not a member
     """
     # Verify user is a member of the group
-    await verify_user_is_group_member(session, current_user.id, group_id)
+    await verify_user_is_group_member(db, current_user.id, group_id)
 
     # List sessions
-    sessions = await list_shopping_sessions(session, group_id)
+    sessions = await list_shopping_sessions(db, group_id)
 
     return [ShoppingSessionRead.model_validate(s) for s in sessions]
 
@@ -120,14 +120,14 @@ async def list_sessions(
 async def get_session(
     session_id: UUID,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> ShoppingSessionRead:
     """Get a shopping session by ID.
 
     Args:
         session_id: Session UUID
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Shopping session with all related data
@@ -136,10 +136,10 @@ async def get_session(
         HTTPException: If session not found or user not authorized
     """
     # Get session
-    shopping_session = await get_shopping_session(session, session_id)
+    shopping_session = await get_shopping_session(db, session_id)
 
     # Verify user is a member of the group
-    await verify_user_is_group_member(session, current_user.id, shopping_session.group_id)
+    await verify_user_is_group_member(db, current_user.id, shopping_session.group_id)
 
     return ShoppingSessionRead.model_validate(shopping_session)
 
@@ -152,7 +152,7 @@ async def set_participants(
     session_id: UUID,
     request: ParticipantSetRequest,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> ShoppingSessionRead:
     """Set/replace participants for a shopping session.
 
@@ -162,7 +162,7 @@ async def set_participants(
         session_id: Session UUID
         request: Participant set request
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Updated shopping session
@@ -171,22 +171,22 @@ async def set_participants(
         HTTPException: If not authorized or validation fails
     """
     # Get session
-    shopping_session = await get_shopping_session(session, session_id)
+    shopping_session = await get_shopping_session(db, session_id)
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        session, current_user.id, shopping_session.group_id
+        db, current_user.id, shopping_session.group_id
     )
 
     # Set participants (service will verify payer authorization)
     shopping_session = await set_session_participants(
-        session,
+        db,
         shopping_session,
         request.participant_membership_ids,
         user_membership.id,
     )
 
-    await session.commit()
+    await db.commit()
 
     return ShoppingSessionRead.model_validate(shopping_session)
 
@@ -205,7 +205,7 @@ async def upload_session_receipt(
     session_id: UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> ReceiptUploadRead:
     """Upload a receipt for a shopping session.
 
@@ -215,7 +215,7 @@ async def upload_session_receipt(
         session_id: Session UUID
         file: Uploaded file
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Created receipt upload
@@ -224,22 +224,22 @@ async def upload_session_receipt(
         HTTPException: If not authorized or upload fails
     """
     # Get session
-    shopping_session = await get_shopping_session(session, session_id)
+    shopping_session = await get_shopping_session(db, session_id)
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        session, current_user.id, shopping_session.group_id
+        db, current_user.id, shopping_session.group_id
     )
 
     # Upload receipt (service will verify payer authorization)
     receipt = await upload_receipt(
-        session,
+        db,
         shopping_session,
         file,
         user_membership.id,
     )
 
-    await session.commit()
+    await db.commit()
 
     return ReceiptUploadRead.model_validate(receipt)
 
@@ -258,7 +258,7 @@ async def create_item(
     session_id: UUID,
     request: ShoppingItemCreate,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> ShoppingItemRead:
     """Create a shopping item.
 
@@ -268,7 +268,7 @@ async def create_item(
         session_id: Session UUID
         request: Shopping item creation request
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Created shopping item
@@ -277,16 +277,16 @@ async def create_item(
         HTTPException: If not authorized or validation fails
     """
     # Get session
-    shopping_session = await get_shopping_session(session, session_id)
+    shopping_session = await get_shopping_session(db, session_id)
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        session, current_user.id, shopping_session.group_id
+        db, current_user.id, shopping_session.group_id
     )
 
     # Create item (service will verify payer authorization)
     item = await create_shopping_item(
-        session,
+        db,
         shopping_session,
         name=request.name,
         quantity=request.quantity,
@@ -295,7 +295,7 @@ async def create_item(
         requester_membership_id=user_membership.id,
     )
 
-    await session.commit()
+    await db.commit()
 
     return ShoppingItemRead.model_validate(item)
 
@@ -308,7 +308,7 @@ async def set_sharers(
     item_id: UUID,
     request: SharersSetRequest,
     current_user: User = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
+    db: AsyncSession = Depends(get_session),
 ) -> SharersSetResponse:
     """Set/replace sharers for a shopping item.
 
@@ -319,7 +319,7 @@ async def set_sharers(
         item_id: Item UUID
         request: Sharers set request
         current_user: Current authenticated user
-        session: Database session
+        db: Database session
 
     Returns:
         Item with computed splits
@@ -328,25 +328,25 @@ async def set_sharers(
         HTTPException: If not authorized or validation fails
     """
     # Get item
-    item = await get_shopping_item(session, item_id)
+    item = await get_shopping_item(db, item_id)
 
     # Get session to verify authorization
-    shopping_session = await get_shopping_session(session, item.session_id)
+    shopping_session = await get_shopping_session(db, item.session_id)
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        session, current_user.id, shopping_session.group_id
+        db, current_user.id, shopping_session.group_id
     )
 
     # Set sharers (service will verify payer authorization and compute splits)
     splits = await set_item_sharers(
-        session,
+        db,
         item,
         request.membership_ids,
         user_membership.id,
     )
 
-    await session.commit()
+    await db.commit()
 
     # Build response
     return SharersSetResponse(
