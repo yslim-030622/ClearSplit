@@ -4,37 +4,63 @@ These tests require a running Postgres database (via docker-compose).
 The database should have migrations applied (alembic upgrade head).
 """
 
+import asyncio
 import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
-from app.db.session import SessionLocal, get_session
+from app.core.config import get_settings
+from app.db.session import get_session
 from app.main import app
 
 
-@pytest.fixture(scope="function")
+# Create a test engine with NullPool to avoid connection issues
+test_engine = create_async_engine(
+    get_settings().database_url,
+    echo=False,
+    poolclass=NullPool,
+)
+
+TestSessionLocal = async_sessionmaker(
+    test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+@pytest_asyncio.fixture(scope="function")
 async def session() -> AsyncSession:
-    """Create a test database session.
-
-    Note: This uses the existing database connection from app.db.session.
-    Ensure migrations are applied before running tests.
+    """Create a test database session with proper transaction rollback.
+    
+    Each test gets a fresh transaction that is rolled back after the test completes.
     """
-    async with SessionLocal() as session:
+    connection = await test_engine.connect()
+    transaction = await connection.begin()
+    
+    session = AsyncSession(bind=connection, expire_on_commit=False)
+    
+    try:
         yield session
-        # Rollback any uncommitted changes after test
-        await session.rollback()
+    finally:
         await session.close()
+        await transaction.rollback()
+        await connection.close()
 
 
-@pytest.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")
 async def client(session: AsyncSession) -> AsyncClient:
-    """Create a test HTTP client."""
+    """Create a test HTTP client with session override."""
     async def override_get_session():
         yield session
 
     app.dependency_overrides[get_session] = override_get_session
 
-    async with AsyncClient(app=app, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as ac:
         yield ac
 
     app.dependency_overrides.clear()

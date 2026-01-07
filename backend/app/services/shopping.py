@@ -52,12 +52,12 @@ def calculate_equal_splits(total_cents: int, num_sharers: int) -> list[int]:
 
 
 async def validate_memberships_in_group(
-    session: AsyncSession, group_id: UUID, membership_ids: list[UUID]
+    db: AsyncSession, group_id: UUID, membership_ids: list[UUID]
 ) -> list[Membership]:
     """Validate that all membership IDs belong to the group.
 
     Args:
-        session: Database session
+        db: Database session
         group_id: Group UUID
         membership_ids: List of membership UUIDs to validate
 
@@ -67,7 +67,7 @@ async def validate_memberships_in_group(
     Raises:
         HTTPException: If any membership is not found or not in group
     """
-    result = await session.execute(
+    result = await db.execute(
         select(Membership).where(
             Membership.id.in_(membership_ids), Membership.group_id == group_id
         )
@@ -161,7 +161,7 @@ receipt_storage = ReceiptStorage()
 
 
 async def create_shopping_session(
-    session: AsyncSession,
+    db: AsyncSession,
     group_id: UUID,
     title: str,
     paid_by_membership_id: UUID,
@@ -170,7 +170,7 @@ async def create_shopping_session(
     """Create a shopping session.
 
     Args:
-        session: Database session
+        db: Database session
         group_id: Group UUID
         title: Session title
         paid_by_membership_id: Membership ID of payer (must be in group)
@@ -183,7 +183,7 @@ async def create_shopping_session(
         HTTPException: If group not found or payer not in group
     """
     # Validate group exists
-    result = await session.execute(select(Group).where(Group.id == group_id))
+    result = await db.execute(select(Group).where(Group.id == group_id))
     group = result.scalar_one_or_none()
     if not group:
         raise HTTPException(
@@ -192,7 +192,7 @@ async def create_shopping_session(
         )
 
     # Validate payer is a member of the group
-    await validate_memberships_in_group(session, group_id, [paid_by_membership_id])
+    await validate_memberships_in_group(db, group_id, [paid_by_membership_id])
 
     # Create session
     shopping_session = ShoppingSession(
@@ -203,20 +203,20 @@ async def create_shopping_session(
         paid_by_membership_id=paid_by_membership_id,
     )
 
-    session.add(shopping_session)
-    await session.flush()
-    await session.refresh(shopping_session)
+    db.add(shopping_session)
+    await db.flush()
+    await db.refresh(shopping_session)
 
     return shopping_session
 
 
 async def get_shopping_session(
-    session: AsyncSession, session_id: UUID
+    db: AsyncSession, session_id: UUID
 ) -> ShoppingSession:
     """Get shopping session by ID with all related data.
 
     Args:
-        session: Database session
+        db: Database session
         session_id: Session UUID
 
     Returns:
@@ -225,7 +225,7 @@ async def get_shopping_session(
     Raises:
         HTTPException: If session not found
     """
-    result = await session.execute(
+    result = await db.execute(
         select(ShoppingSession)
         .where(ShoppingSession.id == session_id)
         .options(
@@ -245,18 +245,18 @@ async def get_shopping_session(
 
 
 async def list_shopping_sessions(
-    session: AsyncSession, group_id: UUID
+    db: AsyncSession, group_id: UUID
 ) -> list[ShoppingSession]:
     """List all shopping sessions for a group.
 
     Args:
-        session: Database session
+        db: Database session
         group_id: Group UUID
 
     Returns:
         List of shopping sessions
     """
-    result = await session.execute(
+    result = await db.execute(
         select(ShoppingSession)
         .where(ShoppingSession.group_id == group_id)
         .order_by(ShoppingSession.created_at.desc())
@@ -270,7 +270,7 @@ async def list_shopping_sessions(
 
 
 async def set_session_participants(
-    session: AsyncSession,
+    db: AsyncSession,
     shopping_session: ShoppingSession,
     participant_membership_ids: list[UUID],
     requester_membership_id: UUID,
@@ -278,7 +278,7 @@ async def set_session_participants(
     """Set/replace participants for a shopping session.
 
     Args:
-        session: Database session
+        db: Database session
         shopping_session: Shopping session to update
         participant_membership_ids: List of membership IDs to set as participants
         requester_membership_id: Membership ID of requester (must be payer)
@@ -298,17 +298,19 @@ async def set_session_participants(
 
     # Validate all participants are members of the group
     await validate_memberships_in_group(
-        session, shopping_session.group_id, participant_membership_ids
+        db, shopping_session.group_id, participant_membership_ids
     )
 
     # Remove existing participants
-    await session.execute(
+    result = await db.execute(
         select(ShoppingSessionParticipant).where(
             ShoppingSessionParticipant.session_id == shopping_session.id
         )
     )
-    for participant in shopping_session.participants:
-        await session.delete(participant)
+    existing_participants = result.scalars().all()
+    for participant in existing_participants:
+        await db.delete(participant)
+    await db.flush()
 
     # Add new participants
     for membership_id in participant_membership_ids:
@@ -316,10 +318,10 @@ async def set_session_participants(
             session_id=shopping_session.id,
             membership_id=membership_id,
         )
-        session.add(participant)
+        db.add(participant)
 
-    await session.flush()
-    await session.refresh(shopping_session)
+    await db.flush()
+    await db.refresh(shopping_session)
 
     return shopping_session
 
@@ -330,7 +332,7 @@ async def set_session_participants(
 
 
 async def upload_receipt(
-    session: AsyncSession,
+    db: AsyncSession,
     shopping_session: ShoppingSession,
     file: UploadFile,
     requester_membership_id: UUID,
@@ -338,7 +340,7 @@ async def upload_receipt(
     """Upload a receipt for a shopping session.
 
     Args:
-        session: Database session
+        db: Database session
         shopping_session: Shopping session to add receipt to
         file: Uploaded file
         requester_membership_id: Membership ID of requester (must be payer)
@@ -368,9 +370,9 @@ async def upload_receipt(
         content_type=content_type,
     )
 
-    session.add(receipt)
-    await session.flush()
-    await session.refresh(receipt)
+    db.add(receipt)
+    await db.flush()
+    await db.refresh(receipt)
 
     return receipt
 
@@ -381,7 +383,7 @@ async def upload_receipt(
 
 
 async def create_shopping_item(
-    session: AsyncSession,
+    db: AsyncSession,
     shopping_session: ShoppingSession,
     name: str,
     quantity: int,
@@ -392,7 +394,7 @@ async def create_shopping_item(
     """Create a shopping item.
 
     Args:
-        session: Database session
+        db: Database session
         shopping_session: Shopping session to add item to
         name: Item name
         quantity: Quantity
@@ -422,15 +424,15 @@ async def create_shopping_item(
         unit_price_cents=unit_price_cents,
     )
 
-    session.add(item)
-    await session.flush()
-    await session.refresh(item)
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
 
     return item
 
 
 async def set_item_sharers(
-    session: AsyncSession,
+    db: AsyncSession,
     item: ShoppingItem,
     sharer_membership_ids: list[UUID],
     requester_membership_id: UUID,
@@ -438,7 +440,7 @@ async def set_item_sharers(
     """Set/replace sharers for a shopping item with equal split.
 
     Args:
-        session: Database session
+        db: Database session
         item: Shopping item to set sharers for
         sharer_membership_ids: List of membership IDs who share this item
         requester_membership_id: Membership ID of requester (must be payer)
@@ -450,7 +452,7 @@ async def set_item_sharers(
         HTTPException: If requester is not payer or sharers not participants
     """
     # Get the shopping session
-    result = await session.execute(
+    result = await db.execute(
         select(ShoppingSession)
         .where(ShoppingSession.id == item.session_id)
         .options(selectinload(ShoppingSession.participants))
@@ -480,12 +482,12 @@ async def set_item_sharers(
 
     # Validate sharers exist and are in the group
     sharers = await validate_memberships_in_group(
-        session, shopping_session.group_id, sharer_membership_ids
+        db, shopping_session.group_id, sharer_membership_ids
     )
 
     # Remove existing splits
     for split in item.splits:
-        await session.delete(split)
+        await db.delete(split)
 
     # Calculate equal splits (deterministic by sorted membership IDs)
     share_amounts = calculate_equal_splits(item.total_cents, len(sharers))
@@ -498,23 +500,23 @@ async def set_item_sharers(
             membership_id=membership.id,
             share_cents=share_cents,
         )
-        session.add(split)
+        db.add(split)
         new_splits.append(split)
 
-    await session.flush()
+    await db.flush()
 
     # Refresh all splits to get created_at timestamps
     for split in new_splits:
-        await session.refresh(split)
+        await db.refresh(split)
 
     return new_splits
 
 
-async def get_shopping_item(session: AsyncSession, item_id: UUID) -> ShoppingItem:
+async def get_shopping_item(db: AsyncSession, item_id: UUID) -> ShoppingItem:
     """Get shopping item by ID with splits.
 
     Args:
-        session: Database session
+        db: Database session
         item_id: Item UUID
 
     Returns:
@@ -523,7 +525,7 @@ async def get_shopping_item(session: AsyncSession, item_id: UUID) -> ShoppingIte
     Raises:
         HTTPException: If item not found
     """
-    result = await session.execute(
+    result = await db.execute(
         select(ShoppingItem)
         .where(ShoppingItem.id == item_id)
         .options(selectinload(ShoppingItem.splits))
@@ -544,12 +546,12 @@ async def get_shopping_item(session: AsyncSession, item_id: UUID) -> ShoppingIte
 
 
 async def verify_user_is_group_member(
-    session: AsyncSession, user_id: UUID, group_id: UUID
+    db: AsyncSession, user_id: UUID, group_id: UUID
 ) -> Membership:
     """Verify user is a member of the group.
 
     Args:
-        session: Database session
+        db: Database session
         user_id: User UUID
         group_id: Group UUID
 
@@ -559,7 +561,7 @@ async def verify_user_is_group_member(
     Raises:
         HTTPException: If user is not a member
     """
-    result = await session.execute(
+    result = await db.execute(
         select(Membership).where(
             Membership.user_id == user_id, Membership.group_id == group_id
         )
