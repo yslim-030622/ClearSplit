@@ -20,6 +20,8 @@ class User(Base):
     )
     email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text(), nullable=False)
+    first_name: Mapped[str] = mapped_column(Text(), nullable=False)
+    last_name: Mapped[str] = mapped_column(Text(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),

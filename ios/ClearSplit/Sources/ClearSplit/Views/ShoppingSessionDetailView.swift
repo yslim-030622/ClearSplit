@@ -111,13 +111,13 @@ struct ShoppingSessionDetailView: View {
         }
         .sheet(isPresented: $showingAddItem) {
             if let session = viewModel.session {
-                AddItemView(
+                AddItemSheet(
                     appState: appState,
                     sessionId: session.id,
-                    participants: session.participants,
-                    onAdded: {
+                    groupId: session.groupId,
+                    onAdded: { updated in
                         showingAddItem = false
-                        Task { await viewModel.load() }
+                        viewModel.session = updated
                     }
                 )
             }
@@ -161,23 +161,21 @@ struct ItemRow: View {
             }
             
             HStack {
-                if item.quantity > 1 {
-                    Text("\(item.quantity) × \(item.formattedUnitPrice ?? "")")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Text("Qty \(item.quantity)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 
                 Spacer()
                 
-                if !item.splits.isEmpty {
-                    Text("Split \(item.splits.count) ways")
+                if let splits = item.splits, !splits.isEmpty {
+                    Text("Split \(splits.count) ways")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             
-            if !item.splits.isEmpty {
-                ForEach(item.splits) { split in
+            if let splits = item.splits, !splits.isEmpty {
+                ForEach(splits) { split in
                     HStack {
                         Text("Member \(split.membershipId.uuidString.prefix(8))...")
                             .font(.caption2)
@@ -193,4 +191,3 @@ struct ItemRow: View {
         .padding(.vertical, 4)
     }
 }
-

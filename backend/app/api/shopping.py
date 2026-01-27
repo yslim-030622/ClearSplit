@@ -74,6 +74,7 @@ async def create_session(
         title=request.title,
         paid_by_membership_id=request.paid_by,
         shopping_date=request.shopping_date,
+        total_amount=request.total_amount,
     )
 
     await db.commit()
@@ -117,7 +118,7 @@ async def list_sessions(
     "/shopping-sessions/{session_id}",
     response_model=ShoppingSessionRead,
 )
-async def get_session(
+async def get_shopping_session_endpoint(
     session_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),

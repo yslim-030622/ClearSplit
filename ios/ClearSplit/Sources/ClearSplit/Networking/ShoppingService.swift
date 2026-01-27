@@ -85,11 +85,7 @@ final class ShoppingService: ShoppingServicing {
     // MARK: - Shopping Items
     
     func createItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem {
-        try await client.request(APIRequest(
-            path: "shopping-sessions/\(sessionId.uuidString)/items",
-            method: .post,
-            body: request
-        ))
+        try await client.createShoppingItem(sessionId: sessionId, request: request)
     }
     
     func setSharers(itemId: UUID, request: SharersSetRequest) async throws -> SharersSetResponse {
@@ -100,4 +96,3 @@ final class ShoppingService: ShoppingServicing {
         ))
     }
 }
-
