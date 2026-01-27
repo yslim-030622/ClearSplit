@@ -1,7 +1,8 @@
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, String, Text, func
+from sqlalchemy import CheckConstraint, Date, ForeignKey, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +34,11 @@ class ShoppingSession(Base):
     )
     title: Mapped[str] = mapped_column(Text(), nullable=False)
     shopping_date: Mapped[date | None] = mapped_column(Date(), nullable=True)
+    total_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2),
+        nullable=True,
+        comment="Optional total amount for quick splits without itemization",
+    )
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="USD")
     paid_by_membership_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),

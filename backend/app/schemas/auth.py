@@ -13,6 +13,8 @@ class SignupRequest(BaseSchema):
 
     email: EmailStr = Field(..., description="User email address")
     password: str = Field(..., min_length=8, description="User password (min 8 characters)")
+    first_name: str = Field(..., min_length=1, description="User first name")
+    last_name: str = Field(..., min_length=1, description="User last name")
 
 
 class LoginRequest(BaseSchema):

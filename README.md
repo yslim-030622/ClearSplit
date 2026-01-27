@@ -6,7 +6,8 @@ Splitwise-style group expense and settlement tracker. Backend is the source of t
 - `.github/workflows/` — CI/CD pipelines (backend lint/type/test, iOS build/tests, docker build, deploy to staging).
 - `backend/` — FastAPI service, SQLAlchemy models, Alembic migrations, settlement engine.
 - `ios/` — SwiftUI app using MVVM; networking client for the API; Keychain token storage.
-- `docs/` — ADRs and design docs (DB schema, auth/token strategy).
+- `docs/` — All project documentation organized by category (see [docs/README.md](./docs/README.md) for structure).
+- `docs/INDEX.md` — Quick documentation index.
 - `docker-compose.yml` — Local dev stack (API + Postgres).
 - `.env.example` — Environment variables for local and CI.
 
@@ -23,7 +24,7 @@ ClearSplit is now focused on **Shopping Sessions** — a powerful roommates groc
 - Automatic equal split calculations
 - Deterministic remainder distribution
 
-See [SHOPPING_MODEL.md](./SHOPPING_MODEL.md) and [HOW_TO_TEST_SHOPPING.md](./HOW_TO_TEST_SHOPPING.md) for comprehensive documentation.
+See [docs/features/SHOPPING_MODEL.md](./docs/features/SHOPPING_MODEL.md) and [docs/features/HOW_TO_TEST_SHOPPING.md](./docs/features/HOW_TO_TEST_SHOPPING.md) for comprehensive documentation.
 
 ## Non-negotiables
 - Money stored as integer cents (bigint); no floats/decimals.

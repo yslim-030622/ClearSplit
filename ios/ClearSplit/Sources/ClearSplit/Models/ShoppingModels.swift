@@ -95,16 +95,14 @@ public struct ShoppingItem: Codable, Equatable, Identifiable {
     public let sessionId: UUID
     public let name: String
     public let quantity: Int
-    public let unitPriceCents: Int?
-    public let totalCents: Int
+    public let priceCents: Int
     public let createdAt: Date
-    public let splits: [ShoppingItemSplit]
+    public let splits: [ShoppingItemSplit]?
     
     enum CodingKeys: String, CodingKey {
         case id, name, quantity
         case sessionId = "session_id"
-        case unitPriceCents = "unit_price_cents"
-        case totalCents = "total_cents"
+        case priceCents = "total_cents"
         case createdAt = "created_at"
         case splits
     }
@@ -112,21 +110,18 @@ public struct ShoppingItem: Codable, Equatable, Identifiable {
 
 public struct ShoppingItemCreate: Codable {
     public let name: String
-    public let quantity: Int?
-    public let unitPriceCents: Int?
-    public let totalCents: Int?
+    public let priceCents: Int
+    public let quantity: Int
     
     enum CodingKeys: String, CodingKey {
         case name, quantity
-        case unitPriceCents = "unit_price_cents"
-        case totalCents = "total_cents"
+        case priceCents = "total_cents"
     }
     
-    public init(name: String, quantity: Int? = nil, unitPriceCents: Int? = nil, totalCents: Int? = nil) {
+    public init(name: String, priceCents: Int, quantity: Int = 1) {
         self.name = name
+        self.priceCents = priceCents
         self.quantity = quantity
-        self.unitPriceCents = unitPriceCents
-        self.totalCents = totalCents
     }
 }
 
@@ -175,7 +170,7 @@ public struct SharersSetResponse: Codable {
 extension ShoppingSession {
     /// Compute the total cost of all items in the session
     public var totalCents: Int {
-        items.reduce(0) { $0 + $1.totalCents }
+        items.reduce(0) { $0 + $1.priceCents }
     }
     
     /// Check if a membership is a participant
@@ -187,14 +182,14 @@ extension ShoppingSession {
 extension ShoppingItem {
     /// Formatted total price
     public var formattedTotal: String {
-        let dollars = Double(totalCents) / 100.0
+        let dollars = Double(priceCents) / 100.0
         return String(format: "$%.2f", dollars)
     }
     
-    /// Formatted unit price
+    /// Formatted unit price derived from total and quantity
     public var formattedUnitPrice: String? {
-        guard let unitPriceCents = unitPriceCents else { return nil }
-        let dollars = Double(unitPriceCents) / 100.0
+        guard quantity > 0 else { return nil }
+        let dollars = Double(priceCents) / Double(quantity) / 100.0
         return String(format: "$%.2f", dollars)
     }
 }
@@ -206,4 +201,3 @@ extension ShoppingItemSplit {
         return String(format: "$%.2f", dollars)
     }
 }
-

@@ -12,6 +12,8 @@ class UserRead(BaseSchema):
 
     id: UUID
     email: EmailStr
+    first_name: str
+    last_name: str
 
 
 class UserCreate(BaseSchema):

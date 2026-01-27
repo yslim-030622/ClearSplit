@@ -53,20 +53,18 @@ final class AddItemViewModel: ObservableObject {
             let request: ShoppingItemCreate
             
             if useUnitPrice, let unitPriceDollars = Double(unitPrice) {
-                let unitPriceCents = Int(unitPriceDollars * 100)
+                let totalCents = roundedCents(from: unitPriceDollars * Double(quantityInt))
                 request = ShoppingItemCreate(
                     name: name.trimmingCharacters(in: .whitespaces),
-                    quantity: quantityInt,
-                    unitPriceCents: unitPriceCents,
-                    totalCents: nil
+                    priceCents: totalCents,
+                    quantity: quantityInt
                 )
             } else if let totalDollars = Double(totalPrice) {
-                let totalCents = Int(totalDollars * 100)
+                let totalCents = roundedCents(from: totalDollars)
                 request = ShoppingItemCreate(
                     name: name.trimmingCharacters(in: .whitespaces),
-                    quantity: quantityInt,
-                    unitPriceCents: nil,
-                    totalCents: totalCents
+                    priceCents: totalCents,
+                    quantity: quantityInt
                 )
             } else {
                 errorMessage = "Invalid price input."
@@ -112,5 +110,8 @@ final class AddItemViewModel: ObservableObject {
     func selectAllSharers() {
         selectedSharers = Set(participants.map { $0.membershipId })
     }
-}
 
+    private func roundedCents(from dollars: Double) -> Int {
+        Int((dollars * 100.0).rounded())
+    }
+}

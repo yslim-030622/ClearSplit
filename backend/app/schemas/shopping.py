@@ -107,6 +107,7 @@ class ShoppingSessionCreate(BaseSchema):
 
     title: str = Field(..., min_length=1, max_length=500, description="Session title (e.g., 'Costco')")
     shopping_date: date | None = Field(None, description="Date of shopping trip")
+    total_amount: float | None = Field(None, ge=0, description="Optional total amount for quick splits")
     paid_by: UUID = Field(..., description="Membership ID of payer (must be in group)")
 
 
@@ -117,6 +118,7 @@ class ShoppingSessionRead(BaseSchema):
     group_id: UUID
     title: str
     shopping_date: date | None
+    total_amount: float | None
     currency: str
     paid_by_membership_id: UUID
     created_at: datetime

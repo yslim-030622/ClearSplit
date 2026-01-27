@@ -50,7 +50,12 @@ async def signup(
 
     # Create new user
     password_hash = hash_password(request.password)
-    user = User(email=request.email, password_hash=password_hash)
+    user = User(
+        email=request.email,
+        password_hash=password_hash,
+        first_name=request.first_name,
+        last_name=request.last_name,
+    )
     session.add(user)
     await session.commit()
     await session.refresh(user)

@@ -105,6 +105,14 @@ final class APIClient {
     func request<T: Decodable>(_ apiRequest: APIRequest<T>) async throws -> T {
         return try await perform(apiRequest, retryingOn401: true)
     }
+
+    func createShoppingItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem {
+        try await self.request(APIRequest(
+            path: "shopping-sessions/\(sessionId.uuidString)/items",
+            method: "POST",
+            body: request
+        ))
+    }
     
     func upload<T: Decodable>(request: APIRequest<T>, body: Data) async throws -> T {
         return try await performUpload(request, body: body, retryingOn401: true)

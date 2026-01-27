@@ -21,6 +21,14 @@ struct AuthTokens: Codable {
 struct User: Codable, Identifiable {
     let id: UUID
     let email: String
+    let first_name: String
+    let last_name: String
+    
+    enum CodingKeys: String, CodingKey {
+        case id, email
+        case first_name = "first_name"
+        case last_name = "last_name"
+    }
 }
 
 struct Group: Codable, Identifiable, Equatable, Hashable {
@@ -61,6 +69,99 @@ struct MemberPreviewResponse: Codable {
     let user: User?
     let membershipId: UUID?
     let role: String?
+}
+
+// MARK: - Shopping Models
+
+struct ShoppingSession: Codable, Identifiable {
+    let id: UUID
+    let groupId: UUID
+    let title: String
+    let shoppingDate: String?
+    let totalAmount: Double?
+    let currency: String
+    let paidByMembershipId: UUID
+    let createdAt: Date
+    let participants: [ShoppingSessionParticipant]
+    let receipts: [ReceiptUpload]
+    let items: [ShoppingItem]
+    
+    var totalCents: Int {
+        // If totalAmount is set, use it; otherwise calculate from items
+        if let total = totalAmount {
+            return Int(total * 100)
+        }
+        return items.reduce(0) { $0 + $1.totalCents }
+    }
+    
+    var displayTotal: String {
+        formatCurrency(cents: totalCents, currency: currency)
+    }
+}
+
+struct ShoppingSessionParticipant: Codable, Identifiable {
+    let id: UUID
+    let sessionId: UUID
+    let membershipId: UUID
+    let createdAt: Date
+}
+
+struct ReceiptUpload: Codable, Identifiable {
+    let id: UUID
+    let sessionId: UUID
+    let storageKey: String
+    let contentType: String
+    let createdAt: Date
+}
+
+struct ShoppingItem: Codable, Identifiable {
+    let id: UUID
+    let sessionId: UUID
+    let name: String
+    let quantity: Int
+    let unitPriceCents: Int?
+    let totalCents: Int
+    let createdAt: Date
+    let splits: [ShoppingItemSplit]
+    
+    var displayTotal: String {
+        let amount = Double(totalCents) / 100.0
+        return String(format: "$%.2f", amount)
+    }
+}
+
+struct ShoppingItemSplit: Codable, Identifiable {
+    let id: UUID
+    let itemId: UUID
+    let membershipId: UUID
+    let shareCents: Int
+    
+    var displayAmount: String {
+        let amount = Double(shareCents) / 100.0
+        return String(format: "$%.2f", amount)
+    }
+}
+
+struct ShoppingSessionCreate: Codable {
+    let title: String
+    let shoppingDate: String?
+    let totalAmount: Double?
+    let paidBy: UUID
+}
+
+struct ShoppingItemCreate: Codable {
+    let name: String
+    let quantity: Int
+    let unitPriceCents: Int?
+    let totalCents: Int
+}
+
+struct ParticipantSetRequest: Codable {
+    let participantMembershipIds: [UUID]
+}
+
+struct SharersSetRequest: Codable {
+    let membershipIds: [UUID]
 }
 
 // MARK: - Settlements/Balances Models
@@ -187,6 +288,8 @@ final class AppState: ObservableObject {
     @Published var membershipsByGroupId: [UUID: [Membership]] = [:]
     @Published var settlementsByGroupId: [UUID: [Settlement]] = [:]
     @Published var isLoadingBalances: Bool = false
+    @Published var shoppingSessionsByGroupId: [UUID: [ShoppingSession]] = [:]
+    @Published var isLoadingShopping: Bool = false
 
     private let keychain = KeychainService()
     private lazy var apiClient = APIClient(
@@ -216,12 +319,23 @@ final class AppState: ObservableObject {
         }
     }
 
-    func signup(email: String, password: String) async throws {
+    func signup(email: String, password: String, firstName: String, lastName: String) async throws {
         print("[AppState] Signup started for: \(email)")
         isLoading = true
         defer { isLoading = false }
         
-        struct SignupRequest: Encodable { let email: String; let password: String }
+        struct SignupRequest: Encodable {
+            let email: String
+            let password: String
+            let first_name: String
+            let last_name: String
+            
+            enum CodingKeys: String, CodingKey {
+                case email, password
+                case first_name = "first_name"
+                case last_name = "last_name"
+            }
+        }
         struct SignupResponse: Decodable {
             let accessToken: String
             let refreshToken: String
@@ -233,7 +347,12 @@ final class AppState: ObservableObject {
         let response: SignupResponse = try await apiClient.request(
             "/auth/signup",
             method: "POST",
-            body: SignupRequest(email: email, password: password),
+            body: SignupRequest(
+                email: email,
+                password: password,
+                first_name: firstName,
+                last_name: lastName
+            ),
             requiresAuth: false
         )
         
@@ -315,6 +434,94 @@ final class AppState: ObservableObject {
         print("[Members] Loaded \(members.count) members")
     }
     
+    func addMemberToGroup(groupId: UUID, email: String) async throws -> Membership {
+        print("[AppState] Adding member \(email) to group: \(groupId)")
+        let membership = try await apiClient.addGroupMember(groupId: groupId, email: email)
+        
+        // Reload members to update cache
+        try await loadMembers(groupId: groupId)
+        
+        return membership
+    }
+    
+    // MARK: - Shopping Sessions
+    
+    func loadShoppingSessions(groupId: UUID) async throws {
+        print("[AppState] Loading shopping sessions for group: \(groupId)")
+        isLoadingShopping = true
+        defer { isLoadingShopping = false }
+        
+        let sessions = try await apiClient.listShoppingSessions(groupId: groupId)
+        shoppingSessionsByGroupId[groupId] = sessions
+        print("[AppState] Loaded \(sessions.count) shopping sessions")
+    }
+    
+    func createShoppingSession(groupId: UUID, title: String, paidBy: UUID, shoppingDate: Date? = nil, totalAmount: Double? = nil) async throws -> ShoppingSession {
+        print("[AppState] Creating shopping session: \(title)")
+        
+        // Convert Date to String in YYYY-MM-DD format if provided
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = shoppingDate.map { dateFormatter.string(from: $0) }
+        
+        let request = ShoppingSessionCreate(title: title, shoppingDate: dateString, totalAmount: totalAmount, paidBy: paidBy)
+        let session = try await apiClient.createShoppingSession(groupId: groupId, request: request)
+        
+        // Update local cache
+        var sessions = shoppingSessionsByGroupId[groupId] ?? []
+        sessions.insert(session, at: 0)
+        shoppingSessionsByGroupId[groupId] = sessions
+        
+        return session
+    }
+    
+    func refreshShoppingSession(sessionId: UUID, groupId: UUID) async throws -> ShoppingSession {
+        let session = try await apiClient.getShoppingSession(sessionId: sessionId)
+        
+        // Update in cache
+        if var sessions = shoppingSessionsByGroupId[groupId] {
+            if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
+                sessions[index] = session
+                shoppingSessionsByGroupId[groupId] = sessions
+            }
+        }
+        
+        return session
+    }
+    
+    func setSessionParticipants(sessionId: UUID, groupId: UUID, membershipIds: [UUID]) async throws -> ShoppingSession {
+        let session = try await apiClient.setParticipants(sessionId: sessionId, membershipIds: membershipIds)
+        
+        // Update in cache
+        if var sessions = shoppingSessionsByGroupId[groupId] {
+            if let index = sessions.firstIndex(where: { $0.id == sessionId }) {
+                sessions[index] = session
+                shoppingSessionsByGroupId[groupId] = sessions
+            }
+        }
+        
+        return session
+    }
+    
+    func createShoppingItem(sessionId: UUID, groupId: UUID, name: String, quantity: Int, totalCents: Int) async throws -> ShoppingItem {
+        let request = ShoppingItemCreate(name: name, quantity: quantity, unitPriceCents: nil, totalCents: totalCents)
+        let item = try await apiClient.createShoppingItem(sessionId: sessionId, request: request)
+        
+        // Refresh session to get updated items
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        
+        return item
+    }
+    
+    func setItemSharers(itemId: UUID, sessionId: UUID, groupId: UUID, membershipIds: [UUID]) async throws -> ShoppingItem {
+        let item = try await apiClient.setItemSharers(itemId: itemId, membershipIds: membershipIds)
+        
+        // Refresh session to get updated splits
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        
+        return item
+    }
+    
     func previewMemberInvite(groupId: UUID, email: String) async throws -> MemberPreviewResponse {
         print("[AppState] Previewing invite for: \(email)")
         return try await apiClient.previewMemberInvite(groupId: groupId, email: email)
@@ -365,11 +572,8 @@ final class AppState: ObservableObject {
         expensesByGroupId[groupId] = currentExpenses
         
         // Refresh expenses and balances after creating expense
-        async let expensesTask = loadExpenses(groupId: groupId)
-        async let balancesTask = loadBalances(groupId: groupId)
-        
-        try await expensesTask
-        try await balancesTask
+        async let _ = loadExpenses(groupId: groupId)
+        async let _ = loadBalances(groupId: groupId)
     }
     
     func expenses(for groupId: UUID) -> [Expense] {
@@ -396,7 +600,9 @@ final class AppState: ObservableObject {
         guard let current = keychain.readTokens() else { throw APIError.unauthorized }
         let body = RefreshRequest(refreshToken: current.refreshToken)
         let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
 
         guard let url = URL(string: "/auth/refresh", relativeTo: APIConfig.baseURL) else {
             throw APIError.invalidURL
@@ -503,44 +709,10 @@ final class APIClient {
         self.tokenProvider = tokenProvider
         self.refreshHandler = refreshHandler
         
-        // Configure decoder for FastAPI date formats
+        // Configure decoder - use ISO8601 with fractional seconds
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        decoder.dateDecodingStrategy = .custom({ decoder in
-            let container = try decoder.singleValueContainer()
-            let dateString = try container.decode(String.self)
-            
-            // Try various ISO8601 formats (FastAPI uses +00:00 timezone format)
-            let formatters: [DateFormatter] = [
-                // ISO8601 with fractional seconds and timezone
-                {
-                    let f = DateFormatter()
-                    f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX"
-                    f.locale = Locale(identifier: "en_US_POSIX")
-                    f.timeZone = TimeZone(secondsFromGMT: 0)
-                    return f
-                }(),
-                // ISO8601 without fractional seconds
-                {
-                    let f = DateFormatter()
-                    f.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXXXX"
-                    f.locale = Locale(identifier: "en_US_POSIX")
-                    f.timeZone = TimeZone(secondsFromGMT: 0)
-                    return f
-                }()
-            ]
-            
-            for formatter in formatters {
-                if let date = formatter.date(from: dateString) {
-                    return date
-                }
-            }
-            
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Invalid date format: \(dateString)"
-            )
-        })
+        decoder.dateDecodingStrategy = .iso8601
         self.decoder = decoder
         
         let encoder = JSONEncoder()
@@ -633,6 +805,68 @@ final class APIClient {
         return try await self.request(
             "/groups/\(groupId.uuidString)/expenses",
             method: "POST",
+            body: request,
+            requiresAuth: true
+        )
+    }
+    
+    // MARK: - Shopping Sessions API
+    
+    func listShoppingSessions(groupId: UUID) async throws -> [ShoppingSession] {
+        print("[APIClient] Fetching shopping sessions for group: \(groupId)")
+        return try await self.request(
+            "/groups/\(groupId.uuidString)/shopping-sessions",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+    
+    func createShoppingSession(groupId: UUID, request: ShoppingSessionCreate) async throws -> ShoppingSession {
+        print("[APIClient] Creating shopping session: \(request.title)")
+        return try await self.request(
+            "/groups/\(groupId.uuidString)/shopping-sessions",
+            method: "POST",
+            body: request,
+            requiresAuth: true
+        )
+    }
+    
+    func getShoppingSession(sessionId: UUID) async throws -> ShoppingSession {
+        print("[APIClient] Fetching shopping session: \(sessionId)")
+        return try await self.request(
+            "/shopping-sessions/\(sessionId.uuidString)",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+    
+    func setParticipants(sessionId: UUID, membershipIds: [UUID]) async throws -> ShoppingSession {
+        print("[APIClient] Setting participants for session: \(sessionId)")
+        let request = ParticipantSetRequest(participantMembershipIds: membershipIds)
+        return try await self.request(
+            "/shopping-sessions/\(sessionId.uuidString)/participants",
+            method: "PUT",
+            body: request,
+            requiresAuth: true
+        )
+    }
+    
+    func createShoppingItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem {
+        print("[APIClient] Creating item: \(request.name)")
+        return try await self.request(
+            "/shopping-sessions/\(sessionId.uuidString)/items",
+            method: "POST",
+            body: request,
+            requiresAuth: true
+        )
+    }
+    
+    func setItemSharers(itemId: UUID, membershipIds: [UUID]) async throws -> ShoppingItem {
+        print("[APIClient] Setting sharers for item: \(itemId)")
+        let request = SharersSetRequest(membershipIds: membershipIds)
+        return try await self.request(
+            "/items/\(itemId.uuidString)/sharers",
+            method: "PUT",
             body: request,
             requiresAuth: true
         )
@@ -792,6 +1026,13 @@ final class GroupsService {
     }
 }
 
+// MARK: - Helpers
+
+func formatCurrency(cents: Int, currency: String) -> String {
+    let amount = Double(cents) / 100.0
+    return String(format: "$%.2f", amount)
+}
+
 // MARK: - Keychain
 
 struct KeychainService {
@@ -835,6 +1076,56 @@ struct KeychainService {
     }
 }
 
+// MARK: - Design System Colors
+extension Color {
+    static let blue600 = Color(hex: "2563EB")
+    static let blue700 = Color(hex: "1D4ED8")
+    static let blue500 = Color(hex: "3B82F6")
+    static let blue50 = Color(hex: "EFF6FF")
+    static let gray900 = Color(hex: "111827")
+    static let gray700 = Color(hex: "374151")
+    static let gray600 = Color(hex: "4B5563")
+    static let gray500 = Color(hex: "6B7280")
+    static let gray400 = Color(hex: "9CA3AF")
+    static let gray300 = Color(hex: "D1D5DB")
+    static let gray200 = Color(hex: "E5E7EB")
+    static let gray100 = Color(hex: "F3F4F6")
+    static let gray50 = Color(hex: "F9FAFB")
+    
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
+
+// MARK: - Button Style
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
 // MARK: - Views
 
 struct LoginView: View {
@@ -843,40 +1134,208 @@ struct LoginView: View {
     @State private var password: String = ""
     @State private var isSubmitting = false
     @State private var alertMessage: String?
+    @State private var showSignUp = false
+    @FocusState private var focusedField: Field?
+    
+    enum Field {
+        case email, password
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Sign in")) {
-                    TextField("Email", text: $email)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                    SecureField("Password", text: $password)
-                }
-
-                Section {
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        if isSubmitting {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text("Log in")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .disabled(isSubmitting || email.isEmpty || password.isEmpty)
-                }
+            ZStack {
+                // Gradient background
+                LinearGradient(
+                    colors: [Color.blue50, Color.gray50],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
                 
-                Section {
-                    NavigationLink("Create account") {
-                        SignUpView()
+                VStack(spacing: 0) {
+                    Spacer()
+                    
+                    // Logo Section
+                    VStack(spacing: 12) {
+                        // Logo Icon
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.blue600)
+                                .frame(width: 64, height: 64)
+                                .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
+                            
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 32, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                        .accessibilityLabel("ClearSplit logo")
+                        
+                        // App Name
+                        Text("ClearSplit")
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.gray900)
+                        
+                        // Tagline
+                        Text("\"clearly split with your friends\"")
+                            .font(.system(size: 16, weight: .regular))
+                            .italic()
+                            .foregroundColor(.gray600)
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    Spacer()
+                        .frame(height: 32)
+                    
+                    // Form Card
+                    VStack(spacing: 20) {
+                        // Email Field
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Email")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.gray700)
+                            
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white)
+                                
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(
+                                        focusedField == .email ? Color.blue500 : Color.gray300,
+                                        lineWidth: focusedField == .email ? 2 : 1
+                                    )
+                                
+                                if focusedField == .email {
+                                    RoundedRectangle(cornerRadius: 15)
+                                        .stroke(Color.blue500.opacity(0.5), lineWidth: 3)
+                                        .padding(-3)
+                                }
+                                
+                                TextField("you@example.com", text: $email)
+                                    .textContentType(.emailAddress)
+                                    .keyboardType(.emailAddress)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(.gray900)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .focused($focusedField, equals: .email)
+                                    .submitLabel(.next)
+                                    .onSubmit {
+                                        focusedField = .password
+                                    }
+                            }
+                            .frame(height: 48)
+                        }
+                        
+                        // Password Field
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Password")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.gray700)
+                            
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white)
+                                
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(
+                                        focusedField == .password ? Color.blue500 : Color.gray300,
+                                        lineWidth: focusedField == .password ? 2 : 1
+                                    )
+                                
+                                if focusedField == .password {
+                                    RoundedRectangle(cornerRadius: 15)
+                                        .stroke(Color.blue500.opacity(0.5), lineWidth: 3)
+                                        .padding(-3)
+                                }
+                                
+                                SecureField("••••••••", text: $password)
+                                    .textContentType(.password)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .font(.system(size: 16, weight: .regular))
+                                    .foregroundColor(.gray900)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .focused($focusedField, equals: .password)
+                                    .submitLabel(.done)
+                                    .onSubmit {
+                                        if !email.isEmpty && !password.isEmpty {
+                                            Task { await submit() }
+                                        }
+                                    }
+                            }
+                            .frame(height: 48)
+                        }
+                        
+                        // Log In Button
+                        Button {
+                            Task { await submit() }
+                        } label: {
+                            HStack {
+                                if isSubmitting {
+                                    ProgressView()
+                                        .tint(.white)
+                                }
+                                Text("Log In")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundColor(.white)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.blue600)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(isSubmitting || email.isEmpty || password.isEmpty)
+                        .opacity((isSubmitting || email.isEmpty || password.isEmpty) ? 0.5 : 1.0)
+                        .buttonStyle(ScaleButtonStyle())
+                    }
+                    .padding(24)
+                    .background(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .shadow(color: Color.black.opacity(0.05), radius: 2, y: 1)
+                    
+                    Spacer()
+                        .frame(height: 32)
+                    
+                    // Sign Up Section
+                    VStack(spacing: 12) {
+                        Text("Don't have an account?")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(.gray600)
+                        
+                        Button {
+                            showSignUp = true
+                        } label: {
+                            Text("Create Account")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.gray900)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(Color.white)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.gray200, lineWidth: 1)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(isSubmitting)
+                        .buttonStyle(ScaleButtonStyle())
+                    }
+                    
+                    Spacer()
                 }
+                .padding(.horizontal, 24)
+                .frame(maxWidth: 384)
             }
-            .navigationTitle("ClearSplit")
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(isPresented: $showSignUp) {
+                SignUpView()
+            }
             .alert("Error", isPresented: Binding(get: { alertMessage != nil }, set: { _ in alertMessage = nil })) {
                 Button("OK", role: .cancel) { }
             } message: {
@@ -904,59 +1363,321 @@ struct LoginView: View {
     }
 }
 
+// MARK: - Sign Up Sub-Views
+struct SignUpLogoSection: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.blue600)
+                    .frame(width: 64, height: 64)
+                    .shadow(color: Color.blue600.opacity(0.15), radius: 8, y: 2)
+                
+                Image(systemName: "tablecells")
+                    .font(.system(size: 32, weight: .medium))
+                    .foregroundColor(.white)
+            }
+            .accessibilityLabel("ClearSplit app icon")
+            
+            Text("Create Account")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(.gray900)
+                .tracking(-0.5)
+            
+            Text("Join your roommates on ClearSplit")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(.gray600)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+        }
+    }
+}
+
+struct SignUpFormField: View {
+    let label: String
+    let placeholder: String
+    @Binding var text: String
+    let focusedField: SignUpView.Field?
+    let field: SignUpView.Field
+    let keyboardType: UIKeyboardType
+    let textContentType: UITextContentType
+    let autocapitalization: TextInputAutocapitalization
+    let enableAutocorrection: Bool
+    let focusBinding: FocusState<SignUpView.Field?>.Binding
+    let onSubmit: (() -> Void)?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(Font.system(size: 14, weight: .medium))
+                .foregroundColor(Color.gray700)
+            
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(focusedField == field ? Color.white : Color.gray50)
+                
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        focusedField == field ? Color.blue600 : Color.clear,
+                        lineWidth: focusedField == field ? 2 : 0
+                    )
+                
+                if focusedField == field {
+                    RoundedRectangle(cornerRadius: 11)
+                        .stroke(Color.blue600.opacity(0.1), lineWidth: 4)
+                        .padding(-4)
+                }
+                
+                if enableAutocorrection {
+                    TextField(placeholder, text: $text)
+                        .textContentType(textContentType)
+                        .keyboardType(keyboardType)
+                        .textInputAutocapitalization(autocapitalization)
+                        .font(Font.system(size: 16, weight: .regular))
+                        .foregroundColor(Color.gray900)
+                        .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                        .focused(focusBinding, equals: field)
+                        .submitLabel(field == .password ? SubmitLabel.done : SubmitLabel.next)
+                        .onSubmit {
+                            onSubmit?()
+                        }
+                } else {
+                    TextField(placeholder, text: $text)
+                        .textContentType(textContentType)
+                        .keyboardType(keyboardType)
+                        .textInputAutocapitalization(autocapitalization)
+                        .autocorrectionDisabled()
+                        .font(Font.system(size: 16, weight: .regular))
+                        .foregroundColor(Color.gray900)
+                        .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                        .focused(focusBinding, equals: field)
+                        .submitLabel(field == .password ? SubmitLabel.done : SubmitLabel.next)
+                        .onSubmit {
+                            onSubmit?()
+                        }
+                }
+            }
+            .frame(height: 48)
+        }
+    }
+}
+
+struct SignUpPasswordField: View {
+    @Binding var password: String
+    @Binding var isPasswordVisible: Bool
+    let focusedField: SignUpView.Field?
+    let isFormValid: Bool
+    let focusBinding: FocusState<SignUpView.Field?>.Binding
+    let onSubmit: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Password")
+                .font(Font.system(size: 14, weight: .medium))
+                .foregroundColor(Color.gray700)
+            
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(focusedField == .password ? Color.white : Color.gray50)
+                
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(
+                        focusedField == .password ? Color.blue600 : Color.clear,
+                        lineWidth: focusedField == .password ? 2 : 0
+                    )
+                
+                if focusedField == .password {
+                    RoundedRectangle(cornerRadius: 11)
+                        .stroke(Color.blue600.opacity(0.1), lineWidth: 4)
+                        .padding(-4)
+                }
+                
+                HStack {
+                    if isPasswordVisible {
+                        TextField("••••••••", text: $password)
+                            .textContentType(.newPassword)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(Font.system(size: 16, weight: .regular))
+                            .foregroundColor(Color.gray900)
+                            .focused(focusBinding, equals: .password)
+                            .submitLabel(SubmitLabel.done)
+                            .onSubmit {
+                                if isFormValid {
+                                    onSubmit()
+                                }
+                            }
+                    } else {
+                        SecureField("••••••••", text: $password)
+                            .textContentType(.newPassword)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(Font.system(size: 16, weight: .regular))
+                            .foregroundColor(Color.gray900)
+                            .focused(focusBinding, equals: .password)
+                            .submitLabel(SubmitLabel.done)
+                            .onSubmit {
+                                if isFormValid {
+                                    onSubmit()
+                                }
+                            }
+                    }
+                    
+                    Button(action: { isPasswordVisible.toggle() }) {
+                        Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                            .font(Font.system(size: 20))
+                            .foregroundColor(Color.gray500)
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel(isPasswordVisible ? "Hide password" : "Show password")
+                }
+                .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+            }
+            .frame(height: 48)
+        }
+    }
+}
+
 struct SignUpView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var firstName: String = ""
+    @State private var lastName: String = ""
     @State private var email: String = ""
     @State private var password: String = ""
-    @State private var confirmPassword: String = ""
+    @State private var isPasswordVisible: Bool = false
     @State private var isSubmitting = false
     @State private var alertMessage: String?
+    @FocusState private var focusedField: Field?
+    
+    enum Field {
+        case firstName, lastName, email, password
+    }
+    
+    private var isFormValid: Bool {
+        !firstName.isEmpty &&
+        !lastName.isEmpty &&
+        !email.isEmpty &&
+        isValidEmail(email) &&
+        !password.isEmpty &&
+        password.count >= 8
+    }
     
     var body: some View {
-        Form {
-            Section(header: Text("Create your account")) {
-                TextField("Email", text: $email)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                SecureField("Password (min 8 characters)", text: $password)
-                    .textContentType(.newPassword)
-                SecureField("Confirm Password", text: $confirmPassword)
-                    .textContentType(.newPassword)
-            }
-            
-            if !email.isEmpty && !password.isEmpty && !confirmPassword.isEmpty {
-                Section {
-                    if password.count < 8 {
-                        Text("Password must be at least 8 characters")
-                            .foregroundStyle(.red)
-                            .font(.caption)
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: 40)
+                
+                SignUpLogoSection()
+                
+                Spacer()
+                    .frame(height: 36)
+                
+                // Form Card
+                VStack(alignment: .leading, spacing: 20) {
+                    SignUpFormField(
+                        label: "First Name",
+                        placeholder: "Alex",
+                        text: $firstName,
+                        focusedField: focusedField,
+                        field: .firstName,
+                        keyboardType: .default,
+                        textContentType: .givenName,
+                        autocapitalization: .words,
+                        enableAutocorrection: true,
+                        focusBinding: $focusedField,
+                        onSubmit: { focusedField = .lastName }
+                    )
+                    
+                    SignUpFormField(
+                        label: "Last Name",
+                        placeholder: "Smith",
+                        text: $lastName,
+                        focusedField: focusedField,
+                        field: .lastName,
+                        keyboardType: .default,
+                        textContentType: .familyName,
+                        autocapitalization: .words,
+                        enableAutocorrection: true,
+                        focusBinding: $focusedField,
+                        onSubmit: { focusedField = .email }
+                    )
+                    
+                    SignUpFormField(
+                        label: "Email",
+                        placeholder: "you@example.com",
+                        text: $email,
+                        focusedField: focusedField,
+                        field: .email,
+                        keyboardType: .emailAddress,
+                        textContentType: .emailAddress,
+                        autocapitalization: .never,
+                        enableAutocorrection: false,
+                        focusBinding: $focusedField,
+                        onSubmit: { focusedField = .password }
+                    )
+                    
+                    SignUpPasswordField(
+                        password: $password,
+                        isPasswordVisible: $isPasswordVisible,
+                        focusedField: focusedField,
+                        isFormValid: isFormValid,
+                        focusBinding: $focusedField,
+                        onSubmit: { Task { await signUp() } }
+                    )
+                    
+                    // Create Account Button
+                    Button(action: { Task { await signUp() } }) {
+                        HStack {
+                            if isSubmitting {
+                                ProgressView()
+                                    .tint(.white)
+                            } else {
+                                Text("Create Account")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(isFormValid ? Color.blue600 : Color.gray300)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .shadow(
+                            color: isFormValid ? Color.blue600.opacity(0.2) : .clear,
+                            radius: 4, y: 2
+                        )
                     }
-                    if password != confirmPassword {
-                        Text("Passwords do not match")
-                            .foregroundStyle(.red)
-                            .font(.caption)
-                    }
+                    .disabled(isSubmitting || !isFormValid)
+                    .buttonStyle(ScaleButtonStyle())
                 }
+                .padding(24)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .shadow(color: Color.black.opacity(0.08), radius: 3, y: 1)
+                
+                Spacer()
             }
-            
-            Section {
-                Button {
-                    Task { await signUp() }
-                } label: {
-                    if isSubmitting {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text("Sign Up")
-                            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+        }
+        .background(Color(hex: "F0F4F8"))
+        .navigationBarBackButtonHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { dismiss() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .regular))
+                        Text("Back")
+                            .font(.system(size: 16, weight: .regular))
                     }
+                    .foregroundColor(.gray700)
+                    .frame(width: 70, height: 44)
                 }
-                .disabled(isSubmitting || !isValid)
+                .accessibilityLabel("Back to login")
             }
         }
-        .navigationTitle("Sign Up")
-        .navigationBarTitleDisplayMode(.inline)
         .alert("Error", isPresented: Binding(get: { alertMessage != nil }, set: { _ in alertMessage = nil })) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -964,16 +1685,9 @@ struct SignUpView: View {
         }
     }
     
-    private var isValid: Bool {
-        !email.isEmpty &&
-        email.contains("@") &&
-        password.count >= 8 &&
-        password == confirmPassword
-    }
-    
     private func signUp() async {
         print("[SignUpView] Sign up called with email: \(email)")
-        guard isValid else {
+        guard isFormValid else {
             print("[SignUpView] Validation failed")
             return
         }
@@ -981,7 +1695,12 @@ struct SignUpView: View {
         isSubmitting = true
         do {
             print("[SignUpView] Calling appState.signup...")
-            try await appState.signup(email: email, password: password)
+            try await appState.signup(
+                email: email,
+                password: password,
+                firstName: firstName,
+                lastName: lastName
+            )
             print("[SignUpView] Sign up succeeded!")
             // No need to dismiss - the user is now authenticated and will see GroupsListView
         } catch {
@@ -999,72 +1718,88 @@ struct SignUpView: View {
         }
         isSubmitting = false
     }
+    
+    private func isValidEmail(_ email: String) -> Bool {
+        let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+        let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
+        return emailPredicate.evaluate(with: email)
+    }
 }
 
 struct GroupsListView: View {
     @EnvironmentObject private var appState: AppState
     @State private var alertMessage: String?
     @State private var showingCreateGroup = false
+    
+    private var showAlert: Binding<Bool> {
+        Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )
+    }
+    
+    @ViewBuilder
+    private var content: some View {
+        if appState.groups.isEmpty {
+            VStack(spacing: 10) {
+                Text("No groups yet")
+                    .font(.headline)
+                Text("Tap + to create your first group")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        } else {
+            List(appState.groups) { group in
+                NavigationLink(value: group) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.name)
+                            .font(.headline)
+                        HStack {
+                            Text(group.currency)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(group.createdAt, style: .date)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            SwiftUI.Group {
-                if appState.groups.isEmpty {
-                    VStack(spacing: 10) {
-                        Text("No groups yet")
-                            .font(.headline)
-                        Text("Tap + to create your first group")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            content
+                .navigationTitle("Groups")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Log out") { Task { await appState.logout() } }
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                } else {
-                    List(appState.groups) { group in
-                        NavigationLink(value: group) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(group.name)
-                                    .font(.headline)
-                                HStack {
-                                    Text(group.currency)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text(group.createdAt, style: .date)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showingCreateGroup = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
                         }
                     }
                 }
-            }
-            .navigationTitle("Groups")
-            .navigationDestination(for: Group.self) { group in
-                GroupDetailView(group: group)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Log out") { Task { await appState.logout() } }
+                .refreshable { await refresh() }
+                .navigationDestination(for: Group.self) { (group: Group) in
+                    GroupDetailView(group: group)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingCreateGroup = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                    }
-                }
-            }
-            .refreshable { await refresh() }
-            .sheet(isPresented: $showingCreateGroup) {
-                CreateGroupView()
-            }
-            .alert("Error", isPresented: Binding(get: { alertMessage != nil }, set: { _ in alertMessage = nil })) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(alertMessage ?? "")
-            }
+        }
+        .sheet(isPresented: $showingCreateGroup) {
+            CreateGroupView()
+        }
+        .alert("Error", isPresented: showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage ?? "")
         }
         .task { await refresh() }
     }
@@ -1217,30 +1952,7 @@ struct GroupDetailView: View {
             Section(header: Text("Shopping Sessions")) {
                 if let membershipId = group.userMembershipId {
                     NavigationLink {
-                        VStack(spacing: 20) {
-                            Image(systemName: "cart.fill")
-                                .font(.system(size: 60))
-                                .foregroundColor(.blue)
-                            Text("Shopping Sessions")
-                                .font(.title)
-                                .fontWeight(.bold)
-                            Text("Full shopping UI coming next!")
-                                .font(.body)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding()
-                            Text("Your membership ID:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(membershipId.uuidString)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.gray)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                        }
-                        .padding()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .navigationTitle("Shopping")
+                        ShoppingSessionsListView(group: group, membershipId: membershipId)
                     } label: {
                         HStack {
                             Image(systemName: "cart.fill")
@@ -1865,6 +2577,755 @@ struct AddExpenseSheet: View {
             } else {
                 errorMessage = "Failed to create expense"
             }
+            showError = true
+        }
+    }
+}
+
+// MARK: - Shopping Sessions Views
+
+struct ShoppingSessionsListView: View {
+    let group: Group
+    let membershipId: UUID
+    @EnvironmentObject private var appState: AppState
+    @State private var showingCreateSession = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    var sessions: [ShoppingSession] {
+        appState.shoppingSessionsByGroupId[group.id] ?? []
+    }
+    
+    var body: some View {
+        List {
+            if sessions.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "cart")
+                        .font(.system(size: 50))
+                        .foregroundColor(.gray)
+                    Text("No Shopping Sessions")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                    Text("Tap + to create your first shopping session")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
+            } else {
+                ForEach(sessions) { session in
+                    NavigationLink {
+                        ShoppingSessionDetailView(
+                            sessionId: session.id,
+                            groupId: group.id,
+                            membershipId: membershipId
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(session.title)
+                                    .font(.headline)
+                                Spacer()
+                                Text(session.displayTotal)
+                                    .font(.headline)
+                                    .foregroundColor(.blue)
+                            }
+                            
+                            HStack {
+                                Label("\(session.items.count) items", systemImage: "cart")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(session.createdAt, style: .date)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Shopping Sessions")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showingCreateSession = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingCreateSession) {
+            CreateShoppingSessionSheet(
+                groupId: group.id,
+                membershipId: membershipId
+            )
+        }
+        .task {
+            await loadSessions()
+        }
+        .refreshable {
+            await loadSessions()
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let message = errorMessage {
+                Text(message)
+            }
+        }
+    }
+    
+    private func loadSessions() async {
+        do {
+            try await appState.loadShoppingSessions(groupId: group.id)
+        } catch {
+            errorMessage = "Failed to load sessions: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
+struct CreateShoppingSessionSheet: View {
+    let groupId: UUID
+    let membershipId: UUID
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var title = ""
+    @State private var shoppingDate = Date()
+    @State private var totalAmountText = ""
+    @State private var selectedPayerMembershipId: UUID?
+    @State private var isCreating = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    private var members: [Membership] {
+        appState.membershipsByGroupId[groupId] ?? []
+    }
+    
+    private var selectedPayer: UUID {
+        selectedPayerMembershipId ?? membershipId
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Title", text: $title)
+                        .disabled(isCreating)
+                } header: {
+                    Text("Session Details")
+                } footer: {
+                    Text("e.g., \"Costco Run 1/7\" or \"Weekly Groceries\"")
+                }
+                
+                Section {
+                    DatePicker("Shopping Date", selection: $shoppingDate, displayedComponents: .date)
+                        .disabled(isCreating)
+                } header: {
+                    Text("When")
+                }
+                
+                Section {
+                    TextField("Total Amount", text: $totalAmountText)
+                        .keyboardType(.decimalPad)
+                        .disabled(isCreating)
+                } header: {
+                    Text("Amount")
+                } footer: {
+                    Text("Optional: Enter total amount for quick splits. Leave empty if you'll add individual items later.")
+                }
+                
+                Section {
+                    Picker("Who Paid", selection: $selectedPayerMembershipId) {
+                        ForEach(members) { member in
+                            Text(member.user?.email ?? "Unknown")
+                                .tag(member.id as UUID?)
+                        }
+                    }
+                    .disabled(isCreating)
+                } header: {
+                    Text("Payment")
+                } footer: {
+                    Text("Select who paid for this shopping trip")
+                }
+                
+                Section {
+                    Text("You'll be able to set participants and add items after creating the session.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("New Shopping Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        Task { await createSession() }
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                if let message = errorMessage {
+                    Text(message)
+                }
+            }
+            .task {
+                // Load members when sheet appears
+                if members.isEmpty {
+                    try? await appState.loadMembers(groupId: groupId)
+                }
+                // Set default payer to current user
+                if selectedPayerMembershipId == nil {
+                    selectedPayerMembershipId = membershipId
+                }
+            }
+        }
+    }
+    
+    private func createSession() async {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+        
+        // Parse total amount if provided
+        let totalAmount: Double? = {
+            let trimmed = totalAmountText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return Double(trimmed)
+        }()
+        
+        isCreating = true
+        defer { isCreating = false }
+        
+        do {
+            _ = try await appState.createShoppingSession(
+                groupId: groupId,
+                title: trimmedTitle,
+                paidBy: selectedPayer,
+                shoppingDate: shoppingDate,
+                totalAmount: totalAmount
+            )
+            dismiss()
+        } catch {
+            errorMessage = "Failed to create session: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
+struct ShoppingSessionDetailView: View {
+    let sessionId: UUID
+    let groupId: UUID
+    let membershipId: UUID
+    @EnvironmentObject private var appState: AppState
+    
+    @State private var session: ShoppingSession?
+    @State private var showingAddItem = false
+    @State private var showingSetParticipants = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    var body: some View {
+        ZStack {
+            if let session = session {
+                List {
+                    // Summary Section
+                    Section {
+                        HStack {
+                            Text("Total")
+                                .font(.headline)
+                            Spacer()
+                            Text(session.displayTotal)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .foregroundColor(.blue)
+                        }
+                        
+                        HStack {
+                            Text("Participants")
+                            Spacer()
+                            Text("\(session.participants.count)")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    // Participants Section
+                    Section("Participants") {
+                        if session.participants.isEmpty {
+                            Button {
+                                showingSetParticipants = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "person.2.badge.gearshape")
+                                        .foregroundColor(.blue)
+                                    Text("Set Participants")
+                                    Spacer()
+                                }
+                            }
+                        } else {
+                            ForEach(session.participants) { participant in
+                                HStack {
+                                    Image(systemName: "person.circle.fill")
+                                        .foregroundColor(participant.membershipId == membershipId ? .green : .blue)
+                                    Text(participant.membershipId == membershipId ? "You" : String(participant.membershipId.uuidString.prefix(8)))
+                                }
+                            }
+                            
+                            Button {
+                                showingSetParticipants = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "pencil")
+                                        .foregroundColor(.blue)
+                                    Text("Edit Participants")
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Items Section
+                    Section("Items") {
+                        if session.items.isEmpty {
+                            Text("No items yet")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        } else {
+                            ForEach(session.items) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(item.name)
+                                            .font(.headline)
+                                        Spacer()
+                                        Text(item.displayTotal)
+                                            .font(.headline)
+                                            .foregroundColor(.blue)
+                                    }
+                                    
+                                    HStack {
+                                        Text("Qty: \(item.quantity)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text("•")
+                                            .foregroundColor(.secondary)
+                                        Text("Split \(item.splits.count) ways")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    if !item.splits.isEmpty {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            ForEach(item.splits) { split in
+                                                HStack {
+                                                    Text(split.membershipId == membershipId ? "You" : String(split.membershipId.uuidString.prefix(8)))
+                                                        .font(.caption2)
+                                                        .foregroundColor(split.membershipId == membershipId ? .green : .secondary)
+                                                    Spacer()
+                                                    Text(split.displayAmount)
+                                                        .font(.caption2)
+                                                        .foregroundColor(.secondary)
+                                                }
+                                            }
+                                        }
+                                        .padding(.leading, 12)
+                                        .padding(.top, 4)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle(session.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showingAddItem = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .disabled(session.participants.isEmpty)
+                    }
+                }
+            } else if isLoading {
+                ProgressView("Loading...")
+            } else {
+                VStack {
+                    Text("Session not found")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddItem) {
+            if let session = session {
+                AddItemSheet(
+                    sessionId: session.id,
+                    groupId: groupId,
+                    membershipId: membershipId,
+                    participants: session.participants
+                )
+            }
+        }
+        .sheet(isPresented: $showingSetParticipants) {
+            SetParticipantsSheet(
+                sessionId: sessionId,
+                groupId: groupId,
+                currentParticipantIds: session?.participants.map { $0.membershipId } ?? []
+            )
+        }
+        .task {
+            await loadSession()
+        }
+        .refreshable {
+            await loadSession()
+        }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let message = errorMessage {
+                Text(message)
+            }
+        }
+    }
+    
+    private func loadSession() async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            session = try await appState.refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        } catch {
+            errorMessage = "Failed to load session: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
+struct SetParticipantsSheet: View {
+    let sessionId: UUID
+    let groupId: UUID
+    let currentParticipantIds: [UUID]
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var selectedMembershipIds: Set<UUID> = []
+    @State private var newMemberEmail = ""
+    @State private var isAddingMember = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    var members: [Membership] {
+        appState.membershipsByGroupId[groupId] ?? []
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        TextField("Email address", text: $newMemberEmail)
+                            .textContentType(.emailAddress)
+                            .autocapitalization(.none)
+                            .keyboardType(.emailAddress)
+                            .disabled(isAddingMember)
+                        
+                        Button("Add") {
+                            Task { await addMember() }
+                        }
+                        .disabled(newMemberEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAddingMember)
+                    }
+                } header: {
+                    Text("Add Participant by Email")
+                } footer: {
+                    Text("Enter the email of a registered user to add them as a participant")
+                }
+                
+                Section {
+                    if members.isEmpty {
+                        Text("Loading members...")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(members) { member in
+                            Button {
+                                if selectedMembershipIds.contains(member.id) {
+                                    selectedMembershipIds.remove(member.id)
+                                } else {
+                                    selectedMembershipIds.insert(member.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: selectedMembershipIds.contains(member.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedMembershipIds.contains(member.id) ? .blue : .gray)
+                                    
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(member.displayName)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+                                        if let email = member.user?.email {
+                                            Text(email)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+                                    
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } header: {
+                    Text("Select Participants")
+                } footer: {
+                    Text("Select who participated in this shopping session")
+                }
+            }
+            .navigationTitle("Set Participants")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await saveParticipants() }
+                    }
+                    .disabled(selectedMembershipIds.isEmpty || isSaving)
+                }
+            }
+            .task {
+                selectedMembershipIds = Set(currentParticipantIds)
+                if members.isEmpty {
+                    try? await appState.loadMembers(groupId: groupId)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                if let message = errorMessage {
+                    Text(message)
+                }
+            }
+        }
+    }
+    
+    private func addMember() async {
+        let trimmedEmail = newMemberEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedEmail.isEmpty else { return }
+        
+        isAddingMember = true
+        defer { isAddingMember = false }
+        
+        do {
+            // Add member to group (backend will verify email exists)
+            let membership = try await appState.addMemberToGroup(
+                groupId: groupId,
+                email: trimmedEmail
+            )
+            
+            // Auto-select the newly added member
+            selectedMembershipIds.insert(membership.id)
+            
+            // Clear the email field
+            newMemberEmail = ""
+            
+        } catch let error as APIError {
+            switch error {
+            case .serverError(let statusCode, let message):
+                if statusCode == 404 {
+                    errorMessage = "No user found with email '\(trimmedEmail)'. They must register first."
+                } else if statusCode == 400 && message?.contains("already a member") == true {
+                    errorMessage = "User is already a member of this group"
+                } else {
+                    errorMessage = message ?? "Failed to add member"
+                }
+            default:
+                errorMessage = "Failed to add member: \(error.localizedDescription)"
+            }
+            showError = true
+        } catch {
+            errorMessage = "Failed to add member: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+    
+    private func saveParticipants() async {
+        isSaving = true
+        defer { isSaving = false }
+        
+        do {
+            _ = try await appState.setSessionParticipants(
+                sessionId: sessionId,
+                groupId: groupId,
+                membershipIds: Array(selectedMembershipIds)
+            )
+            dismiss()
+        } catch {
+            errorMessage = "Failed to save participants: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
+struct AddItemSheet: View {
+    let sessionId: UUID
+    let groupId: UUID
+    let membershipId: UUID
+    let participants: [ShoppingSessionParticipant]
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var itemName = ""
+    @State private var quantity = "1"
+    @State private var priceText = ""
+    @State private var selectedSharerIds: Set<UUID> = []
+    @State private var isCreating = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    var isValid: Bool {
+        !itemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !priceText.isEmpty &&
+        (Decimal(string: priceText) ?? 0) > 0 &&
+        (Int(quantity) ?? 0) >= 1 &&
+        !selectedSharerIds.isEmpty
+    }
+    
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Item Details") {
+                    TextField("Item name", text: $itemName)
+                        .disabled(isCreating)
+                    
+                    TextField("Quantity", text: $quantity)
+                        .keyboardType(.numberPad)
+                        .disabled(isCreating)
+                    
+                    HStack {
+                        Text("$")
+                        TextField("Price", text: $priceText)
+                            .keyboardType(.decimalPad)
+                            .disabled(isCreating)
+                    }
+                }
+                
+                Section("Who's Sharing This Item?") {
+                    if participants.isEmpty {
+                        Text("Set participants first")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(participants) { participant in
+                            Button {
+                                if selectedSharerIds.contains(participant.membershipId) {
+                                    selectedSharerIds.remove(participant.membershipId)
+                                } else {
+                                    selectedSharerIds.insert(participant.membershipId)
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: selectedSharerIds.contains(participant.membershipId) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedSharerIds.contains(participant.membershipId) ? .blue : .gray)
+                                    
+                                    Text(participant.membershipId == membershipId ? "You" : String(participant.membershipId.uuidString.prefix(8)))
+                                        .foregroundColor(.primary)
+                                    
+                                    Spacer()
+                                    
+                                    if !priceText.isEmpty, let price = Decimal(string: priceText), !selectedSharerIds.isEmpty {
+                                        let totalCents = Int(truncating: (price * Decimal(100)) as NSDecimalNumber)
+                                        let shareCents = totalCents / selectedSharerIds.count
+                                        Text("$\(String(format: "%.2f", Double(shareCents) / 100.0))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        Task { await createItem() }
+                    }
+                    .disabled(!isValid || isCreating)
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                if let message = errorMessage {
+                    Text(message)
+                }
+            }
+        }
+    }
+    
+    private func createItem() async {
+        let trimmedName = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              let price = Decimal(string: priceText),
+              price > 0,
+              let qty = Int(quantity),
+              qty >= 1 else { return }
+        
+        isCreating = true
+        defer { isCreating = false }
+        
+        do {
+            let totalCents = Int(truncating: (price * Decimal(100)) as NSDecimalNumber)
+            let item = try await appState.createShoppingItem(
+                sessionId: sessionId,
+                groupId: groupId,
+                name: trimmedName,
+                quantity: qty,
+                totalCents: totalCents
+            )
+            
+            // Set sharers
+            _ = try await appState.setItemSharers(
+                itemId: item.id,
+                sessionId: sessionId,
+                groupId: groupId,
+                membershipIds: Array(selectedSharerIds)
+            )
+            
+            dismiss()
+        } catch {
+            errorMessage = "Failed to create item: \(error.localizedDescription)"
             showError = true
         }
     }

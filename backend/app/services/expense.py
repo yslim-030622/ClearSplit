@@ -74,6 +74,46 @@ async def validate_memberships_in_group(
     return memberships
 
 
+async def require_membership_in_group(
+    session: AsyncSession,
+    group_id: UUID,
+    membership_id: UUID,
+    *,
+    status_code: int,
+    detail: str,
+) -> Membership:
+    """Fetch a membership within a group or raise an HTTP exception."""
+    result = await session.execute(
+        select(Membership).where(
+            Membership.id == membership_id, Membership.group_id == group_id
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status_code, detail=detail)
+    return membership
+
+
+async def require_any_membership_in_group(
+    session: AsyncSession,
+    group_id: UUID,
+    membership_ids: set[UUID],
+    *,
+    status_code: int,
+    detail: str,
+) -> Membership:
+    """Ensure at least one membership ID belongs to the group."""
+    result = await session.execute(
+        select(Membership).where(
+            Membership.group_id == group_id, Membership.id.in_(membership_ids)
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status_code, detail=detail)
+    return membership
+
+
 async def create_expense_with_equal_splits(
     session: AsyncSession,
     group_id: UUID,
@@ -108,17 +148,13 @@ async def create_expense_with_equal_splits(
         HTTPException: If validations fail
     """
     # Validate payer is in group
-    payer_result = await session.execute(
-        select(Membership).where(
-            Membership.id == paid_by_membership_id, Membership.group_id == group_id
-        )
+    await require_membership_in_group(
+        session,
+        group_id,
+        paid_by_membership_id,
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Payer membership not found in group",
     )
-    payer = payer_result.scalar_one_or_none()
-    if not payer:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payer membership not found in group",
-        )
 
     # Validate all split memberships are in group
     await validate_memberships_in_group(session, group_id, split_among_membership_ids)
@@ -188,19 +224,13 @@ async def get_expense_by_id(
         )
 
     # Check if user is a member of the group
-    result = await session.execute(
-        select(Membership).where(
-            Membership.group_id == expense.group_id,
-            Membership.id.in_(user_membership_ids),
-        )
+    await require_any_membership_in_group(
+        session,
+        expense.group_id,
+        user_membership_ids,
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You are not a member of this expense's group",
     )
-    membership = result.scalar_one_or_none()
-
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not a member of this expense's group",
-        )
 
     return expense
 
@@ -222,18 +252,13 @@ async def get_group_expenses(
         HTTPException: If user is not a member
     """
     # Verify user is a member
-    result = await session.execute(
-        select(Membership).where(
-            Membership.group_id == group_id, Membership.id.in_(user_membership_ids)
-        )
+    await require_any_membership_in_group(
+        session,
+        group_id,
+        user_membership_ids,
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You are not a member of this group",
     )
-    membership = result.scalar_one_or_none()
-
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not a member of this group",
-        )
 
     # Get expenses
     result = await session.execute(

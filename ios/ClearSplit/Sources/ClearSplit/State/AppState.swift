@@ -1,5 +1,9 @@
 import Foundation
 
+enum AppStateError: Error {
+    case invalidItemInput
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var user: User?
@@ -39,5 +43,33 @@ final class AppState: ObservableObject {
     func logout() async {
         user = nil
         await apiClient.clearTokens()
+    }
+
+    func refreshShoppingSession(sessionId: UUID, groupId: UUID) async throws -> ShoppingSession {
+        _ = groupId
+        return try await shoppingService.getSession(sessionId: sessionId)
+    }
+
+    func addItemToSession(
+        sessionId: UUID,
+        groupId: UUID,
+        name: String,
+        priceDouble: Double,
+        quantity: Int
+    ) async throws -> ShoppingSession {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, priceDouble > 0, quantity >= 1 else {
+            throw AppStateError.invalidItemInput
+        }
+
+        let totalCents = Int((priceDouble * Double(quantity) * 100.0).rounded())
+        let request = ShoppingItemCreate(
+            name: trimmedName,
+            priceCents: totalCents,
+            quantity: quantity
+        )
+
+        _ = try await shoppingService.createItem(sessionId: sessionId, request: request)
+        return try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
     }
 }
