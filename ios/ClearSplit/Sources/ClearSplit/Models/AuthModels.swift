@@ -3,6 +3,8 @@ import Foundation
 public struct User: Codable, Equatable, Identifiable {
     public let id: UUID
     public let email: String
+    public let firstName: String
+    public let lastName: String
 }
 
 struct LoginRequest: Codable {

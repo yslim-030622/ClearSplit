@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CSGroup: Codable, Equatable, Identifiable {
+public struct CSGroup: Codable, Equatable, Identifiable, Hashable {
     public let id: UUID
     public let name: String
     public let currency: String

@@ -83,6 +83,7 @@ final class APIClient {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.decoder = decoder
 
         let encoder = JSONEncoder()
