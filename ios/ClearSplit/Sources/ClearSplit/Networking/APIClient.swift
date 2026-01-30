@@ -151,10 +151,17 @@ final class APIClient {
             throw APIError.server(status: -1, message: "Invalid response")
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = String(data: data, encoding: .utf8)
+            // Try to parse FastAPI error response format: {"detail": "error message"}
+            var errorMessage: String?
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = json["detail"] as? String {
+                errorMessage = detail
+            } else if let message = String(data: data, encoding: .utf8), !message.isEmpty {
+                errorMessage = message
+            }
             // Debug logging (no secrets/tokens are in the body)
-            print("🚨 API error status=\(http.statusCode) body=\(message ?? "nil")")
-            throw APIError.server(status: http.statusCode, message: message)
+            print("🚨 API error status=\(http.statusCode) message=\(errorMessage ?? "nil")")
+            throw APIError.server(status: http.statusCode, message: errorMessage)
         }
         do {
             return try decoder.decode(T.self, from: data)

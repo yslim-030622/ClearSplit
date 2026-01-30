@@ -27,11 +27,49 @@ async def find_user_by_email(
     return result.scalar_one_or_none()
 
 
+async def find_user_by_username(
+    session: AsyncSession, username: str
+) -> User | None:
+    """Find user by username.
+
+    Args:
+        session: Database session
+        username: User username
+
+    Returns:
+        User if found, None otherwise
+    """
+    result = await session.execute(select(User).where(User.username == username))
+    return result.scalar_one_or_none()
+
+
+async def find_user_by_identifier(
+    session: AsyncSession, identifier: str
+) -> User | None:
+    """Find user by username or email.
+
+    Args:
+        session: Database session
+        identifier: Username or email
+
+    Returns:
+        User if found, None otherwise
+    """
+    from sqlalchemy import or_
+    result = await session.execute(
+        select(User).where(
+            or_(User.username == identifier, User.email == identifier)
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def add_member_to_group(
     session: AsyncSession,
     group_id: UUID,
     user_id: UUID | None = None,
     email: str | None = None,
+    username: str | None = None,
     role: MembershipRole = MembershipRole.MEMBER,
 ) -> Membership:
     """Add a member to a group.
@@ -41,6 +79,7 @@ async def add_member_to_group(
         group_id: Group UUID
         user_id: User UUID (if provided)
         email: User email (if user_id not provided)
+        username: User username (if user_id and email not provided)
         role: Membership role
 
     Returns:
@@ -65,10 +104,17 @@ async def add_member_to_group(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with email {email} not found",
             )
+    elif username:
+        user = await find_user_by_username(session, username)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User with username {username} not found",
+            )
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either user_id or email must be provided",
+            detail="Either user_id, email, or username must be provided",
         )
 
     # Check if already a member
