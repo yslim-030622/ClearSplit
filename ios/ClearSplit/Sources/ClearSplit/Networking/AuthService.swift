@@ -1,7 +1,7 @@
 import Foundation
 
 protocol AuthServicing {
-    func login(email: String, password: String) async throws -> (AuthTokens, User)
+    func login(identifier: String, password: String) async throws -> (AuthTokens, User)
     func refresh() async throws -> AuthTokens
     func me() async throws -> User
     func signup(email: String, password: String) async throws -> AuthTokens
@@ -14,11 +14,11 @@ final class AuthService: AuthServicing {
         self.client = client
     }
 
-    func login(email: String, password: String) async throws -> (AuthTokens, User) {
+    func login(identifier: String, password: String) async throws -> (AuthTokens, User) {
         let request = APIRequest<TokenResponse>(
             path: "auth/login",
             method: "POST",
-            body: LoginRequest(email: email, password: password),
+            body: LoginRequest(identifier: identifier, password: password),
             requiresAuth: false
         )
         let response: TokenResponse = try await client.request(request)
@@ -53,7 +53,7 @@ final class AuthService: AuthServicing {
         let _: TokenResponse = try await client.request(signupRequest)
 
         // Auto-login after signup
-        let tokens = try await login(email: email, password: password).0
+        let tokens = try await login(identifier: email, password: password).0
         return tokens
     }
 

@@ -1,7 +1,9 @@
 """Authentication API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -18,6 +20,8 @@ from app.schemas.auth import (
 )
 from app.schemas.user import UserRead
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -29,36 +33,60 @@ async def signup(
     """Create a new user account.
 
     Args:
-        request: Signup request with email and password
+        request: Signup request with username, email, password, first_name, last_name
         session: Database session
 
     Returns:
         Token response with access token, refresh token, and user info
 
     Raises:
-        HTTPException: If email already exists
+        HTTPException: If username or email already exists
     """
-    # Check if user already exists
-    result = await session.execute(select(User).where(User.email == request.email))
-    existing_user = result.scalar_one_or_none()
+    logger.info(f"Signup attempt for username: {request.username}, email: {request.email}")
+    
+    # Check if username already exists (check first for better error message)
+    result = await session.execute(select(User).where(User.username == request.username))
+    existing_user_by_username = result.scalar_one_or_none()
 
-    if existing_user:
+    if existing_user_by_username:
+        logger.warning(f"Signup failed: Username '{request.username}' already taken")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already taken",
+        )
+
+    # Check if email already exists
+    result = await session.execute(select(User).where(User.email == request.email))
+    existing_user_by_email = result.scalar_one_or_none()
+
+    if existing_user_by_email:
+        logger.warning(f"Signup failed: Email '{request.email}' already registered")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
 
     # Create new user
-    password_hash = hash_password(request.password)
-    user = User(
-        email=request.email,
-        password_hash=password_hash,
-        first_name=request.first_name,
-        last_name=request.last_name,
-    )
-    session.add(user)
-    await session.commit()
-    await session.refresh(user)
+    try:
+        password_hash = hash_password(request.password)
+        user = User(
+            username=request.username,
+            email=request.email,
+            password_hash=password_hash,
+            first_name=request.first_name,
+            last_name=request.last_name,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        logger.info(f"User created successfully: {user.id} ({user.username})")
+    except Exception as e:
+        logger.error(f"Error creating user: {e}", exc_info=True)
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user account",
+        )
 
     # Generate tokens
     access_token = create_access_token(user.id, user.email)
@@ -80,30 +108,34 @@ async def login(
     """Authenticate user and return tokens.
 
     Args:
-        request: Login request with email and password
+        request: Login request with username/email identifier and password
         session: Database session
 
     Returns:
         Token response with access token, refresh token, and user info
 
     Raises:
-        HTTPException: If email or password is invalid
+        HTTPException: If username/email or password is invalid
     """
-    # Find user by email
-    result = await session.execute(select(User).where(User.email == request.email))
+    # Find user by username or email (try both)
+    result = await session.execute(
+        select(User).where(
+            or_(User.username == request.identifier, User.email == request.identifier)
+        )
+    )
     user = result.scalar_one_or_none()
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid username/email or password",
         )
 
     # Verify password
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Invalid username/email or password",
         )
 
     # Generate tokens
