@@ -20,9 +20,30 @@ struct AuthTokens: Codable {
 
 struct User: Codable, Identifiable {
     let id: UUID
+    let username: String
     let email: String
     let firstName: String
     let lastName: String
+}
+
+extension User {
+    var displayName: String {
+        let fullName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespaces)
+        if !fullName.isEmpty {
+            return fullName
+        }
+        return email.components(separatedBy: "@").first ?? username
+    }
+    
+    var initials: String {
+        let firstInitial = firstName.first.map(String.init) ?? ""
+        let lastInitial = lastName.first.map(String.init) ?? ""
+        let combined = (firstInitial + lastInitial).uppercased()
+        if !combined.isEmpty {
+            return combined
+        }
+        return username.prefix(2).uppercased()
+    }
 }
 
 struct Group: Codable, Identifiable, Equatable, Hashable {
@@ -54,7 +75,13 @@ struct Membership: Codable, Identifiable {
 // MARK: - Member Preview Models
 
 struct MemberPreviewRequest: Codable {
-    let email: String
+    let username: String?
+    let email: String?
+    
+    init(username: String? = nil, email: String? = nil) {
+        self.username = username
+        self.email = email
+    }
 }
 
 struct MemberPreviewResponse: Codable {
@@ -313,19 +340,20 @@ final class AppState: ObservableObject {
         }
     }
 
-    func signup(email: String, password: String, firstName: String, lastName: String) async throws {
-        print("[AppState] Signup started for: \(email)")
+    func signup(username: String, email: String, password: String, firstName: String, lastName: String) async throws {
+        print("[AppState] Signup started for: \(username) (\(email))")
         isLoading = true
         defer { isLoading = false }
         
         struct SignupRequest: Encodable {
+            let username: String
             let email: String
             let password: String
             let first_name: String
             let last_name: String
             
             enum CodingKeys: String, CodingKey {
-                case email, password
+                case username, email, password
                 case first_name = "first_name"
                 case last_name = "last_name"
             }
@@ -342,6 +370,7 @@ final class AppState: ObservableObject {
             "/auth/signup",
             method: "POST",
             body: SignupRequest(
+                username: username,
                 email: email,
                 password: password,
                 first_name: firstName,
@@ -363,13 +392,13 @@ final class AppState: ObservableObject {
         print("[AppState] Signup complete!")
     }
     
-    func login(email: String, password: String) async throws {
-        print("[AppState] Login started for: \(email)")
+    func login(identifier: String, password: String) async throws {
+        print("[AppState] Login started for: \(identifier)")
         isLoading = true
         defer { isLoading = false }
 
         print("[AppState] Calling authService.login...")
-        let tokens = try await authService.login(email: email, password: password)
+        let tokens = try await authService.login(identifier: identifier, password: password)
         print("[AppState] Got tokens, saving to keychain...")
         keychain.saveTokens(tokens)
         print("[AppState] Fetching user info...")
@@ -428,9 +457,10 @@ final class AppState: ObservableObject {
         print("[Members] Loaded \(members.count) members")
     }
     
-    func addMemberToGroup(groupId: UUID, email: String) async throws -> Membership {
-        print("[AppState] Adding member \(email) to group: \(groupId)")
-        let membership = try await apiClient.addGroupMember(groupId: groupId, email: email)
+    func addMemberToGroup(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> Membership {
+        let identifier = username ?? email ?? ""
+        print("[AppState] Adding member \(identifier) to group: \(groupId)")
+        let membership = try await apiClient.addGroupMember(groupId: groupId, username: username, email: email)
         
         // Reload members to update cache
         try await loadMembers(groupId: groupId)
@@ -516,17 +546,19 @@ final class AppState: ObservableObject {
         return item
     }
     
-    func previewMemberInvite(groupId: UUID, email: String) async throws -> MemberPreviewResponse {
-        print("[AppState] Previewing invite for: \(email)")
-        return try await apiClient.previewMemberInvite(groupId: groupId, email: email)
+    func previewMemberInvite(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> MemberPreviewResponse {
+        let identifier = username ?? email ?? ""
+        print("[AppState] Previewing invite for: \(identifier)")
+        return try await apiClient.previewMemberInvite(groupId: groupId, username: username, email: email)
     }
     
-    func addMember(groupId: UUID, email: String) async throws {
-        print("[AppState] Adding member \(email) to group: \(groupId)")
+    func addMember(groupId: UUID, username: String? = nil, email: String? = nil) async throws {
+        let identifier = username ?? email ?? ""
+        print("[AppState] Adding member \(identifier) to group: \(groupId)")
         isLoading = true
         defer { isLoading = false }
         
-        let newMembership = try await apiClient.addGroupMember(groupId: groupId, email: email)
+        let newMembership = try await apiClient.addGroupMember(groupId: groupId, username: username, email: email)
         print("[AppState] Member added: \(newMembership.id)")
         
         // Refresh members list
@@ -1028,13 +1060,14 @@ final class APIClient {
         )
     }
     
-    func previewMemberInvite(groupId: UUID, email: String) async throws -> MemberPreviewResponse {
-        print("[APIClient] Previewing invite for \(email) in group: \(groupId)")
+    func previewMemberInvite(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> MemberPreviewResponse {
+        let identifier = username ?? email ?? ""
+        print("[APIClient] Previewing invite for \(identifier) in group: \(groupId)")
         
         let preview: MemberPreviewResponse = try await request(
             "/groups/\(groupId.uuidString)/members/preview",
             method: "POST",
-            body: MemberPreviewRequest(email: email),
+            body: MemberPreviewRequest(username: username, email: email),
             requiresAuth: true
         )
         
@@ -1042,18 +1075,20 @@ final class APIClient {
         return preview
     }
     
-    func addGroupMember(groupId: UUID, email: String) async throws -> Membership {
-        print("[APIClient] Adding member \(email) to group: \(groupId)")
+    func addGroupMember(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> Membership {
+        let identifier = username ?? email ?? ""
+        print("[APIClient] Adding member \(identifier) to group: \(groupId)")
         
         struct AddMemberRequest: Encodable {
-            let email: String
+            let username: String?
+            let email: String?
             let role: String = "member"
         }
         
         let membership: Membership = try await request(
             "/groups/\(groupId.uuidString)/members",
             method: "POST",
-            body: AddMemberRequest(email: email),
+            body: AddMemberRequest(username: username, email: email),
             requiresAuth: true
         )
         
@@ -1237,8 +1272,8 @@ final class AuthService {
         self.keychain = keychain
     }
 
-    func login(email: String, password: String) async throws -> AuthTokens {
-        struct LoginRequest: Encodable { let email: String; let password: String }
+    func login(identifier: String, password: String) async throws -> AuthTokens {
+        struct LoginRequest: Encodable { let identifier: String; let password: String }
         struct LoginResponse: Decodable {
             let accessToken: String
             let refreshToken: String
@@ -1250,7 +1285,7 @@ final class AuthService {
         let response: LoginResponse = try await client.request(
             "/auth/login",
             method: "POST",
-            body: LoginRequest(email: email, password: password),
+            body: LoginRequest(identifier: identifier, password: password),
             requiresAuth: false
         )
 
@@ -1468,9 +1503,9 @@ struct LoginView: View {
                     
                     // Form Card
                     VStack(spacing: 20) {
-                        // Email Field
+                        // Username or Email Field
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Email")
+                            Text("Username or Email")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.gray700)
                             
@@ -1490,10 +1525,10 @@ struct LoginView: View {
                                         .padding(-3)
                                 }
                                 
-                                TextField("you@example.com", text: $email)
-                                    .textContentType(.emailAddress)
-                        .keyboardType(.emailAddress)
-                        .textInputAutocapitalization(.never)
+                                TextField("username or email", text: $email)
+                                    .textContentType(.username)
+                                    .keyboardType(.default)
+                                    .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                                     .font(.system(size: 16, weight: .regular))
                                     .foregroundColor(.gray900)
@@ -1626,19 +1661,38 @@ struct LoginView: View {
     }
 
     private func submit() async {
-        print("[LoginView] Submit called with email: \(email)")
+        print("[LoginView] Submit called with identifier: \(email)")
         guard !email.isEmpty, !password.isEmpty else {
-            print("[LoginView] Email or password is empty")
+            print("[LoginView] Identifier or password is empty")
             return
         }
         isSubmitting = true
         do {
             print("[LoginView] Calling appState.login...")
-            try await appState.login(email: email, password: password)
+            try await appState.login(identifier: email, password: password)
             print("[LoginView] Login succeeded!")
         } catch {
             print("[LoginView] Login failed: \(error)")
-            alertMessage = error.localizedDescription
+            // Note: APIClient throws APIError with cases: server(status:message:), network(Error), decoding, unauthorized
+            // But this file also defines APIError with different cases. The local enum shadows the APIClient one.
+            // For now, handle errors generically
+            if let apiError = error as? APIError {
+                switch apiError {
+                case .serverError(_, let message):
+                    alertMessage = message ?? "Invalid username/email or password."
+                case .unauthorized:
+                    alertMessage = "Invalid username/email or password."
+                case .networkError(_):
+                    alertMessage = "Network error. Please check your connection."
+                case .decodingError(_):
+                    alertMessage = "Invalid response from server. Please try again."
+                default:
+                    alertMessage = apiError.errorDescription ?? error.localizedDescription
+                }
+            } else {
+                // If it's not our APIError, it might be APIClient's APIError - handle generically
+                alertMessage = error.localizedDescription
+            }
         }
         isSubmitting = false
     }
@@ -1822,6 +1876,7 @@ struct SignUpPasswordField: View {
 struct SignUpView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var username: String = ""
     @State private var firstName: String = ""
     @State private var lastName: String = ""
     @State private var email: String = ""
@@ -1832,10 +1887,12 @@ struct SignUpView: View {
     @FocusState private var focusedField: Field?
     
     enum Field {
-        case firstName, lastName, email, password
+        case username, firstName, lastName, email, password
     }
     
     private var isFormValid: Bool {
+        !username.isEmpty &&
+        isValidUsername(username) &&
         !firstName.isEmpty &&
         !lastName.isEmpty &&
         !email.isEmpty &&
@@ -1857,6 +1914,20 @@ struct SignUpView: View {
                 
                 // Form Card
                 VStack(alignment: .leading, spacing: 20) {
+                    SignUpFormField(
+                        label: "Username",
+                        placeholder: "alex123",
+                        text: $username,
+                        focusedField: focusedField,
+                        field: .username,
+                        keyboardType: .default,
+                        textContentType: .username,
+                        autocapitalization: .never,
+                        enableAutocorrection: false,
+                        focusBinding: $focusedField,
+                        onSubmit: { focusedField = .firstName }
+                    )
+                    
                     SignUpFormField(
                         label: "First Name",
                         placeholder: "Alex",
@@ -1977,6 +2048,7 @@ struct SignUpView: View {
         do {
             print("[SignUpView] Calling appState.signup...")
             try await appState.signup(
+                username: username,
                 email: email,
                 password: password,
                 firstName: firstName,
@@ -1986,12 +2058,20 @@ struct SignUpView: View {
             // No need to dismiss - the user is now authenticated and will see GroupsListView
         } catch {
             print("[SignUpView] Sign up failed: \(error)")
+            // Note: APIClient throws APIError with cases: server(status:message:), network(Error), decoding, unauthorized
+            // But this file also defines APIError with different cases. The local enum shadows the APIClient one.
             if let apiError = error as? APIError {
                 switch apiError {
                 case .serverError(_, let message):
-                    alertMessage = message ?? "Server error"
+                    alertMessage = message ?? "Server error. Please try again."
+                case .unauthorized:
+                    alertMessage = "Invalid credentials. Please check your information."
+                case .networkError(_):
+                    alertMessage = "Network error. Please check your connection."
+                case .decodingError(_):
+                    alertMessage = "Invalid response from server. Please try again."
                 default:
-                    alertMessage = apiError.localizedDescription
+                    alertMessage = apiError.errorDescription ?? error.localizedDescription
                 }
             } else {
                 alertMessage = error.localizedDescription
@@ -2004,6 +2084,13 @@ struct SignUpView: View {
         let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
         let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
         return emailPredicate.evaluate(with: email)
+    }
+    
+    private func isValidUsername(_ username: String) -> Bool {
+        // Username: 3-30 characters, alphanumeric, underscore, or hyphen only
+        let usernameRegex = "^[a-zA-Z0-9_-]{3,30}$"
+        let usernamePredicate = NSPredicate(format: "SELF MATCHES %@", usernameRegex)
+        return usernamePredicate.evaluate(with: username)
     }
 }
 
@@ -2111,6 +2198,9 @@ struct GroupDetailView: View {
     @EnvironmentObject private var appState: AppState
     
     @State private var isShowingHelp = false
+    @State private var isAddMemberDialogOpen = false
+    @State private var memberToRemove: Membership?
+    @State private var isRemoveDialogOpen = false
     
     // MARK: - Derived Data
     
@@ -2154,7 +2244,13 @@ struct GroupDetailView: View {
                     MembersCard(
                         title: "Members",
                         members: members,
-                        currentUserId: currentUserId
+                        currentUserId: currentUserId,
+                        groupName: group.name,
+                        onAddMember: { isAddMemberDialogOpen = true },
+                        onRemoveMember: { member in
+                            memberToRemove = member
+                            isRemoveDialogOpen = true
+                        }
                     )
                     
                     // Navigation cards
@@ -2167,7 +2263,11 @@ struct GroupDetailView: View {
                                 title: "Shopping Sessions",
                                 subtitle: "View and manage grocery trips"
                             ) {
-                        ShoppingSessionsListView(group: group, membershipId: membershipId)
+                                ShoppingSessionsListView(
+                                    appState: appState,
+                                    groupId: group.id,
+                                    paidByMembershipId: membershipId
+                                )
                             }
                         } else {
                             // Disabled card when membership is missing
@@ -2243,6 +2343,40 @@ struct GroupDetailView: View {
         .sheet(isPresented: $isShowingHelp) {
             GroupHelpSheet()
         }
+        .sheet(isPresented: $isAddMemberDialogOpen) {
+            AddMemberDialog(
+                groupName: group.name,
+                groupId: group.id,
+                members: members,
+                appState: appState,
+                onDismiss: {
+                    isAddMemberDialogOpen = false
+                    Task {
+                        await refreshData()
+                    }
+                }
+            )
+        }
+        .alert("Remove Member?", isPresented: $isRemoveDialogOpen) {
+            Button("Cancel", role: .cancel) {
+                memberToRemove = nil
+            }
+            Button("Remove", role: .destructive) {
+                if let member = memberToRemove {
+                    Task {
+                        // TODO: Implement remove member API call
+                        // For now, just refresh
+                        await refreshData()
+                        memberToRemove = nil
+                    }
+                }
+            }
+        } message: {
+            if let member = memberToRemove {
+                let name = member.user?.firstName ?? member.displayName
+                Text("Are you sure you want to remove \(name) from \(group.name)? This action cannot be undone.")
+            }
+        }
     }
 
     private func refreshData() async {
@@ -2286,43 +2420,75 @@ struct GroupDetailView: View {
         let title: String
         let members: [Membership]
         let currentUserId: UUID?
+        let groupName: String
+        let onAddMember: () -> Void
+        let onRemoveMember: (Membership) -> Void
         
         var body: some View {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.2")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(Color.gray700)
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(Color.gray900)
-                            Spacer()
+            VStack(alignment: .leading, spacing: 0) {
+                // Header with Add button
+                HStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.2")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(Color(hex: "4B5563"))
+                        Text("\(title) (\(members.count))")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(Color(hex: "111827"))
+                            .tracking(-0.3)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: onAddMember) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "person.badge.plus")
+                                .font(.system(size: 16, weight: .medium))
+                            Text("Add")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(hex: "2563EB"))
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(ScaleButtonStyle())
                 }
+                .padding(.bottom, 16)
                 
+                // Member list
                 if members.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No members yet")
                             .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(Color.gray600)
+                            .foregroundColor(Color(hex: "4B5563"))
                         Text("Invite your roommates to start splitting expenses.")
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color.gray500)
+                            .foregroundColor(Color(hex: "6B7280"))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 16)
                 } else {
-                    VStack(spacing: 16) {
+                    VStack(spacing: 12) {
                         ForEach(members) { member in
                             MemberRow(
                                 member: member,
-                                isCurrentUser: member.userId == currentUserId
+                                isCurrentUser: member.userId == currentUserId,
+                                onRemove: { onRemoveMember(member) }
                             )
                         }
                     }
+                    .padding(.top, 16)
                 }
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+            )
             .cornerRadius(16)
             .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         }
@@ -2331,11 +2497,10 @@ struct GroupDetailView: View {
     private struct MemberRow: View {
         let member: Membership
         let isCurrentUser: Bool
+        let onRemove: () -> Void
+        @State private var isHovered = false
         
         private var displayName: String {
-            if isCurrentUser {
-                return "You"
-            }
             if let user = member.user {
                 let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
                 if !fullName.isEmpty {
@@ -2346,46 +2511,527 @@ struct GroupDetailView: View {
             return member.displayName
         }
         
+        private var email: String? {
+            member.user?.email
+        }
+        
         private var initials: String {
             if let user = member.user {
                 let firstInitial = user.firstName.first.map(String.init) ?? ""
                 let lastInitial = user.lastName.first.map(String.init) ?? ""
                 let combined = (firstInitial + lastInitial)
                 if !combined.isEmpty {
-                    return combined
+                    return combined.uppercased()
                 }
             }
             return String(displayName.prefix(1)).uppercased()
         }
         
+        private var avatarColor: (start: Color, end: Color) {
+            let colors: [(Color, Color)] = [
+                (Color(hex: "60A5FA"), Color(hex: "2563EB")), // Blue
+                (Color(hex: "C084FC"), Color(hex: "9333EA")), // Purple
+                (Color(hex: "4ADE80"), Color(hex: "16A34A")), // Green
+                (Color(hex: "FB923C"), Color(hex: "EA580C")), // Orange
+                (Color(hex: "F472B6"), Color(hex: "DB2777")), // Pink
+                (Color(hex: "818CF8"), Color(hex: "4F46E5"))  // Indigo
+            ]
+            // Use member ID to consistently assign colors
+            let index = abs(member.id.hashValue) % colors.count
+            return colors[index]
+        }
+        
         var body: some View {
             HStack(spacing: 12) {
+                // Avatar
                 ZStack {
                     Circle()
-                        .fill(Color.blue500)
+                        .fill(
+                            LinearGradient(
+                                colors: [avatarColor.start, avatarColor.end],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .frame(width: 40, height: 40)
                     Text(initials)
                         .font(.system(size: initials.count > 1 ? 14 : 18, weight: .semibold))
                         .foregroundColor(.white)
                 }
                 
-                Text(displayName)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(Color.gray900)
+                // Content area
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(isCurrentUser ? "You" : displayName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "111827"))
+                            .lineLimit(1)
+                        
+                        if isCurrentUser {
+                            Text("You")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Color(hex: "1D4ED8"))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color(hex: "DBEAFE"))
+                                .cornerRadius(8)
+                        }
+                    }
+                    
+                    if let email = email {
+                        Text(email)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(Color(hex: "6B7280"))
+                            .lineLimit(1)
+                    }
+                }
                 
                 Spacer()
                 
-                if isCurrentUser {
-                    Text("You")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color.blue700)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.blue50)
-                        .cornerRadius(8)
+                // Remove button (only for non-current users)
+                if !isCurrentUser {
+                    Button(action: onRemove) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(isHovered ? Color(hex: "DC2626") : Color(hex: "9CA3AF"))
+                            .frame(width: 28, height: 28)
+                            .background(isHovered ? Color(hex: "FEF2F2") : Color.clear)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .opacity(isHovered ? 1.0 : 0.6)
+                    .animation(.easeInOut(duration: 0.2), value: isHovered)
                 }
             }
-            .frame(height: 40)
+            .frame(height: 56)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovered = hovering
+            }
+        }
+    }
+    
+    private struct AddMemberDialog: View {
+        let groupName: String
+        let groupId: UUID
+        let members: [Membership]
+        @ObservedObject var appState: AppState
+        let onDismiss: () -> Void
+        
+        @State private var searchUserId = ""
+        @State private var searchState: SearchState = .idle
+        @State private var foundUser: User?
+        @State private var errorMessage: String?
+        
+        @FocusState private var isInputFocused: Bool
+        
+        enum SearchState {
+            case idle
+            case searching
+            case notFound
+            case alreadyMember
+            case found
+        }
+        
+        private var canSearch: Bool {
+            !searchUserId.trimmingCharacters(in: .whitespaces).isEmpty && searchState != .searching
+        }
+        
+        private var canAdd: Bool {
+            searchState == .found && foundUser != nil
+        }
+        
+        var body: some View {
+            ZStack {
+                // Backdrop
+                Color.black.opacity(0.5)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        resetDialog()
+                    }
+                
+                // Dialog
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Section 1: Header
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Add Member")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(Color(hex: "111827"))
+                                    .tracking(-0.4)
+                                
+                                Text("Search for a user by their ID to add them to \(groupName).")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(Color(hex: "4B5563"))
+                                    .lineSpacing(4)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 16)
+                            
+                            // Section 2: Search Input Area
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("User ID")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(Color(hex: "111827"))
+                                
+                                HStack(spacing: 8) {
+                                    TextField("", text: $searchUserId)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 16, weight: .regular))
+                                        .foregroundColor(Color(hex: "111827"))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(Color.white)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(isInputFocused ? Color(hex: "2563EB") : Color(hex: "D1D5DB"), lineWidth: isInputFocused ? 2 : 1)
+                                        )
+                                        .disabled(searchState == .searching)
+                                        .focused($isInputFocused)
+                                        .onChange(of: searchUserId) { _ in
+                                            if searchState != .idle {
+                                                searchState = .idle
+                                                foundUser = nil
+                                            }
+                                        }
+                                        .onSubmit {
+                                            if canSearch {
+                                                handleSearchUser()
+                                            }
+                                        }
+                                    
+                                    Button(action: handleSearchUser) {
+                                        HStack(spacing: 8) {
+                                            if searchState == .searching {
+                                                ProgressView()
+                                                    .tint(.white)
+                                                    .scaleEffect(0.8)
+                                            } else {
+                                                Image(systemName: "magnifyingglass")
+                                                    .font(.system(size: 16, weight: .medium))
+                                            }
+                                            Text(searchState == .searching ? "Searching" : "Search")
+                                                .font(.system(size: 14, weight: .medium))
+                                        }
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 12)
+                                        .frame(height: 40)
+                                        .background(canSearch ? Color(hex: "2563EB") : Color(hex: "D1D5DB"))
+                                        .cornerRadius(8)
+                                    }
+                                    .disabled(!canSearch)
+                                    .buttonStyle(ScaleButtonStyle())
+                                }
+                            }
+                            .padding(.vertical, 16)
+                            
+                            // Section 3: Search Results Area
+                            if searchState != .idle {
+                                VStack(spacing: 0) {
+                                    switch searchState {
+                                    case .notFound:
+                                        NotFoundResultCard(searchUserId: searchUserId)
+                                    case .alreadyMember:
+                                        if let user = foundUser {
+                                            AlreadyMemberResultCard(user: user)
+                                        }
+                                    case .found:
+                                        if let user = foundUser {
+                                            FoundResultCard(user: user)
+                                        }
+                                    case .searching, .idle:
+                                        EmptyView()
+                                    }
+                                }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
+                        .padding(24)
+                    }
+                    
+                    // Section 4: Dialog Footer
+                    VStack(spacing: 0) {
+                        Divider()
+                            .padding(.top, 16)
+                        
+                        HStack(spacing: 8) {
+                            Button(action: resetDialog) {
+                                Text("Cancel")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(Color(hex: "374151"))
+                                    .padding(.horizontal, 16)
+                                    .frame(height: 40)
+                                    .background(Color.white)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(Color(hex: "D1D5DB"), lineWidth: 1)
+                                    )
+                                    .cornerRadius(8)
+                            }
+                            .buttonStyle(ScaleButtonStyle())
+                            
+                            Button(action: handleAddFoundUser) {
+                                Text("Add Member")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 16)
+                                    .frame(height: 40)
+                                    .background(canAdd ? Color(hex: "2563EB") : Color(hex: "D1D5DB"))
+                                    .cornerRadius(8)
+                            }
+                            .disabled(!canAdd)
+                            .buttonStyle(ScaleButtonStyle())
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
+                    }
+                }
+                .frame(maxWidth: 500)
+                .background(Color.white)
+                .cornerRadius(16)
+                .shadow(color: Color.black.opacity(0.1), radius: 20, x: 0, y: 10)
+                .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: 4)
+                .padding(.horizontal, 16)
+            }
+            .onAppear {
+                isInputFocused = true
+            }
+        }
+        
+        private func handleSearchUser() {
+            let trimmedId = searchUserId.trimmingCharacters(in: .whitespaces)
+            guard !trimmedId.isEmpty else { return }
+            
+            searchState = .searching
+            foundUser = nil
+            errorMessage = nil
+            
+            Task {
+                do {
+                    let preview = try await appState.previewMemberInvite(groupId: groupId, username: trimmedId)
+                    
+                    await MainActor.run {
+                        if !preview.found {
+                            searchState = .notFound
+                            foundUser = nil
+                        } else if preview.alreadyMember == true {
+                            searchState = .alreadyMember
+                            foundUser = preview.user
+                        } else if let user = preview.user {
+                            searchState = .found
+                            foundUser = user
+                        } else {
+                            searchState = .notFound
+                            foundUser = nil
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        searchState = .notFound
+                        foundUser = nil
+                        if let apiError = error as? APIError {
+                            switch apiError {
+                            case .serverError(_, let message):
+                                errorMessage = message ?? "Failed to search for user"
+                            default:
+                                errorMessage = "Failed to search for user"
+                            }
+                        } else {
+                            errorMessage = "Failed to search for user"
+                        }
+                    }
+                }
+            }
+        }
+        
+        private func handleAddFoundUser() {
+            guard let user = foundUser else { return }
+            
+            Task {
+                do {
+                    _ = try await appState.addMemberToGroup(groupId: groupId, username: user.username)
+                    await MainActor.run {
+                        resetDialog()
+                        onDismiss()
+                    }
+                } catch {
+                    await MainActor.run {
+                        if let apiError = error as? APIError {
+                            switch apiError {
+                            case .serverError(_, let message):
+                                errorMessage = message ?? "Failed to add member"
+                            default:
+                                errorMessage = "Failed to add member"
+                            }
+                        } else {
+                            errorMessage = "Failed to add member"
+                        }
+                    }
+                }
+            }
+        }
+        
+        private func resetDialog() {
+            searchUserId = ""
+            searchState = .idle
+            foundUser = nil
+            errorMessage = nil
+        }
+    }
+    
+    // MARK: - Result Cards
+    
+    private struct NotFoundResultCard: View {
+        let searchUserId: String
+        
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(Color(hex: "DC2626"))
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("User Not Found")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color(hex: "7F1D1D"))
+                    
+                    Text("No user exists with ID \"\(searchUserId)\". Please check the ID and try again.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(Color(hex: "B91C1C"))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(hex: "FEF2F2"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(hex: "FECACA"), lineWidth: 1)
+            )
+            .cornerRadius(12)
+        }
+    }
+    
+    private struct AlreadyMemberResultCard: View {
+        let user: User
+        
+        var body: some View {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(Color(hex: "D97706"))
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Already a Member")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color(hex: "78350F"))
+                    
+                    Text("\(user.displayName) (\(user.email)) is already a member of this group.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(Color(hex: "B45309"))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(hex: "FFFBEB"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(hex: "FDE68A"), lineWidth: 1)
+            )
+            .cornerRadius(12)
+        }
+    }
+    
+    private struct FoundResultCard: View {
+        let user: User
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundColor(Color(hex: "16A34A"))
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("User Found")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(Color(hex: "14532D"))
+                        
+                        Text("Ready to add this user to your group.")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(Color(hex: "15803D"))
+                    }
+                }
+                
+                // User Preview Card
+                HStack(spacing: 12) {
+                    // Avatar
+                    ZStack {
+                        Circle()
+                            .fill(avatarGradient(for: user.id.uuidString))
+                            .frame(width: 48, height: 48)
+                        
+                        Text(user.initials)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.displayName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "111827"))
+                            .lineLimit(1)
+                        
+                        Text(user.email)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(Color(hex: "6B7280"))
+                            .lineLimit(1)
+                        
+                        Text("ID: \(user.username)")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(hex: "9CA3AF"))
+                    }
+                    
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+                )
+                .cornerRadius(8)
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(Color(hex: "F0FDF4"))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(hex: "BBF7D0"), lineWidth: 1)
+            )
+            .cornerRadius(12)
+        }
+        
+        private func avatarGradient(for userId: String) -> LinearGradient {
+            let colors: [(Color, Color)] = [
+                (Color(hex: "60A5FA"), Color(hex: "2563EB")), // Blue
+                (Color(hex: "C084FC"), Color(hex: "9333EA")), // Purple
+                (Color(hex: "4ADE80"), Color(hex: "16A34A")), // Green
+                (Color(hex: "FB923C"), Color(hex: "EA580C")), // Orange
+                (Color(hex: "F472B6"), Color(hex: "DB2777")), // Pink
+                (Color(hex: "818CF8"), Color(hex: "4F46E5"))  // Indigo
+            ]
+            
+            let hash = abs(userId.hashValue)
+            let index = hash % colors.count
+            let (start, end) = colors[index]
+            
+            return LinearGradient(
+                gradient: Gradient(colors: [start, end]),
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         }
     }
     
@@ -3092,109 +3738,348 @@ struct AddExpenseSheet: View {
 
 // MARK: - Shopping Sessions Views
 
-struct ShoppingSessionsListView: View {
-    let group: Group
-    let membershipId: UUID
-    @EnvironmentObject private var appState: AppState
-    @State private var showingCreateSession = false
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var showError = false
+@MainActor
+final class CreateShoppingSessionViewModel: ObservableObject {
+    @Published var title: String = ""
+    @Published var useDate: Bool = false
+    @Published var shoppingDate: Date = Date()
+    @Published var isCreating: Bool = false
+    @Published var errorMessage: String?
     
-    var sessions: [ShoppingSession] {
-        appState.shoppingSessionsByGroupId[group.id] ?? []
+    private let appState: AppState
+    private let groupId: UUID
+    private let paidByMembershipId: UUID
+    
+    init(appState: AppState, groupId: UUID, paidByMembershipId: UUID) {
+        self.appState = appState
+        self.groupId = groupId
+        self.paidByMembershipId = paidByMembershipId
+    }
+    
+    var canCreate: Bool {
+        !title.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+    
+    func createSession() async -> ShoppingSession? {
+        guard canCreate else { return nil }
+        
+        isCreating = true
+        errorMessage = nil
+        defer { isCreating = false }
+        
+        do {
+            let session = try await appState.createShoppingSession(
+                groupId: groupId,
+                title: title.trimmingCharacters(in: .whitespaces),
+                paidBy: paidByMembershipId,
+                shoppingDate: useDate ? shoppingDate : nil,
+                totalAmount: nil
+            )
+            return session
+        } catch {
+            errorMessage = "Failed to create session: \(error.localizedDescription)"
+            return nil
+        }
+    }
+}
+
+struct CreateShoppingSessionView: View {
+    @StateObject private var viewModel: CreateShoppingSessionViewModel
+    @Environment(\.dismiss) private var dismiss
+    
+    let onCreated: () -> Void
+    
+    init(appState: AppState, groupId: UUID, paidByMembershipId: UUID, onCreated: @escaping () -> Void) {
+        _viewModel = StateObject(wrappedValue: CreateShoppingSessionViewModel(
+            appState: appState,
+            groupId: groupId,
+            paidByMembershipId: paidByMembershipId
+        ))
+        self.onCreated = onCreated
     }
     
     var body: some View {
-        List {
-            if sessions.isEmpty {
-                VStack(spacing: 16) {
-                    Image(systemName: "cart")
-                        .font(.system(size: 50))
-                        .foregroundColor(.gray)
-                    Text("No Shopping Sessions")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                    Text("Tap + to create your first shopping session")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
+        NavigationStack {
+            Form {
+                Section("Details") {
+                    TextField("Title (e.g., Costco)", text: $viewModel.title)
+                        .textInputAutocapitalization(.words)
+                    
+                    Toggle("Include Date", isOn: $viewModel.useDate)
+                    
+                    if viewModel.useDate {
+                        DatePicker("Date", selection: $viewModel.shoppingDate, displayedComponents: .date)
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-            } else {
-                ForEach(sessions) { session in
-                    NavigationLink {
-                        ShoppingSessionDetailView(
-                            sessionId: session.id,
-                            groupId: group.id,
-                            membershipId: membershipId
-                        )
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(session.title)
-                                    .font(.headline)
-                                Spacer()
-                                Text(session.displayTotal)
-                                    .font(.headline)
-                                    .foregroundColor(.blue)
-                            }
-                            
-                            HStack {
-                                Label("\(session.items.count) items", systemImage: "cart")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text(session.createdAt, style: .date)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                
+                if let errorMessage = viewModel.errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
                     }
                 }
             }
-        }
-        .navigationTitle("Shopping Sessions")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showingCreateSession = true
-                } label: {
-                    Image(systemName: "plus")
+            .navigationTitle("New Shopping Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        Task {
+                            if await viewModel.createSession() != nil {
+                                onCreated()
+                            }
+                        }
+                    }
+                    .disabled(!viewModel.canCreate || viewModel.isCreating)
                 }
             }
-        }
-        .sheet(isPresented: $showingCreateSession) {
-            CreateShoppingSessionSheet(
-                groupId: group.id,
-                membershipId: membershipId
-            )
-        }
-        .task {
-            await loadSessions()
-        }
-        .refreshable {
-            await loadSessions()
-        }
-        .alert("Error", isPresented: $showError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            if let message = errorMessage {
-                Text(message)
-            }
+            .disabled(viewModel.isCreating)
         }
     }
+}
+
+@MainActor
+final class ShoppingSessionsViewModel: ObservableObject {
+    @Published var sessions: [ShoppingSession] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
     
-    private func loadSessions() async {
+    private let appState: AppState
+    private let groupId: UUID
+    
+    init(appState: AppState, groupId: UUID) {
+        self.appState = appState
+        self.groupId = groupId
+    }
+    
+    func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        errorMessage = nil
+        
         do {
-            try await appState.loadShoppingSessions(groupId: group.id)
+            try await appState.loadShoppingSessions(groupId: groupId)
+            sessions = appState.shoppingSessionsByGroupId[groupId] ?? []
         } catch {
-            errorMessage = "Failed to load sessions: \(error.localizedDescription)"
-            showError = true
+            errorMessage = "Failed to load shopping sessions."
         }
+    }
+}
+
+struct ShoppingSessionsListView: View {
+    @StateObject private var viewModel: ShoppingSessionsViewModel
+    @State private var showingCreateSession = false
+    
+    let appState: AppState
+    let groupId: UUID
+    let paidByMembershipId: UUID
+    
+    init(appState: AppState, groupId: UUID, paidByMembershipId: UUID) {
+        self.appState = appState
+        self.groupId = groupId
+        self.paidByMembershipId = paidByMembershipId
+        _viewModel = StateObject(wrappedValue: ShoppingSessionsViewModel(appState: appState, groupId: groupId))
+    }
+    
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            // Background
+            Color(hex: "F9FAFB")
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 16) {
+                    if viewModel.isLoading && viewModel.sessions.isEmpty {
+                        ProgressView()
+                            .padding(.top, 100)
+                    } else if viewModel.sessions.isEmpty {
+                        // Empty state
+                        VStack(spacing: 16) {
+                            Image(systemName: "cart.badge.plus")
+                                .font(.system(size: 64, weight: .light))
+                                .foregroundColor(Color(hex: "9CA3AF"))
+                            
+                            Text("No Shopping Sessions")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundColor(Color(hex: "111827"))
+                            
+                            Text("Tap the + button to create your first shopping session and start tracking expenses.")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(Color(hex: "6B7280"))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                        }
+                        .padding(.top, 100)
+                    } else {
+                        // Session cards
+                        ForEach(viewModel.sessions) { session in
+                            NavigationLink {
+                                ShoppingSessionDetailView(
+                                    sessionId: session.id,
+                                    groupId: groupId,
+                                    membershipId: paidByMembershipId
+                                )
+                                .environmentObject(appState)
+                            } label: {
+                                ShoppingSessionCard(session: session)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        .padding(.top, 16)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 80)
+            }
+            
+            // Floating Add button
+            Button(action: { showingCreateSession = true }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Color(hex: "2563EB"))
+                    .clipShape(Circle())
+                    .shadow(color: Color(hex: "2563EB").opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .buttonStyle(ScaleButtonStyle())
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+        }
+        .navigationTitle("Shopping Sessions")
+        .navigationBarTitleDisplayMode(.large)
+        .refreshable {
+            await viewModel.load()
+        }
+        .task {
+            await viewModel.load()
+        }
+        .sheet(isPresented: $showingCreateSession) {
+            CreateShoppingSessionView(
+                appState: appState,
+                groupId: groupId,
+                paidByMembershipId: paidByMembershipId,
+                onCreated: {
+                    showingCreateSession = false
+                    Task { await viewModel.load() }
+                }
+            )
+        }
+        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+            Button("Retry") { Task { await viewModel.load() } }
+            Button("Cancel", role: .cancel) { viewModel.errorMessage = nil }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
+    }
+}
+
+struct ShoppingSessionCard: View {
+    let session: ShoppingSession
+    
+    private func formatDateString(_ dateString: String) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        if let date = formatter.date(from: dateString) {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
+        }
+        // If parsing fails, return the original string
+        return dateString
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header with title and amount
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.title)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(Color(hex: "111827"))
+                        .lineLimit(2)
+                    
+                    if let dateString = session.shoppingDate {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(Color(hex: "6B7280"))
+                            Text(formatDateString(dateString))
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(Color(hex: "6B7280"))
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(session.formattedTotal)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(Color(hex: "111827"))
+                    
+                    if !session.items.isEmpty {
+                        Text("\(session.items.count) item\(session.items.count == 1 ? "" : "s")")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(Color(hex: "6B7280"))
+                    }
+                }
+            }
+            .padding(20)
+            
+            // Footer with participants count (if any)
+            if !session.participants.isEmpty {
+                Divider()
+                    .padding(.horizontal, 20)
+                
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color(hex: "6B7280"))
+                    Text("\(session.participants.count) participant\(session.participants.count == 1 ? "" : "s")")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(Color(hex: "6B7280"))
+                    
+                    Spacer()
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(hex: "9CA3AF"))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            } else {
+                HStack {
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Color(hex: "9CA3AF"))
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
+        }
+        .background(Color.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+        )
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+    }
+}
+
+extension ShoppingSession {
+    var formattedTotal: String {
+        let dollars = Double(totalCents) / 100.0
+        return String(format: "$%.2f", dollars)
     }
 }
 

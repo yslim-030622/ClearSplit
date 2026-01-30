@@ -18,7 +18,7 @@ final class LoginViewModel: ObservableObject {
         guard validate() else { return }
         isLoading = true
         do {
-            let (_, user) = try await appState.authService.login(email: email, password: password)
+            let (_, user) = try await appState.authService.login(identifier: email, password: password)
             appState.user = user
             isLoading = false
         } catch {

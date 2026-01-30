@@ -1,6 +1,9 @@
+import logging
 from uuid import UUID
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +16,21 @@ from app.models.user import User
 from app.schemas.expense import ExpenseRead, ExpenseSplitRead
 from app.services.expense import get_expense_by_id
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="ClearSplit API")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors with detailed logging."""
+    body = await request.body()
+    logger.error(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
+    logger.error(f"Request body: {body.decode('utf-8') if body else 'Empty'}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors(), "body": body.decode('utf-8') if body else None},
+    )
 
 # Include routers
 app.include_router(auth.router)

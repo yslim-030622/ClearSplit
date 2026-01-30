@@ -41,9 +41,10 @@ class MembershipUpdate(BaseSchema):
 class AddMemberRequest(BaseSchema):
     """Add member to group request schema.
 
-    Can add by email (if user exists) or by user_id.
+    Can add by username, email (if user exists), or by user_id.
     """
 
+    username: str | None = Field(None, description="User username to add (if user exists)")
     email: str | None = Field(None, description="User email to add (if user exists)")
     user_id: UUID | None = Field(None, description="User ID to add")
     role: MembershipRole = Field(
@@ -52,17 +53,29 @@ class AddMemberRequest(BaseSchema):
     )
 
     def model_post_init(self, __context) -> None:
-        """Validate that either email or user_id is provided."""
-        if not self.email and not self.user_id:
-            raise ValueError("Either email or user_id must be provided")
-        if self.email and self.user_id:
-            raise ValueError("Provide either email or user_id, not both")
+        """Validate that one of username, email, or user_id is provided."""
+        provided = sum([bool(self.username), bool(self.email), bool(self.user_id)])
+        if provided == 0:
+            raise ValueError("Either username, email, or user_id must be provided")
+        if provided > 1:
+            raise ValueError("Provide only one of username, email, or user_id")
 
 
 class MemberPreviewRequest(BaseSchema):
-    """Preview member invite request."""
+    """Preview member invite request.
+    
+    Can search by username (alphanumeric ID) or email.
+    """
 
-    email: str = Field(..., description="Email to check")
+    username: str | None = Field(None, description="Username (alphanumeric ID) to check")
+    email: str | None = Field(None, description="Email to check")
+
+    def model_post_init(self, __context) -> None:
+        """Validate that either username or email is provided."""
+        if not self.username and not self.email:
+            raise ValueError("Either username or email must be provided")
+        if self.username and self.email:
+            raise ValueError("Provide either username or email, not both")
 
 
 class MemberPreviewResponse(BaseSchema):
