@@ -18,6 +18,7 @@ class User(Base):
         primary_key=True,
         server_default="uuid_generate_v4()",
     )
+    username: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text(), nullable=False)
     first_name: Mapped[str] = mapped_column(Text(), nullable=False)

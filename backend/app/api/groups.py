@@ -27,6 +27,7 @@ from app.services.group import (
 from app.services.membership import (
     add_member_to_group,
     find_user_by_email,
+    find_user_by_username,
     get_group_members,
 )
 
@@ -148,8 +149,14 @@ async def preview_member_invite(
     # Verify group exists
     await get_group_by_id(session, group_id, current_user.id)
     
-    # Find user by email
-    user = await find_user_by_email(session, request.email)
+    # Find user by username or email
+    if request.username:
+        user = await find_user_by_username(session, request.username)
+    elif request.email:
+        user = await find_user_by_email(session, request.email)
+    else:
+        # This shouldn't happen due to validation, but handle it
+        return MemberPreviewResponse(found=False)
     
     if not user:
         # User not found - return minimal response
@@ -223,6 +230,7 @@ async def add_member(
         group_id=group_id,
         user_id=request.user_id,
         email=request.email,
+        username=request.username,
         role=request.role,
     )
 

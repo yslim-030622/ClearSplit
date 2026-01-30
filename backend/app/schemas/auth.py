@@ -11,6 +11,13 @@ from app.schemas.user import UserRead
 class SignupRequest(BaseSchema):
     """User signup request schema."""
 
+    username: str = Field(
+        ...,
+        min_length=3,
+        max_length=30,
+        description="Unique username (3-30 characters, alphanumeric and underscore/hyphen only)",
+        pattern="^[a-zA-Z0-9_-]+$",
+    )
     email: EmailStr = Field(..., description="User email address")
     password: str = Field(..., min_length=8, description="User password (min 8 characters)")
     first_name: str = Field(..., min_length=1, description="User first name")
@@ -18,9 +25,16 @@ class SignupRequest(BaseSchema):
 
 
 class LoginRequest(BaseSchema):
-    """User login request schema."""
+    """User login request schema.
+    
+    Accepts either username or email as identifier.
+    """
 
-    email: EmailStr = Field(..., description="User email address")
+    identifier: str = Field(
+        ...,
+        min_length=1,
+        description="Username or email address",
+    )
     password: str = Field(..., description="User password")
 
 

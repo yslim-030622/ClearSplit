@@ -11,6 +11,7 @@ class UserRead(BaseSchema):
     """User read schema (minimal fields for client)."""
 
     id: UUID
+    username: str
     email: EmailStr
     first_name: str
     last_name: str
