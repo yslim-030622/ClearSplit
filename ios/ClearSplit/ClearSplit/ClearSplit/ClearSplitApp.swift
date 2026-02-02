@@ -3866,16 +3866,31 @@ final class ShoppingSessionsViewModel: ObservableObject {
         
         do {
             try await appState.loadShoppingSessions(groupId: groupId)
-            sessions = appState.shoppingSessionsByGroupId[groupId] ?? []
+            var loadedSessions = appState.shoppingSessionsByGroupId[groupId] ?? []
+            // Sort by date (newest first)
+            loadedSessions.sort { session1, session2 in
+                let date1 = parseDateString(session1.shoppingDate) ?? session1.createdAt
+                let date2 = parseDateString(session2.shoppingDate) ?? session2.createdAt
+                return date1 > date2
+            }
+            sessions = loadedSessions
         } catch {
             errorMessage = "Failed to load shopping sessions."
         }
+    }
+    
+    private func parseDateString(_ dateString: String?) -> Date? {
+        guard let dateString = dateString else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: dateString)
     }
 }
 
 struct ShoppingSessionsListView: View {
     @StateObject private var viewModel: ShoppingSessionsViewModel
     @State private var showingCreateSession = false
+    @State private var isShowingHelp = false
     
     let appState: AppState
     let groupId: UUID
@@ -3888,6 +3903,14 @@ struct ShoppingSessionsListView: View {
         _viewModel = StateObject(wrappedValue: ShoppingSessionsViewModel(appState: appState, groupId: groupId))
     }
     
+    private var members: [Membership] {
+        appState.membershipsByGroupId[groupId] ?? []
+    }
+    
+    private var currentUserId: UUID? {
+        appState.user?.id
+    }
+    
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             // Background
@@ -3897,8 +3920,13 @@ struct ShoppingSessionsListView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if viewModel.isLoading && viewModel.sessions.isEmpty {
-                        ProgressView()
-                            .padding(.top, 100)
+                        // Loading skeleton
+                        VStack(spacing: 16) {
+                            ForEach(0..<3) { _ in
+                                ShoppingSessionCardSkeleton()
+                            }
+                        }
+                        .padding(.top, 16)
                     } else if viewModel.sessions.isEmpty {
                         // Empty state
                         VStack(spacing: 16) {
@@ -3906,15 +3934,26 @@ struct ShoppingSessionsListView: View {
                                 .font(.system(size: 64, weight: .light))
                                 .foregroundColor(Color(hex: "9CA3AF"))
                             
-                            Text("No Shopping Sessions")
+                            Text("No Shopping Sessions Yet")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(Color(hex: "111827"))
                             
-                            Text("Tap the + button to create your first shopping session and start tracking expenses.")
-                                .font(.system(size: 14, weight: .regular))
+                            Text("Create your first shopping session to start tracking expenses with your group.")
+                                .font(.system(size: 15, weight: .regular))
                                 .foregroundColor(Color(hex: "6B7280"))
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
+                            
+                            Button(action: { showingCreateSession = true }) {
+                                Text("Create Session")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: 200)
+                                    .padding(.vertical, 12)
+                                    .background(Color(hex: "2563EB"))
+                                    .cornerRadius(8)
+                            }
+                            .padding(.top, 8)
                         }
                         .padding(.top, 100)
                     } else {
@@ -3928,35 +3967,69 @@ struct ShoppingSessionsListView: View {
                                 )
                                 .environmentObject(appState)
                             } label: {
-                                ShoppingSessionCard(session: session)
+                                ShoppingSessionCard(
+                                    session: session,
+                                    members: members,
+                                    currentUserId: currentUserId
+                                )
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
                         .padding(.top, 16)
+                        
+                        // Pull down to refresh text
+                        Text("Pull down to refresh")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundColor(Color(hex: "2563EB"))
+                            .padding(.top, 20)
+                            .padding(.bottom, 16)
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 80)
+            }
+            .refreshable {
+                await viewModel.load()
             }
             
-            // Floating Add button
-            Button(action: { showingCreateSession = true }) {
-                Image(systemName: "plus")
+            // Help Button (Bottom Right)
+            Button {
+                isShowingHelp = true
+            } label: {
+                Image(systemName: "questionmark.circle.fill")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Color(hex: "2563EB"))
+                    .frame(width: 48, height: 48)
+                    .background(Color(hex: "1F2937"))
                     .clipShape(Circle())
-                    .shadow(color: Color(hex: "2563EB").opacity(0.3), radius: 8, x: 0, y: 4)
+                    .shadow(color: Color.black.opacity(0.15), radius: 12, x: 0, y: 4)
             }
             .buttonStyle(ScaleButtonStyle())
             .padding(.trailing, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 54)
         }
-        .navigationTitle("Shopping Sessions")
-        .navigationBarTitleDisplayMode(.large)
-        .refreshable {
-            await viewModel.load()
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Shopping Sessions")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color(hex: "111827"))
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingCreateSession = true }) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "2563EB"))
+                            .frame(width: 48, height: 48)
+                            .shadow(color: Color(hex: "2563EB").opacity(0.3), radius: 8, x: 0, y: 2)
+                        
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .buttonStyle(ScaleButtonStyle())
+            }
         }
         .task {
             await viewModel.load()
@@ -3972,6 +4045,9 @@ struct ShoppingSessionsListView: View {
                 }
             )
         }
+        .sheet(isPresented: $isShowingHelp) {
+            ShoppingSessionsHelpSheet()
+        }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
             Button("Retry") { Task { await viewModel.load() } }
             Button("Cancel", role: .cancel) { viewModel.errorMessage = nil }
@@ -3983,96 +4059,254 @@ struct ShoppingSessionsListView: View {
 
 struct ShoppingSessionCard: View {
     let session: ShoppingSession
+    let members: [Membership]
+    let currentUserId: UUID?
     
-    private func formatDateString(_ dateString: String) -> String {
+    private func formatDateString(_ dateString: String?) -> String {
+        guard let dateString = dateString else { return "" }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         if let date = formatter.date(from: dateString) {
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
+            formatter.dateFormat = "MMM d, yyyy"
             return formatter.string(from: date)
         }
-        // If parsing fails, return the original string
         return dateString
+    }
+    
+    private func getPaidByName() -> String {
+        // Find the membership that matches paidByMembershipId
+        if let membership = members.first(where: { $0.id == session.paidByMembershipId }) {
+            // Check if it's the current user
+            if let user = membership.user, user.id == currentUserId {
+                return "You"
+            }
+            // Return user's first name or display name
+            if let user = membership.user {
+                return user.firstName.isEmpty ? user.displayName : user.firstName
+            }
+            return membership.displayName
+        }
+        return "Unknown"
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with title and amount
+            // Row 1: Session Name + Amount
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(session.title)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(hex: "111827"))
-                        .lineLimit(2)
+                Text(session.title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(Color(hex: "111827"))
+                    .lineLimit(1)
+                    .frame(maxWidth: 220, alignment: .leading)
+                
+                Spacer()
+                
+                Text(session.formattedTotal)
+                    .font(.system(size: 22, weight: .bold, design: .default))
+                    .foregroundColor(Color(hex: "111827"))
+            }
+            .padding(20)
+            
+            // Row 2: Date
+            HStack(spacing: 6) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(Color(hex: "6B7280"))
+                
+                Text(formatDateString(session.shoppingDate))
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(Color(hex: "6B7280"))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            
+            // Spacing between rows 2 & 3
+            Spacer()
+                .frame(height: 12)
+            
+            // Row 3: Item Count + Paid By
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "cart")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(Color(hex: "6B7280"))
                     
-                    if let dateString = session.shoppingDate {
-                        HStack(spacing: 6) {
-                            Image(systemName: "calendar")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(Color(hex: "6B7280"))
-                            Text(formatDateString(dateString))
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundColor(Color(hex: "6B7280"))
-                        }
-                    }
+                    Text("\(session.items.count) items")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(Color(hex: "6B7280"))
                 }
                 
                 Spacer()
                 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(session.formattedTotal)
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(Color(hex: "111827"))
-                    
-                    if !session.items.isEmpty {
-                        Text("\(session.items.count) item\(session.items.count == 1 ? "" : "s")")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
-                    }
-                }
+                Text("Paid by \(getPaidByName())")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(Color(hex: "4B5563"))
             }
-            .padding(20)
-            
-            // Footer with participants count (if any)
-            if !session.participants.isEmpty {
-                Divider()
-                    .padding(.horizontal, 20)
-                
-                HStack(spacing: 6) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color(hex: "6B7280"))
-                    Text("\(session.participants.count) participant\(session.participants.count == 1 ? "" : "s")")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(Color(hex: "6B7280"))
-                    
-                    Spacer()
-                    
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(hex: "9CA3AF"))
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            } else {
-                HStack {
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(hex: "9CA3AF"))
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
         )
         .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+// Loading skeleton card
+struct ShoppingSessionCardSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "E5E7EB"))
+                    .frame(width: 150, height: 20)
+                
+                Spacer()
+                
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "E5E7EB"))
+                    .frame(width: 80, height: 24)
+            }
+            .padding(20)
+            
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color(hex: "E5E7EB"))
+                .frame(width: 100, height: 14)
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
+            
+            Spacer()
+                .frame(height: 12)
+            
+            HStack {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "E5E7EB"))
+                    .frame(width: 80, height: 14)
+                
+                Spacer()
+                
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(hex: "E5E7EB"))
+                    .frame(width: 100, height: 14)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(height: 112)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+        )
+        .shimmer()
+    }
+}
+
+// Shimmer effect extension
+extension View {
+    func shimmer() -> some View {
+        self.modifier(ShimmerModifier())
+    }
+}
+
+struct ShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = 0
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                GeometryReader { geometry in
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.clear,
+                            Color.white.opacity(0.3),
+                            Color.clear
+                        ]),
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: geometry.size.width * 2)
+                    .offset(x: -geometry.size.width + phase * geometry.size.width * 2)
+                }
+            )
+            .onAppear {
+                withAnimation(
+                    Animation.linear(duration: 1.5)
+                        .repeatForever(autoreverses: false)
+                ) {
+                    phase = 1
+                }
+            }
+    }
+}
+
+// Help sheet for shopping sessions
+struct ShoppingSessionsHelpSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("Shopping Sessions Help")
+                        .font(.system(size: 24, weight: .bold))
+                        .padding(.bottom, 8)
+                    
+                    VStack(alignment: .leading, spacing: 16) {
+                        HelpSection(
+                            title: "What are Shopping Sessions?",
+                            content: "Shopping sessions track group expenses from grocery trips and shopping. Each session contains items that can be split among group members."
+                        )
+                        
+                        HelpSection(
+                            title: "Creating a Session",
+                            content: "Tap the + button to create a new shopping session. You'll need to provide a name, date, and who paid for the trip."
+                        )
+                        
+                        HelpSection(
+                            title: "Adding Items",
+                            content: "Once a session is created, you can add items with prices. Items can be split among multiple members."
+                        )
+                        
+                        HelpSection(
+                            title: "Viewing Details",
+                            content: "Tap any session card to view its items, participants, and splitting details."
+                        )
+                    }
+                }
+                .padding(20)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private struct HelpSection: View {
+        let title: String
+        let content: String
+        
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color(hex: "111827"))
+                
+                Text(content)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(Color(hex: "6B7280"))
+            }
+        }
     }
 }
 
