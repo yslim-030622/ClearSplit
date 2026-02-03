@@ -24,23 +24,27 @@ from app.models import (
     SettlementStatus,
     User,
 )
+from app.tests.conftest import create_test_user
 
 
 @pytest.mark.asyncio
 async def test_user_model(session: AsyncSession):
     """Test User model creation and retrieval."""
-    user = User(
+    from app.tests.conftest import create_test_user
+    
+    user = create_test_user(
         email="test@example.com",
-        password_hash="hashed_password",
+        password="password123",
+        username="testuser",
     )
     session.add(user)
-    await session.commit()
+    await session.flush()
     await session.refresh(user)
 
     assert user.id is not None
     assert isinstance(user.id, uuid.UUID)
     assert user.email == "test@example.com"
-    assert user.password_hash == "hashed_password"
+    assert user.password_hash is not None  # Password is hashed
     assert isinstance(user.created_at, datetime)
     assert isinstance(user.updated_at, datetime)
 
@@ -53,7 +57,7 @@ async def test_group_model(session: AsyncSession):
         currency="USD",
     )
     session.add(group)
-    await session.commit()
+    await session.flush()
     await session.refresh(group)
 
     assert group.id is not None
@@ -67,7 +71,7 @@ async def test_group_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_membership_model(session: AsyncSession):
     """Test Membership model with relationships."""
-    user = User(email="member@example.com", password_hash="hash")
+    user = create_test_user(email="member@example.com", username="member")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -78,7 +82,7 @@ async def test_membership_model(session: AsyncSession):
         role=MembershipRole.MEMBER,
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
     await session.refresh(membership)
 
     assert membership.id is not None
@@ -90,7 +94,7 @@ async def test_membership_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_expense_model(session: AsyncSession):
     """Test Expense model creation."""
-    user = User(email="payer@example.com", password_hash="hash")
+    user = create_test_user(email="payer@example.com", username="payer")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -113,7 +117,7 @@ async def test_expense_model(session: AsyncSession):
         memo="Test memo",
     )
     session.add(expense)
-    await session.commit()
+    await session.flush()
     await session.refresh(expense)
 
     assert expense.id is not None
@@ -125,8 +129,8 @@ async def test_expense_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_expense_split_model(session: AsyncSession):
     """Test ExpenseSplit model with relationships."""
-    user1 = User(email="user1@example.com", password_hash="hash")
-    user2 = User(email="user2@example.com", password_hash="hash")
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user1, user2, group])
     await session.flush()
@@ -168,7 +172,7 @@ async def test_expense_split_model(session: AsyncSession):
         share_cents=10000,  # $100.00
     )
     session.add_all([split1, split2])
-    await session.commit()
+    await session.flush()
 
     assert split1.share_cents == 10000
     assert split2.share_cents == 10000
@@ -177,7 +181,7 @@ async def test_expense_split_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_settlement_batch_model(session: AsyncSession):
     """Test SettlementBatch model."""
-    user = User(email="user@example.com", password_hash="hash")
+    user = create_test_user(email="user@example.com", username="testuser")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -188,7 +192,7 @@ async def test_settlement_batch_model(session: AsyncSession):
         total_settlements=2,
     )
     session.add(batch)
-    await session.commit()
+    await session.flush()
     await session.refresh(batch)
 
     assert batch.id is not None
@@ -200,8 +204,8 @@ async def test_settlement_batch_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_settlement_model(session: AsyncSession):
     """Test Settlement model."""
-    user1 = User(email="user1@example.com", password_hash="hash")
-    user2 = User(email="user2@example.com", password_hash="hash")
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user1, user2, group])
     await session.flush()
@@ -236,7 +240,7 @@ async def test_settlement_model(session: AsyncSession):
         status=SettlementStatus.SUGGESTED,
     )
     session.add(settlement)
-    await session.commit()
+    await session.flush()
     await session.refresh(settlement)
 
     assert settlement.id is not None
@@ -248,7 +252,7 @@ async def test_settlement_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_activity_log_model(session: AsyncSession):
     """Test ActivityLog model."""
-    user = User(email="user@example.com", password_hash="hash")
+    user = create_test_user(email="user@example.com", username="testuser")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -269,7 +273,7 @@ async def test_activity_log_model(session: AsyncSession):
         activity_metadata={"key": "value"},
     )
     session.add(log)
-    await session.commit()
+    await session.flush()
     await session.refresh(log)
 
     assert log.id is not None
@@ -280,7 +284,7 @@ async def test_activity_log_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_idempotency_key_model(session: AsyncSession):
     """Test IdempotencyKey model."""
-    user = User(email="user@example.com", password_hash="hash")
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
     await session.flush()
 
@@ -292,7 +296,7 @@ async def test_idempotency_key_model(session: AsyncSession):
         status_code=201,
     )
     session.add(idempotency_key)
-    await session.commit()
+    await session.flush()
     await session.refresh(idempotency_key)
 
     assert idempotency_key.id is not None
@@ -304,7 +308,7 @@ async def test_idempotency_key_model(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_group_relationships(session: AsyncSession):
     """Test Group model relationships."""
-    user = User(email="user@example.com", password_hash="hash")
+    user = create_test_user(email="user@example.com", username="testuser")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -326,10 +330,17 @@ async def test_group_relationships(session: AsyncSession):
         expense_date=date.today(),
     )
     session.add(expense)
-    await session.commit()
+    await session.flush()
 
-    # Test relationships
-    await session.refresh(group)
+    # Test relationships - use selectinload to avoid lazy loading issues
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+    result = await session.execute(
+        select(Group)
+        .options(selectinload(Group.memberships), selectinload(Group.expenses))
+        .where(Group.id == group.id)
+    )
+    group = result.scalar_one()
     assert len(group.memberships) == 1
     assert len(group.expenses) == 1
     assert group.memberships[0].id == membership.id
@@ -339,7 +350,7 @@ async def test_group_relationships(session: AsyncSession):
 @pytest.mark.asyncio
 async def test_expense_relationships(session: AsyncSession):
     """Test Expense model relationships."""
-    user = User(email="user@example.com", password_hash="hash")
+    user = create_test_user(email="user@example.com", username="testuser")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -370,9 +381,17 @@ async def test_expense_relationships(session: AsyncSession):
         share_cents=20000,
     )
     session.add(split1)
-    await session.commit()
+    await session.flush()
 
-    await session.refresh(expense)
+    # Use selectinload to avoid lazy loading issues
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy import select
+    result = await session.execute(
+        select(Expense)
+        .options(selectinload(Expense.splits))
+        .where(Expense.id == expense.id)
+    )
+    expense = result.scalar_one()
     assert len(expense.splits) == 1
     assert expense.splits[0].share_cents == 20000
 

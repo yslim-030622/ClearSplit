@@ -279,6 +279,18 @@ def compute_request_hash(request_body: dict) -> str:
     Returns:
         SHA256 hash as hex string
     """
+    # Convert request body to JSON-serializable format
+    # Handle date objects, UUIDs, and other non-serializable types
+    def json_serial(obj):
+        """JSON serializer for objects not serializable by default json code"""
+        from datetime import date, datetime
+        from uuid import UUID
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        if isinstance(obj, UUID):
+            return str(obj)
+        raise TypeError(f"Type {type(obj)} not serializable")
+    
     # Sort keys for consistent hashing
-    sorted_json = json.dumps(request_body, sort_keys=True)
+    sorted_json = json.dumps(request_body, sort_keys=True, default=json_serial)
     return hashlib.sha256(sorted_json.encode("utf-8")).hexdigest()

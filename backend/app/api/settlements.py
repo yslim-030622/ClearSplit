@@ -71,10 +71,11 @@ async def compute_settlements(
             endpoint=f"POST /groups/{group_id}/settlements/compute",
             user_id=current_user.id,
             request_body=request_body,
-            response_body=response_payload.model_dump(),
+            response_body=response_payload.model_dump(mode='json'),
             status_code=201,
         )
-
+    
+    await session.commit()
     return response_payload
 
 
@@ -128,4 +129,5 @@ async def update_settlement_status(
     updated = await update_settlement_status_to_paid(
         session, settlement_id=settlement_id, acting_user_membership=acting_membership
     )
+    await session.commit()
     return SettlementRead.model_validate(updated)
