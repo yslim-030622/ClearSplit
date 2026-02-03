@@ -25,5 +25,5 @@ echo "5. Removing build folder..."
 cd /Users/yslim0622/ClearSplit/ios/ClearSplit
 rm -rf build/
 
-echo "✅ Clean complete!"
+echo "Clean complete!"
 echo "Now open Xcode and build again."
