@@ -16,19 +16,25 @@ All documentation files (except README.md files) have been moved from the root d
 ## 📂 Folder Descriptions
 
 ### `guides/`
+
 Setup guides, build troubleshooting, and rebuild instructions.
+
 - BUILD_FIX_GUIDE.md
 - BUILD_TROUBLESHOOTING.md
 - REBUILD_IOS.md
 
 ### `features/`
+
 Feature-specific documentation including models, implementations, and testing guides.
+
 - SHOPPING_MODEL.md
 - SHOPPING_IMPLEMENTATION_SUMMARY.md
 - HOW_TO_TEST_SHOPPING.md
 
 ### `backend-docs/`
+
 Backend implementation guides moved from `backend/` folder.
+
 - AUTH_IMPLEMENTATION.md
 - EXPENSES_IMPLEMENTATION.md
 - GROUPS_IMPLEMENTATION.md
@@ -36,20 +42,26 @@ Backend implementation guides moved from `backend/` folder.
 - SCHEMAS_IMPLEMENTATION.md
 
 ### `testing/`
+
 Testing guides, verification checklists, and testing summaries.
+
 - PHASE0_VERIFICATION.md
 - INTEGRATION_VERIFICATION.md
 - TESTING_SUMMARY.md
 
 ### `security/`
+
 Security documentation including overview, patches, and hardening notes.
+
 - SECURITY.md
 - SECURITY_PATCH.md
 - SECURITY_HARDENING_SUMMARY.md
 - TOKEN_REFRESH_FIX.md
 
 ### `development/`
+
 Development notes, session summaries, and fix summaries.
+
 - SESSION_SUMMARY.md
 - COMPLETE_FIX_SUMMARY.md
 - BACKEND_FIX_SUMMARY.md
@@ -58,7 +70,9 @@ Development notes, session summaries, and fix summaries.
 - WHAT_YOULL_SEE.md
 
 ### `architecture/`
+
 Architecture decision records and database design documents.
+
 - db.md
 - adr/0001-non-negotiables.md
 
@@ -73,6 +87,7 @@ The following README.md files remain in their original locations as entry points
 ## 🔄 Migration Notes
 
 All documentation files have been moved from:
+
 - Root directory → `docs/[category]/`
 - `backend/*_IMPLEMENTATION.md` → `docs/backend-docs/`
 
