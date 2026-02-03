@@ -1396,6 +1396,8 @@ extension Color {
     static let blue700 = Color(hex: "1D4ED8")
     static let blue500 = Color(hex: "3B82F6")
     static let blue50 = Color(hex: "EFF6FF")
+    static let blue200 = Color(hex: "BFDBFE")
+    static let blue900 = Color(hex: "1E3A8A")
     static let green600 = Color(hex: "16A34A")
     static let gray800 = Color(hex: "1F2937")
     static let gray900 = Color(hex: "111827")
@@ -3741,8 +3743,7 @@ struct AddExpenseSheet: View {
 @MainActor
 final class CreateShoppingSessionViewModel: ObservableObject {
     @Published var title: String = ""
-    @Published var useDate: Bool = false
-    @Published var shoppingDate: Date = Date()
+    @Published var shoppingDate: Date = Date()  // Defaults to today, always shown
     @Published var isCreating: Bool = false
     @Published var errorMessage: String?
     
@@ -3757,7 +3758,7 @@ final class CreateShoppingSessionViewModel: ObservableObject {
     }
     
     var canCreate: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty
+        !title.trimmingCharacters(in: .whitespaces).isEmpty && title.count <= 100
     }
     
     func createSession() async -> ShoppingSession? {
@@ -3768,11 +3769,12 @@ final class CreateShoppingSessionViewModel: ObservableObject {
         defer { isCreating = false }
         
         do {
+            // Always send the date (defaults to today if user didn't change it)
             let session = try await appState.createShoppingSession(
                 groupId: groupId,
                 title: title.trimmingCharacters(in: .whitespaces),
                 paidBy: paidByMembershipId,
-                shoppingDate: useDate ? shoppingDate : nil,
+                shoppingDate: shoppingDate,
                 totalAmount: nil
             )
             return session
@@ -3786,6 +3788,9 @@ final class CreateShoppingSessionViewModel: ObservableObject {
 struct CreateShoppingSessionView: View {
     @StateObject private var viewModel: CreateShoppingSessionViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var showHelp = false
+    @State private var showDatePicker = false
+    @FocusState private var isTitleFocused: Bool
     
     let onCreated: () -> Void
     
@@ -3799,49 +3804,285 @@ struct CreateShoppingSessionView: View {
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Details") {
-                    TextField("Title (e.g., Costco)", text: $viewModel.title)
-                        .textInputAutocapitalization(.words)
-                    
-                    Toggle("Include Date", isOn: $viewModel.useDate)
-                    
-                    if viewModel.useDate {
-                        DatePicker("Date", selection: $viewModel.shoppingDate, displayedComponents: .date)
-                    }
+        ZStack(alignment: .bottomTrailing) {
+            // Background
+            Color(hex: "F9FAFB")
+                .ignoresSafeArea()
+            
+            ScrollView {
+                VStack(spacing: 16) {
+                    formCard
+                    informationBox
                 }
-                
-                if let errorMessage = viewModel.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    }
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 120)
             }
-            .navigationTitle("New Shopping Session")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            
+            createButton
+            helpButton
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("New Shopping Session")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(Color(hex: "111827"))
+                    .tracking(-0.3)
+            }
+            
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(Color(hex: "111827"))
+                        .frame(width: 44, height: 44)
                 }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task {
-                            if await viewModel.createSession() != nil {
-                                onCreated()
-                            }
+                .buttonStyle(ScaleButtonStyle())
+            }
+        }
+        .sheet(isPresented: $showDatePicker) {
+            NavigationStack {
+                VStack {
+                    DatePicker(
+                        "Select Date",
+                        selection: $viewModel.shoppingDate,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .padding()
+                    
+                    Spacer()
+                }
+                .navigationTitle("Select Date")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            showDatePicker = false
                         }
                     }
-                    .disabled(!viewModel.canCreate || viewModel.isCreating)
                 }
             }
-            .disabled(viewModel.isCreating)
+            .presentationDetents([.medium])
         }
+        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+            Button("OK", role: .cancel) {
+                viewModel.errorMessage = nil
+            }
+        } message: {
+            if let error = viewModel.errorMessage {
+                Text(error)
+            }
+        }
+        .alert("Help", isPresented: $showHelp) {
+            Button("Got it", role: .cancel) {}
+        } message: {
+            Text("A shopping session represents a single grocery trip. Give it a memorable name and set the date. After creation, you can add items and specify who shares each expense.")
+        }
+        .onAppear {
+            // Auto-focus title field
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isTitleFocused = true
+            }
+        }
+    }
+    
+    // MARK: - Subviews
+    
+    private var formCard: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            tripTitleField
+            dateField
+        }
+        .padding(24)
+        .background(Color.white)
+        .cornerRadius(20)
+        .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+    }
+    
+    private var tripTitleField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Trip Title")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
+                .tracking(-0.2)
+            
+            TextField("e.g., Weekly Groceries, Costco Run", text: $viewModel.title)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundColor(Color(hex: "111827"))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(isTitleFocused ? Color.white : Color(hex: "F3F4F6"))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(isTitleFocused ? Color(hex: "3B82F6") : Color.clear, lineWidth: isTitleFocused ? 2 : 0)
+                )
+                .cornerRadius(12)
+                .focused($isTitleFocused)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .onChange(of: viewModel.title) { _ in
+                    if viewModel.title.count > 100 {
+                        viewModel.title = String(viewModel.title.prefix(100))
+                    }
+                }
+            
+            HStack {
+                Text("Give this shopping trip a memorable name")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(Color(hex: "6B7280"))
+                
+                Spacer()
+                
+                if !viewModel.title.isEmpty {
+                    Text("\(viewModel.title.count)/100")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(viewModel.title.count > 100 ? Color.red : Color(hex: "6B7280"))
+                }
+            }
+        }
+    }
+    
+    private var dateField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Date (Optional)")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
+                .tracking(-0.2)
+            
+            Button(action: { showDatePicker = true }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundColor(Color(hex: "6B7280"))
+                        .frame(width: 20, height: 20)
+                    
+                    Text(formatDateForDisplay(viewModel.shoppingDate))
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(Color(hex: "111827"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(Color(hex: "9CA3AF"))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(Color(hex: "F3F4F6"))
+                .cornerRadius(12)
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            Text("Defaults to today if not set")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(Color(hex: "6B7280"))
+        }
+    }
+    
+    private var informationBox: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Next steps: ")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Color(hex: "1E3A8A"))
+            + Text("After creating this session, you'll be able to add items, upload receipts, and set who shares each item.")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(Color(hex: "1E3A8A"))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(hex: "EFF6FF"))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(hex: "BFDBFE"), lineWidth: 1)
+        )
+        .cornerRadius(12)
+    }
+    
+    private var createButton: some View {
+        VStack {
+            Spacer()
+            Button(action: {
+                Task {
+                    if await viewModel.createSession() != nil {
+                        onCreated()
+                    }
+                }
+            }) {
+                buttonContent
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(buttonBackground)
+                    .cornerRadius(16)
+                    .shadow(color: buttonShadowColor, radius: 12, x: 0, y: 4)
+            }
+            .disabled(!viewModel.canCreate || viewModel.isCreating)
+            .foregroundColor(viewModel.canCreate && !viewModel.isCreating ? .white : Color(hex: "6B7280"))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 34)
+        }
+    }
+    
+    private var buttonContent: some View {
+        HStack {
+            if viewModel.isCreating {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .scaleEffect(0.9)
+                Text("Creating...")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+            } else {
+                Text("Create Session")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+                    .tracking(-0.3)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var buttonBackground: some View {
+        if viewModel.canCreate && !viewModel.isCreating {
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(hex: "3B82F6"),
+                    Color(hex: "2563EB")
+                ]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        } else {
+            Color(hex: "D1D5DB")
+        }
+    }
+    
+    private var buttonShadowColor: Color {
+        viewModel.canCreate && !viewModel.isCreating 
+            ? Color(hex: "3B82F6").opacity(0.25) 
+            : Color.clear
+    }
+    
+    private var helpButton: some View {
+        Button(action: { showHelp = true }) {
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 48, height: 48)
+                .background(Color(hex: "1F2937"))
+                .clipShape(Circle())
+                .shadow(color: Color.black.opacity(0.15), radius: 12, x: 0, y: 4)
+        }
+        .buttonStyle(ScaleButtonStyle())
+        .padding(.trailing, 20)
+        .padding(.bottom, 110)
+    }
+    
+    private func formatDateForDisplay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM/dd/yyyy"
+        return formatter.string(from: date)
     }
 }
 
@@ -4464,140 +4705,110 @@ struct ShoppingSessionDetailView: View {
     @State private var session: ShoppingSession?
     @State private var showingAddItem = false
     @State private var showingSetParticipants = false
+    @State private var showingReceiptUpload = false
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var groupMemberships: [Membership] = []
     
     var body: some View {
         ZStack {
-            if let session = session {
-                List {
-                    // Summary Section
-                    Section {
-                        HStack {
-                            Text("Total")
-                                .font(.headline)
-                            Spacer()
-                            Text(session.displayTotal)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
-                        }
-                        
-                        HStack {
-                            Text("Participants")
-                            Spacer()
-                            Text("\(session.participants.count)")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    // Participants Section
-                    Section("Participants") {
-                        if session.participants.isEmpty {
-                            Button {
-                                showingSetParticipants = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "person.2.badge.gearshape")
-                                        .foregroundColor(.blue)
-                                    Text("Set Participants")
-                                    Spacer()
-                                }
-                            }
-                        } else {
-                            ForEach(session.participants) { participant in
-                                HStack {
-                                    Image(systemName: "person.circle.fill")
-                                        .foregroundColor(participant.membershipId == membershipId ? .green : .blue)
-                                    Text(participant.membershipId == membershipId ? "You" : String(participant.membershipId.uuidString.prefix(8)))
-                                }
-                            }
+            if isLoading && session == nil {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let session = session {
+                ZStack(alignment: .bottom) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            // Blue Gradient Hero Card
+                            TotalAmountHeroCardOld(
+                                totalCents: session.totalCents,
+                                paidByMembershipId: session.paidByMembershipId,
+                                groupMemberships: groupMemberships,
+                                currentUserId: appState.user?.id
+                            )
                             
-                            Button {
-                                showingSetParticipants = true
-                            } label: {
-                                HStack {
-                                    Image(systemName: "pencil")
-                                        .foregroundColor(.blue)
-                                    Text("Edit Participants")
-                                }
+                            // Content Area
+                            VStack(spacing: 16) {
+                                // Participants Card
+                                ParticipantsDetailCardOld(
+                                    participants: session.participants,
+                                    groupMemberships: groupMemberships,
+                                    currentUserId: appState.user?.id,
+                                    membershipId: membershipId,
+                                    onSetParticipants: {
+                                        showingSetParticipants = true
+                                    }
+                                )
+                                
+                                // Receipts Card
+                                ReceiptsDetailCardOld(
+                                    receipts: session.receipts,
+                                    onUploadTap: {
+                                        showingReceiptUpload = true
+                                    }
+                                )
+                                
+                                // Items Card
+                                ItemsDetailCardOld(
+                                    items: session.items,
+                                    participants: session.participants,
+                                    groupMemberships: groupMemberships,
+                                    currentUserId: appState.user?.id,
+                                    membershipId: membershipId,
+                                    onItemTap: { itemId in
+                                        // TODO: Navigate to edit item
+                                    }
+                                )
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 100) // Space for fixed button
                         }
                     }
+                    .background(Color.white)
                     
-                    // Items Section
-                    Section("Items") {
-                        if session.items.isEmpty {
-                            Text("No items yet")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                        } else {
-                            ForEach(session.items) { item in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text(item.name)
-                                            .font(.headline)
-                                        Spacer()
-                                        Text(item.displayTotal)
-                                            .font(.headline)
-                                            .foregroundColor(.blue)
-                                    }
-                                    
-                                    HStack {
-                                        Text("Qty: \(item.quantity)")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                        Text("•")
-                                            .foregroundColor(.secondary)
-                                        Text("Split \(item.splits.count) ways")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    
-                                    if !item.splits.isEmpty {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            ForEach(item.splits) { split in
-                                                HStack {
-                                                    Text(split.membershipId == membershipId ? "You" : String(split.membershipId.uuidString.prefix(8)))
-                                                        .font(.caption2)
-                                                        .foregroundColor(split.membershipId == membershipId ? .green : .secondary)
-                                                    Spacer()
-                                                    Text(split.displayAmount)
-                                                        .font(.caption2)
-                                                        .foregroundColor(.secondary)
-                                                }
-                                            }
-                                        }
-                                        .padding(.leading, 12)
-                                        .padding(.top, 4)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
+                    // Fixed Add Item Button
+                    AddItemFixedButtonOld {
+                        showingAddItem = true
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 20)
                 }
-                .navigationTitle(session.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            showingAddItem = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .disabled(session.participants.isEmpty)
-                    }
-                }
-            } else if isLoading {
-                ProgressView("Loading...")
             } else {
-                VStack {
-                    Text("Session not found")
-                        .foregroundColor(.secondary)
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray400)
+                    Text("Session Not Found")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 2) {
+                    if let session = session {
+                        Text(session.title)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.gray900)
+                        
+                        if let dateString = session.shoppingDate,
+                           let date = parseDate(dateString) {
+                            Text(formatDate(date))
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundColor(.gray500)
+                        }
+                    }
                 }
             }
+        }
+        .task {
+            await loadSession()
+            await loadGroupMemberships()
         }
         .sheet(isPresented: $showingAddItem) {
             if let session = session {
@@ -4615,12 +4826,6 @@ struct ShoppingSessionDetailView: View {
                 groupId: groupId,
                 currentParticipantIds: session?.participants.map { $0.membershipId } ?? []
             )
-        }
-        .task {
-            await loadSession()
-        }
-        .refreshable {
-            await loadSession()
         }
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) { }
@@ -4641,6 +4846,552 @@ struct ShoppingSessionDetailView: View {
             errorMessage = "Failed to load session: \(error.localizedDescription)"
             showError = true
         }
+    }
+    
+    private func loadGroupMemberships() async {
+        do {
+            try await appState.loadMembers(groupId: groupId)
+            groupMemberships = appState.membershipsByGroupId[groupId] ?? []
+        } catch {
+            // Silently fail
+        }
+    }
+    
+    private func parseDate(_ dateString: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: dateString)
+    }
+    
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter.string(from: date)
+    }
+}
+
+// MARK: - Total Amount Hero Card (Old)
+
+struct TotalAmountHeroCardOld: View {
+    let totalCents: Int
+    let paidByMembershipId: UUID
+    let groupMemberships: [Membership]
+    let currentUserId: UUID?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Label
+            Text("Total Amount")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(.white.opacity(0.9))
+                .padding(.bottom, 8)
+            
+            // Amount
+            Text(formatCurrency(cents: totalCents, currency: "USD"))
+                .font(.system(size: 56, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.bottom, 12)
+            
+            // Paid by
+            HStack(spacing: 6) {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(0.9))
+                
+                Text(paidByText)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(.white.opacity(0.9))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: "2563EB"), Color(hex: "1D4ED8")],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .cornerRadius(24, corners: [.bottomLeft, .bottomRight])
+    }
+    
+    private var paidByText: String {
+        guard let currentUserId = currentUserId else {
+            return "Paid by Unknown"
+        }
+        
+        guard let membership = groupMemberships.first(where: { $0.id == paidByMembershipId }),
+              let user = membership.user else {
+            return "Paid by Unknown"
+        }
+        
+        if user.id == currentUserId {
+            return "Paid by You"
+        }
+        
+        return "Paid by \(user.firstName) \(user.lastName)"
+    }
+}
+
+// MARK: - Participants Detail Card (Old)
+
+struct ParticipantsDetailCardOld: View {
+    let participants: [ShoppingSessionParticipant]
+    let groupMemberships: [Membership]
+    let currentUserId: UUID?
+    let membershipId: UUID
+    let onSetParticipants: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.gray700)
+                    
+                    Text("Participants")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+                
+                Spacer()
+                
+                // Count Badge
+                Text("\(participants.count)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.blue700)
+                    .frame(width: 24, height: 24)
+                    .background(Color.blue50)
+                    .clipShape(Circle())
+            }
+            
+            // Participants List
+            if participants.isEmpty {
+                Button(action: onSetParticipants) {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            Image(systemName: "person.2.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.blue600)
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.blue600)
+                                .offset(x: 8, y: 6)
+                        }
+                        Text("Set Participants")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.blue600)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
+                }
+            } else {
+                HStack(spacing: 16) {
+                    ForEach(participants) { participant in
+                        ParticipantAvatarViewOld(
+                            participant: participant,
+                            membership: groupMemberships.first(where: { $0.id == participant.membershipId }),
+                            currentUserId: currentUserId,
+                            membershipId: membershipId
+                        )
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.gray200, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+// MARK: - Participant Avatar View (Old)
+
+struct ParticipantAvatarViewOld: View {
+    let participant: ShoppingSessionParticipant
+    let membership: Membership?
+    let currentUserId: UUID?
+    let membershipId: UUID
+    
+    var body: some View {
+        VStack(spacing: 6) {
+            // Avatar
+            ZStack {
+                Circle()
+                    .fill(avatarGradient)
+                    .frame(width: 40, height: 40)
+                
+                Text(displayInitial)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            
+            // Name
+            Text(displayName)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.gray700)
+        }
+    }
+    
+    private var displayName: String {
+        if participant.membershipId == membershipId {
+            return "You"
+        }
+        if let membership = membership,
+           let user = membership.user {
+            return "\(user.firstName) \(user.lastName)"
+        }
+        return "Member"
+    }
+    
+    private var displayInitial: String {
+        if participant.membershipId == membershipId {
+            return "Y"
+        }
+        if let membership = membership,
+           let user = membership.user {
+            return String(user.firstName.prefix(1)).uppercased()
+        }
+        return String(participant.membershipId.uuidString.prefix(1)).uppercased()
+    }
+    
+    private var avatarGradient: LinearGradient {
+        let colors = [
+            [Color(hex: "60A5FA"), Color(hex: "2563EB")],
+            [Color(hex: "38BDF8"), Color(hex: "0284C7")],
+            [Color(hex: "3B82F6"), Color(hex: "1D4ED8")],
+            [Color(hex: "6366F1"), Color(hex: "4F46E5")],
+            [Color(hex: "8B5CF6"), Color(hex: "7C3AED")],
+            [Color(hex: "EC4899"), Color(hex: "DB2777")],
+            [Color(hex: "10B981"), Color(hex: "059669")],
+            [Color(hex: "F59E0B"), Color(hex: "D97706")]
+        ]
+        
+        let hash = participant.membershipId.uuidString.hashValue
+        let index = abs(hash) % colors.count
+        let colorPair = colors[index]
+        
+        return LinearGradient(
+            colors: colorPair,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
+// MARK: - Receipts Detail Card (Old)
+
+struct ReceiptsDetailCardOld: View {
+    let receipts: [ReceiptUpload]
+    let onUploadTap: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.gray700)
+                    
+                    Text("Receipts")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+                
+                Spacer()
+                
+                // Camera Button
+                Button(action: onUploadTap) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.blue600)
+                        .frame(width: 44, height: 44)
+                }
+            }
+            
+            // Receipt Content
+            if receipts.isEmpty {
+                // Empty State
+                Button(action: onUploadTap) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray100)
+                            .frame(width: 80, height: 80)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
+                                    .foregroundColor(.gray300)
+                            )
+                        
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.gray400)
+                    }
+                }
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                // Receipt Thumbnails
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(receipts) { receipt in
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.gray200)
+                                .frame(width: 80, height: 80)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.gray200, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+// MARK: - Items Detail Card (Old)
+
+struct ItemsDetailCardOld: View {
+    let items: [ShoppingItem]
+    let participants: [ShoppingSessionParticipant]
+    let groupMemberships: [Membership]
+    let currentUserId: UUID?
+    let membershipId: UUID
+    let onItemTap: (UUID) -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Text("Items")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.gray900)
+                
+                Spacer()
+                
+                // Count Badge
+                Text("\(items.count)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.gray700)
+                    .frame(width: 24, height: 24)
+                    .background(Color.gray100)
+                    .clipShape(Circle())
+            }
+            
+            // Items List
+            if items.isEmpty {
+                Text("No items yet")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(.gray500)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 16) {
+                    ForEach(items) { item in
+                        ItemDetailRowOld(
+                            item: item,
+                            participants: participants,
+                            groupMemberships: groupMemberships,
+                            currentUserId: currentUserId,
+                            membershipId: membershipId,
+                            onTap: {
+                                onItemTap(item.id)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.gray200, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+    }
+}
+
+// MARK: - Item Detail Row (Old)
+
+struct ItemDetailRowOld: View {
+    let item: ShoppingItem
+    let participants: [ShoppingSessionParticipant]
+    let groupMemberships: [Membership]
+    let currentUserId: UUID?
+    let membershipId: UUID
+    let onTap: () -> Void
+    
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Row 1: Name and Total
+                HStack {
+                    Text(item.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.gray900)
+                    
+                    Spacer()
+                    
+                    Text(formatCurrency(cents: item.totalCents, currency: "USD"))
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.gray900)
+                }
+                
+                // Row 2: Unit Price × Quantity
+                if let unitPriceCents = item.unitPriceCents {
+                    Text("\(formatCurrency(cents: unitPriceCents, currency: "USD")) × \(item.quantity)")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.gray500)
+                }
+                
+                // Row 3: Shared by
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Shared by:")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.gray600)
+                    
+                    // Participant Badges
+                    HStack(spacing: 8) {
+                        ForEach(sharedByMemberships) { membership in
+                            ParticipantBadgeOld(
+                                membership: membership,
+                                currentUserId: currentUserId,
+                                membershipId: membershipId
+                            )
+                        }
+                    }
+                }
+                
+                // Row 4: Your Share
+                HStack {
+                    Text("Your share:")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.gray600)
+                    
+                    Spacer()
+                    
+                    Text(formatCurrency(cents: userShareCents, currency: "USD"))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.gray50)
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.gray200, lineWidth: 1)
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var sharedByMemberships: [Membership] {
+        let membershipIds = item.splits.map { $0.membershipId }
+        return groupMemberships.filter { membershipIds.contains($0.id) }
+    }
+    
+    private var userShareCents: Int {
+        if let split = item.splits.first(where: { $0.membershipId == membershipId }) {
+            return split.shareCents
+        }
+        return 0
+    }
+}
+
+// MARK: - Participant Badge (Old)
+
+struct ParticipantBadgeOld: View {
+    let membership: Membership
+    let currentUserId: UUID?
+    let membershipId: UUID
+    
+    var body: some View {
+        Text(displayName)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.blue700)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Color.blue50)
+            .cornerRadius(14)
+    }
+    
+    private var displayName: String {
+        if membership.id == membershipId {
+            return "You"
+        }
+        if let user = membership.user {
+            return "\(user.firstName) \(user.lastName)"
+        }
+        return "Member"
+    }
+}
+
+// MARK: - Add Item Fixed Button (Old)
+
+struct AddItemFixedButtonOld: View {
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(.white)
+                
+                Text("Add Item")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(Color.blue600)
+            .cornerRadius(26)
+            .shadow(color: Color.blue600.opacity(0.25), radius: 12, x: 0, y: 4)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Corner Radius Extension (Old)
+
+extension View {
+    func cornerRadius(_ radius: CGFloat, corners: UIRectCorner) -> some View {
+        clipShape(RoundedCorner(radius: radius, corners: corners))
+    }
+}
+
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: corners,
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(path.cgPath)
     }
 }
 

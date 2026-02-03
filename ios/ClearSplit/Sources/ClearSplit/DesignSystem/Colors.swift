@@ -7,6 +7,8 @@ public extension Color {
     static let blue700 = Color(hex: "1D4ED8")
     static let blue500 = Color(hex: "3B82F6")
     static let blue50 = Color(hex: "EFF6FF")
+    static let blue200 = Color(hex: "BFDBFE")
+    static let blue900 = Color(hex: "1E3A8A")
     static let green600 = Color(hex: "16A34A")
     static let gray800 = Color(hex: "1F2937")
     static let gray900 = Color(hex: "111827")
@@ -18,6 +20,10 @@ public extension Color {
     static let gray200 = Color(hex: "E5E7EB")
     static let gray100 = Color(hex: "F3F4F6")
     static let gray50 = Color(hex: "F9FAFB")
+    static let red500 = Color(hex: "EF4444")
+    static let red600 = Color(hex: "DC2626")
+    static let red50 = Color(hex: "FEF2F2")
+    static let red300 = Color(hex: "FCA5A5")
     
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
