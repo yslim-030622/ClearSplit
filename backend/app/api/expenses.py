@@ -74,7 +74,7 @@ async def create_expense(
     # Check idempotency
     idempotency_key_header = get_idempotency_key_from_header(http_request)
     if idempotency_key_header:
-        request_body = request.model_dump()
+        request_body = request.model_dump(mode='json')
         existing_key = await get_or_create_idempotency_key(
             session,
             endpoint=f"POST /groups/{group_id}/expenses",
@@ -120,8 +120,8 @@ async def create_expense(
             session,
             endpoint=f"POST /groups/{group_id}/expenses",
             user_id=current_user.id,
-            request_body=request.model_dump(),
-            response_body=expense_response.model_dump(),
+            request_body=request.model_dump(mode='json'),
+            response_body=expense_response.model_dump(mode='json'),
             status_code=201,
         )
 

@@ -9,19 +9,18 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import create_access_token
-from app.auth.password import hash_password
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
-from app.models.user import User
+from app.tests.conftest import create_test_user
 
 
 @pytest.mark.asyncio
 async def test_create_shopping_session(client: AsyncClient, session: AsyncSession):
     """Test creating a shopping session."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -33,7 +32,7 @@ async def test_create_shopping_session(client: AsyncClient, session: AsyncSessio
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -64,11 +63,11 @@ async def test_create_shopping_session(client: AsyncClient, session: AsyncSessio
 async def test_set_session_participants(client: AsyncClient, session: AsyncSession):
     """Test setting participants for a shopping session."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -86,7 +85,7 @@ async def test_set_session_participants(client: AsyncClient, session: AsyncSessi
         group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER
     )
     session.add_all([membership1, membership2, membership3])
-    await session.commit()
+    await session.flush()
 
     # Get access token for user1 (payer)
     access_token = create_access_token(user1.id, user1.email)
@@ -129,10 +128,10 @@ async def test_non_payer_cannot_set_participants(
 ):
     """Test that non-payer cannot set participants."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -147,7 +146,7 @@ async def test_non_payer_cannot_set_participants(
         group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER
     )
     session.add_all([membership1, membership2])
-    await session.commit()
+    await session.flush()
 
     # User1 creates shopping session
     access_token1 = create_access_token(user1.id, user1.email)
@@ -179,9 +178,9 @@ async def test_non_payer_cannot_set_participants(
 async def test_create_shopping_item(client: AsyncClient, session: AsyncSession):
     """Test creating a shopping item."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -193,7 +192,7 @@ async def test_create_shopping_item(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -234,9 +233,9 @@ async def test_create_shopping_item(client: AsyncClient, session: AsyncSession):
 async def test_create_item_with_total_only(client: AsyncClient, session: AsyncSession):
     """Test creating an item with only total_cents (no unit price)."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -248,7 +247,7 @@ async def test_create_item_with_total_only(client: AsyncClient, session: AsyncSe
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -286,11 +285,11 @@ async def test_create_item_with_total_only(client: AsyncClient, session: AsyncSe
 async def test_set_item_sharers_equal_split(client: AsyncClient, session: AsyncSession):
     """Test setting sharers for an item with equal split."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -308,7 +307,7 @@ async def test_set_item_sharers_equal_split(client: AsyncClient, session: AsyncS
         group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER
     )
     session.add_all([membership1, membership2, membership3])
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user1.id, user1.email)
@@ -378,11 +377,11 @@ async def test_set_item_sharers_subset_of_participants(
 ):
     """Test setting sharers that are a subset of session participants."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -400,7 +399,7 @@ async def test_set_item_sharers_subset_of_participants(
         group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER
     )
     session.add_all([membership1, membership2, membership3])
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user1.id, user1.email)
@@ -460,11 +459,11 @@ async def test_set_item_sharers_subset_of_participants(
 async def test_sharers_must_be_participants(client: AsyncClient, session: AsyncSession):
     """Test that sharers must be session participants."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -482,7 +481,7 @@ async def test_sharers_must_be_participants(client: AsyncClient, session: AsyncS
         group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER
     )
     session.add_all([membership1, membership2, membership3])
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user1.id, user1.email)
@@ -538,9 +537,9 @@ async def test_sharers_must_be_participants(client: AsyncClient, session: AsyncS
 async def test_list_shopping_sessions(client: AsyncClient, session: AsyncSession):
     """Test listing shopping sessions for a group."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -552,7 +551,7 @@ async def test_list_shopping_sessions(client: AsyncClient, session: AsyncSession
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -587,9 +586,9 @@ async def test_list_shopping_sessions(client: AsyncClient, session: AsyncSession
 async def test_get_shopping_session(client: AsyncClient, session: AsyncSession):
     """Test getting a specific shopping session with all data."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -601,7 +600,7 @@ async def test_get_shopping_session(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -648,10 +647,10 @@ async def test_non_member_cannot_view_session(
 ):
     """Test that non-members cannot view a shopping session."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Household", currency="USD")
@@ -663,7 +662,7 @@ async def test_non_member_cannot_view_session(
         group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER
     )
     session.add(membership1)
-    await session.commit()
+    await session.flush()
 
     # User1 creates shopping session
     access_token1 = create_access_token(user1.id, user1.email)
@@ -681,5 +680,110 @@ async def test_non_member_cannot_view_session(
         headers={"Authorization": f"Bearer {access_token2}"},
     )
 
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_upload_receipt(client: AsyncClient, session: AsyncSession):
+    """Test uploading a receipt for a shopping session."""
+    # Create user
+    user = create_test_user(email="user@example.com", username="testuser")
+    session.add(user)
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add membership
+    membership = Membership(
+        group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
+    )
+    session.add(membership)
+    await session.flush()
+
+    # Get access token
+    access_token = create_access_token(user.id, user.email)
+
+    # Create shopping session
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Costco Trip",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership.id),
+        },
+    )
+    assert response.status_code == 201
+    shopping_session_id = response.json()["id"]
+
+    # Upload receipt
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": receipt_file},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert "id" in data
+    assert "session_id" in data
+    assert data["session_id"] == str(shopping_session_id)
+    assert "storage_key" in data
+    assert "content_type" in data
+    assert data["content_type"] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_non_payer_cannot_upload_receipt(
+    client: AsyncClient, session: AsyncSession
+):
+    """Test that only the payer can upload receipts."""
+    # Create users
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    session.add_all([user1, user2])
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add memberships
+    membership1 = Membership(
+        group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER
+    )
+    membership2 = Membership(
+        group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([membership1, membership2])
+    await session.flush()
+
+    # User1 creates shopping session (payer)
+    access_token1 = create_access_token(user1.id, user1.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token1}"},
+        json={
+            "title": "Costco Trip",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership1.id),
+        },
+    )
+    shopping_session_id = response.json()["id"]
+
+    # User2 tries to upload receipt (should fail)
+    access_token2 = create_access_token(user2.id, user2.email)
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token2}"},
+        files={"file": receipt_file},
+    )
     assert response.status_code == 403
 
