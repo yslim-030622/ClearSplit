@@ -8,22 +8,21 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import create_access_token
-from app.auth.password import hash_password
 from app.models.expense import Expense
 from app.models.expense_split import ExpenseSplit
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
-from app.models.user import User
 from app.services.expense import calculate_equal_splits
+from app.tests.conftest import create_test_user
 
 
 @pytest.mark.asyncio
 async def test_create_expense_equal_split(client: AsyncClient, session: AsyncSession):
     """Test creating an expense with equal splits."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
     await session.commit()
 
@@ -77,9 +76,9 @@ async def test_create_expense_equal_split(client: AsyncClient, session: AsyncSes
 async def test_equal_split_remainder(client: AsyncClient, session: AsyncSession):
     """Test equal split with remainder distribution."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
-    user3 = User(email="user3@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
+    user3 = create_test_user(email="user3@example.com", username="user3")
     session.add_all([user1, user2, user3])
     await session.commit()
 
@@ -133,7 +132,7 @@ async def test_equal_split_remainder(client: AsyncClient, session: AsyncSession)
 async def test_idempotent_create_expense(client: AsyncClient, session: AsyncSession):
     """Test idempotent expense creation with same Idempotency-Key."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
     await session.commit()
 
@@ -212,8 +211,8 @@ async def test_idempotent_create_expense(client: AsyncClient, session: AsyncSess
 async def test_create_expense_invalid_payer(client: AsyncClient, session: AsyncSession):
     """Test creating expense with payer not in group."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
     await session.commit()
 
@@ -260,8 +259,8 @@ async def test_create_expense_invalid_split_member(
 ):
     """Test creating expense with split member not in group."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
     await session.commit()
 
@@ -306,7 +305,7 @@ async def test_create_expense_invalid_split_member(
 async def test_list_group_expenses(client: AsyncClient, session: AsyncSession):
     """Test listing expenses for a group."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
     await session.commit()
 
@@ -363,7 +362,7 @@ async def test_list_group_expenses(client: AsyncClient, session: AsyncSession):
 async def test_get_expense(client: AsyncClient, session: AsyncSession):
     """Test getting a specific expense."""
     # Create user
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     session.add(user)
     await session.commit()
 
@@ -423,8 +422,8 @@ async def test_get_expense(client: AsyncClient, session: AsyncSession):
 async def test_get_expense_not_member(client: AsyncClient, session: AsyncSession):
     """Test getting expense when user is not a member of the group."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
     await session.commit()
 
