@@ -1,0 +1,25 @@
+# Development dependencies for ClearSplit backend
+# Install with: pip install -r requirements-dev.txt
+
+# Include production requirements
+-r requirements.txt
+
+# Linting
+ruff==0.1.15
+
+# Type checking
+mypy==1.8.0
+types-python-jose==3.3.4
+
+# Testing
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Security scanning
+safety>=3.7.0  # Use latest available version
+pip-audit==2.6.2
+bandit[toml]==1.7.6
+
+# Code quality
+black==24.1.1  # Optional: if you want black instead of ruff format
+isort==5.13.2  # Optional: import sorting

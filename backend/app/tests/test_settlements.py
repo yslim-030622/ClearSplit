@@ -15,12 +15,13 @@ from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
 from app.models.settlement import Settlement, SettlementBatch, SettlementStatus
 from app.models.user import User
+from app.tests.conftest import create_test_user
 
 
 async def _create_user(session: AsyncSession, email: str) -> User:
-    user = User(email=email, password_hash="hash")
+    user = create_test_user(email=email, username=email.split("@")[0])
     session.add(user)
-    await session.commit()
+    await session.flush()
     await session.refresh(user)
     return user
 
@@ -37,7 +38,7 @@ async def _create_group_with_members(
         membership = Membership(group_id=group.id, user_id=user.id, role=role)
         session.add(membership)
         memberships.append(membership)
-    await session.commit()
+    await session.flush()
     await session.refresh(group)
     return group, memberships
 
@@ -68,7 +69,7 @@ async def _add_expense(
                 share_cents=share,
             )
         )
-    await session.commit()
+    await session.flush()
     await session.refresh(expense)
     return expense
 
@@ -174,6 +175,16 @@ async def test_compute_idempotency(client: AsyncClient, session: AsyncSession):
         await _create_user(session, "idempotent3@example.com"),
     ]
     group, memberships = await _create_group_with_members(session, users)
+    
+    # Add an expense so there's something to settle
+    await _add_expense(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,
+        amount=3000,
+        splits=[(m.id, 1000) for m in memberships],
+    )
+    
     user = users[0]
     key = str(uuid4())
 
@@ -205,11 +216,21 @@ async def test_permissions_enforced(client: AsyncClient, session: AsyncSession):
     )
     assert resp.status_code == 403
 
+    # Add an expense so there's something to settle
+    await _add_expense(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,
+        amount=2000,
+        splits=[(memberships[0].id, 1000), (memberships[1].id, 1000)],
+    )
+
     # Compute as owner then try latest/patch as outsider
     good = await client.post(
         f"/groups/{group.id}/settlements/compute",
         headers=_auth_header(owner),
     )
+    assert good.status_code == 201
     settlement_id = good.json()["settlements"][0]["id"]
 
     latest = await client.get(
