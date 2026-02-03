@@ -104,7 +104,9 @@ async def compute_settlement_batch(
     balances = await _compute_balances(session, group_id, memberships)
     transfers = _generate_transfers(balances)
 
-    async with session.begin():
+    # Use begin_nested() to create a savepoint, which works both in tests
+    # (where a transaction is already active) and in production
+    async with session.begin_nested():
         batch = SettlementBatch(
             group_id=group_id, total_settlements=len(transfers), status=SettlementStatus.SUGGESTED
         )
@@ -175,6 +177,6 @@ async def update_settlement_status_to_paid(
         )
 
     settlement.status = SettlementStatus.PAID
-    await session.commit()
+    await session.flush()
     await session.refresh(settlement)
     return settlement
