@@ -12,6 +12,7 @@ struct ScaleButtonStyle: ButtonStyle {
 struct ShoppingSessionsListView: View {
     @StateObject private var viewModel: ShoppingSessionsViewModel
     @State private var showingCreateSession = false
+    @State private var showingError = false
     
     let appState: AppState
     let groupId: UUID
@@ -42,11 +43,11 @@ struct ShoppingSessionsListView: View {
                                 .font(.system(size: 64, weight: .light))
                                 .foregroundColor(Color(hex: "9CA3AF"))
                             
-                            Text("No Shopping Sessions")
+                            Text("No Shopping Sessions Yet")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(Color(hex: "111827"))
                             
-                            Text("Tap the + button to create your first shopping session and start tracking expenses.")
+                            Text("Create your first shopping session to start")
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(Color(hex: "6B7280"))
                                 .multilineTextAlignment(.center)
@@ -86,6 +87,23 @@ struct ShoppingSessionsListView: View {
             .buttonStyle(ScaleButtonStyle())
             .padding(.trailing, 20)
             .padding(.bottom, 20)
+            
+            // Error Overlay
+            if showingError && viewModel.errorMessage != nil {
+                ErrorOverlay(
+                    message: viewModel.errorMessage ?? "Failed to load shopping sessions.",
+                    onCancel: {
+                        showingError = false
+                        viewModel.errorMessage = nil
+                    },
+                    onRetry: {
+                        showingError = false
+                        Task {
+                            await viewModel.load()
+                        }
+                    }
+                )
+            }
         }
         .navigationTitle("Shopping Sessions")
         .navigationBarTitleDisplayMode(.large)
@@ -94,6 +112,9 @@ struct ShoppingSessionsListView: View {
         }
         .task {
             await viewModel.load()
+        }
+        .onChange(of: viewModel.errorMessage) { oldValue, newValue in
+            showingError = newValue != nil
         }
         .sheet(isPresented: $showingCreateSession) {
             CreateShoppingSessionView(
@@ -106,11 +127,65 @@ struct ShoppingSessionsListView: View {
                 }
             )
         }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
-            Button("Retry") { Task { await viewModel.load() } }
-            Button("Cancel", role: .cancel) { viewModel.errorMessage = nil }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
+    }
+}
+
+// MARK: - Error Overlay
+
+struct ErrorOverlay: View {
+    let message: String
+    let onCancel: () -> Void
+    let onRetry: () -> Void
+    
+    var body: some View {
+        ZStack {
+            // Backdrop - translucent
+            Color.black.opacity(0.2)
+                .ignoresSafeArea()
+            
+            // Error Card - translucent white
+            VStack(spacing: 16) {
+                // Title
+                Text("Error")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.gray900)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Message
+                Text(message)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.gray900)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Buttons
+                HStack(spacing: 12) {
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(.gray900)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.gray200)
+                            .cornerRadius(12)
+                    }
+                    
+                    Button(action: onRetry) {
+                        Text("Retry")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundColor(.gray900)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.gray200)
+                            .cornerRadius(12)
+                    }
+                }
+            }
+            .padding(20)
+            .background(Color.white.opacity(0.9))
+            .cornerRadius(16)
+            .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
+            .frame(maxWidth: 320)
         }
     }
 }
