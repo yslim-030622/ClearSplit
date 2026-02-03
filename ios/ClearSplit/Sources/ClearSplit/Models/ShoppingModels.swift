@@ -203,14 +203,14 @@ extension ShoppingSession {
 extension ShoppingItem {
     /// Formatted total price
     public var formattedTotal: String {
-        let dollars = Double(priceCents) / 100.0
+        let dollars = Double(totalCents) / 100.0
         return String(format: "$%.2f", dollars)
     }
     
     /// Formatted unit price derived from total and quantity
     public var formattedUnitPrice: String? {
         guard quantity > 0 else { return nil }
-        let dollars = Double(priceCents) / Double(quantity) / 100.0
+        let dollars = Double(totalCents) / Double(quantity) / 100.0
         return String(format: "$%.2f", dollars)
     }
 }

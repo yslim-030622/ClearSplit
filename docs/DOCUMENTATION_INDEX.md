@@ -45,6 +45,7 @@ This is a comprehensive index of all documentation files in the ClearSplit repos
 ## Backend Documentation
 
 ### Implementation Guides
+
 - **[backend/AUTH_IMPLEMENTATION.md](../backend/AUTH_IMPLEMENTATION.md)** - Authentication implementation details
 - **[backend/EXPENSES_IMPLEMENTATION.md](../backend/EXPENSES_IMPLEMENTATION.md)** - Expenses feature implementation
 - **[backend/GROUPS_IMPLEMENTATION.md](../backend/GROUPS_IMPLEMENTATION.md)** - Groups and membership implementation
@@ -52,6 +53,7 @@ This is a comprehensive index of all documentation files in the ClearSplit repos
 - **[backend/SCHEMAS_IMPLEMENTATION.md](../backend/SCHEMAS_IMPLEMENTATION.md)** - API schemas documentation
 
 ### Backend Overview
+
 - **[backend/README.md](../backend/README.md)** - Backend architecture, conventions, and structure
 
 ---
@@ -67,11 +69,13 @@ This is a comprehensive index of all documentation files in the ClearSplit repos
 ## Feature Documentation
 
 ### Shopping Sessions
+
 - **[SHOPPING_MODEL.md](../SHOPPING_MODEL.md)** - Shopping sessions data model
 - **[SHOPPING_IMPLEMENTATION_SUMMARY.md](../SHOPPING_IMPLEMENTATION_SUMMARY.md)** - Shopping feature implementation summary
 - **[HOW_TO_TEST_SHOPPING.md](../HOW_TO_TEST_SHOPPING.md)** - Shopping feature testing guide
 
 ### Implementation Summaries
+
 - **[COMPLETE_FIX_SUMMARY.md](../COMPLETE_FIX_SUMMARY.md)** - Consolidated fix summary
 - **[BACKEND_FIX_SUMMARY.md](../BACKEND_FIX_SUMMARY.md)** - Backend-specific fixes
 - **[PARTICIPANT_FIX_STATUS.md](../PARTICIPANT_FIX_STATUS.md)** - Participant feature fix tracking
@@ -114,6 +118,7 @@ This is a comprehensive index of all documentation files in the ClearSplit repos
 ## Quick Reference
 
 ### Setup Commands
+
 ```bash
 # Backend
 cd backend
@@ -127,6 +132,7 @@ xcodebuild -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 1
 ```
 
 ### Key Files
+
 - **Backend Entry**: `backend/app/main.py`
 - **iOS Entry**: `ios/ClearSplit/ClearSplit/ClearSplit/ClearSplitApp.swift`
 - **Database Schema**: `docs/db.md`
@@ -137,17 +143,20 @@ xcodebuild -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 1
 ## Documentation by Category
 
 ### 📚 Core Documentation
+
 - README.md (root)
 - backend/README.md
 - ios/README.md
 - docs/INDEX.md
 
 ### 🏗️ Architecture
+
 - docs/adr/0001-non-negotiables.md
 - docs/db.md
 - SHOPPING_MODEL.md
 
 ### 💻 Implementation Guides
+
 - backend/AUTH_IMPLEMENTATION.md
 - backend/EXPENSES_IMPLEMENTATION.md
 - backend/GROUPS_IMPLEMENTATION.md
@@ -155,23 +164,27 @@ xcodebuild -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 1
 - backend/SCHEMAS_IMPLEMENTATION.md
 
 ### 🧪 Testing
+
 - PHASE0_VERIFICATION.md
 - INTEGRATION_VERIFICATION.md
 - TESTING_SUMMARY.md
 - HOW_TO_TEST_SHOPPING.md
 
 ### 🔧 Troubleshooting
+
 - BUILD_FIX_GUIDE.md
 - BUILD_TROUBLESHOOTING.md
 - REBUILD_IOS.md
 
 ### 🔒 Security
+
 - SECURITY.md
 - SECURITY_PATCH.md
 - SECURITY_HARDENING_SUMMARY.md
 - TOKEN_REFRESH_FIX.md
 
 ### 📝 Development Notes
+
 - SESSION_SUMMARY.md
 - WHAT_YOULL_SEE.md
 - COMPLETE_FIX_SUMMARY.md
