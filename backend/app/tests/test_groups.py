@@ -5,19 +5,18 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import create_access_token
-from app.auth.password import hash_password
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
-from app.models.user import User
+from app.tests.conftest import create_test_user
 
 
 @pytest.mark.asyncio
 async def test_create_group(client: AsyncClient, session: AsyncSession):
     """Test creating a group."""
     # Create user
-    user = User(email="owner@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="owner@example.com", username="owner")
     session.add(user)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -58,10 +57,10 @@ async def test_create_group(client: AsyncClient, session: AsyncSession):
 async def test_list_my_groups(client: AsyncClient, session: AsyncSession):
     """Test listing user's groups."""
     # Create users
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     session.add_all([user1, user2])
-    await session.commit()
+    await session.flush()
 
     # Create groups
     group1 = Group(name="Group 1", currency="USD")
@@ -80,7 +79,7 @@ async def test_list_my_groups(client: AsyncClient, session: AsyncSession):
         group_id=group2.id, user_id=user2.id, role=MembershipRole.OWNER
     )
     session.add_all([membership1, membership2, membership3])
-    await session.commit()
+    await session.flush()
 
     # Get access token for user1
     access_token = create_access_token(user1.id, user1.email)
@@ -103,7 +102,7 @@ async def test_list_my_groups(client: AsyncClient, session: AsyncSession):
 async def test_get_group(client: AsyncClient, session: AsyncSession):
     """Test getting a specific group."""
     # Create user and group
-    user = User(email="user@example.com", password_hash=hash_password("password123"))
+    user = create_test_user(email="user@example.com", username="testuser")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user, group])
     await session.flush()
@@ -112,7 +111,7 @@ async def test_get_group(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=user.id, role=MembershipRole.MEMBER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(user.id, user.email)
@@ -133,8 +132,8 @@ async def test_get_group(client: AsyncClient, session: AsyncSession):
 async def test_get_group_not_member(client: AsyncClient, session: AsyncSession):
     """Test getting a group when user is not a member."""
     # Create users and group
-    user1 = User(email="user1@example.com", password_hash=hash_password("password123"))
-    user2 = User(email="user2@example.com", password_hash=hash_password("password123"))
+    user1 = create_test_user(email="user1@example.com", username="user1")
+    user2 = create_test_user(email="user2@example.com", username="user2")
     group = Group(name="Test Group", currency="USD")
     session.add_all([user1, user2, group])
     await session.flush()
@@ -144,7 +143,7 @@ async def test_get_group_not_member(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=user1.id, role=MembershipRole.MEMBER
     )
     session.add(membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token for user2
     access_token = create_access_token(user2.id, user2.email)
@@ -163,14 +162,10 @@ async def test_get_group_not_member(client: AsyncClient, session: AsyncSession):
 async def test_add_member_by_user_id(client: AsyncClient, session: AsyncSession):
     """Test adding a member by user_id."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    new_member = User(
-        email="member@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    new_member = create_test_user(email="member@example.com", username="member")
     session.add_all([owner, new_member])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -182,7 +177,7 @@ async def test_add_member_by_user_id(client: AsyncClient, session: AsyncSession)
         group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
     )
     session.add(owner_membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(owner.id, owner.email)
@@ -215,14 +210,10 @@ async def test_add_member_by_user_id(client: AsyncClient, session: AsyncSession)
 async def test_add_member_by_email(client: AsyncClient, session: AsyncSession):
     """Test adding a member by email."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    new_member = User(
-        email="member@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    new_member = create_test_user(email="member@example.com", username="member")
     session.add_all([owner, new_member])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -234,7 +225,7 @@ async def test_add_member_by_email(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
     )
     session.add(owner_membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(owner.id, owner.email)
@@ -256,17 +247,11 @@ async def test_add_member_by_email(client: AsyncClient, session: AsyncSession):
 async def test_add_member_not_owner(client: AsyncClient, session: AsyncSession):
     """Test adding a member when user is not owner."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    member = User(
-        email="member@example.com", password_hash=hash_password("password123")
-    )
-    new_member = User(
-        email="new@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    member = create_test_user(email="member@example.com", username="member")
+    new_member = create_test_user(email="new@example.com", username="newuser")
     session.add_all([owner, member, new_member])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -281,7 +266,7 @@ async def test_add_member_not_owner(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=member.id, role=MembershipRole.MEMBER
     )
     session.add_all([owner_membership, member_membership])
-    await session.commit()
+    await session.flush()
 
     # Get access token for member (not owner)
     access_token = create_access_token(member.id, member.email)
@@ -301,14 +286,10 @@ async def test_add_member_not_owner(client: AsyncClient, session: AsyncSession):
 async def test_add_member_already_exists(client: AsyncClient, session: AsyncSession):
     """Test adding a member who is already in the group."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    existing_member = User(
-        email="member@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    existing_member = create_test_user(email="member@example.com", username="member")
     session.add_all([owner, existing_member])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -323,7 +304,7 @@ async def test_add_member_already_exists(client: AsyncClient, session: AsyncSess
         group_id=group.id, user_id=existing_member.id, role=MembershipRole.MEMBER
     )
     session.add_all([owner_membership, existing_membership])
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(owner.id, owner.email)
@@ -343,17 +324,11 @@ async def test_add_member_already_exists(client: AsyncClient, session: AsyncSess
 async def test_list_members(client: AsyncClient, session: AsyncSession):
     """Test listing group members."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    member1 = User(
-        email="member1@example.com", password_hash=hash_password("password123")
-    )
-    member2 = User(
-        email="member2@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    member1 = create_test_user(email="member1@example.com", username="member1")
+    member2 = create_test_user(email="member2@example.com", username="member2")
     session.add_all([owner, member1, member2])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -371,7 +346,7 @@ async def test_list_members(client: AsyncClient, session: AsyncSession):
         group_id=group.id, user_id=member2.id, role=MembershipRole.MEMBER
     )
     session.add_all([owner_membership, member1_membership, member2_membership])
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(owner.id, owner.email)
@@ -395,14 +370,10 @@ async def test_list_members(client: AsyncClient, session: AsyncSession):
 async def test_list_members_not_member(client: AsyncClient, session: AsyncSession):
     """Test listing members when user is not a member."""
     # Create users
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
-    non_member = User(
-        email="nonmember@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
+    non_member = create_test_user(email="nonmember@example.com", username="nonmember")
     session.add_all([owner, non_member])
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -414,7 +385,7 @@ async def test_list_members_not_member(client: AsyncClient, session: AsyncSessio
         group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
     )
     session.add(owner_membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token for non-member
     access_token = create_access_token(non_member.id, non_member.email)
@@ -433,11 +404,9 @@ async def test_list_members_not_member(client: AsyncClient, session: AsyncSessio
 async def test_add_member_user_not_found(client: AsyncClient, session: AsyncSession):
     """Test adding a member with non-existent user."""
     # Create owner
-    owner = User(
-        email="owner@example.com", password_hash=hash_password("password123")
-    )
+    owner = create_test_user(email="owner@example.com", username="owner")
     session.add(owner)
-    await session.commit()
+    await session.flush()
 
     # Create group
     group = Group(name="Test Group", currency="USD")
@@ -449,7 +418,7 @@ async def test_add_member_user_not_found(client: AsyncClient, session: AsyncSess
         group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
     )
     session.add(owner_membership)
-    await session.commit()
+    await session.flush()
 
     # Get access token
     access_token = create_access_token(owner.id, owner.email)
@@ -466,4 +435,218 @@ async def test_add_member_user_not_found(client: AsyncClient, session: AsyncSess
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_preview_member_invite_by_email(client: AsyncClient, session: AsyncSession):
+    """Test previewing a member invite by email."""
+    # Create owner
+    owner = create_test_user(email="owner@example.com", username="owner")
+    session.add(owner)
+    await session.flush()
+
+    # Create user to preview
+    user_to_invite = create_test_user(
+        email="invitee@example.com", username="invitee"
+    )
+    session.add(user_to_invite)
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add owner membership
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    session.add(owner_membership)
+    await session.flush()
+
+    # Get access token
+    access_token = create_access_token(owner.id, owner.email)
+
+    # Preview invite by email
+    response = await client.post(
+        f"/groups/{group.id}/members/preview",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"email": "invitee@example.com"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["found"] is True
+    assert data["already_member"] is False
+    assert data["user"]["email"] == "invitee@example.com"
+    assert data["user"]["username"] == "invitee"
+
+
+@pytest.mark.asyncio
+async def test_preview_member_invite_by_username(client: AsyncClient, session: AsyncSession):
+    """Test previewing a member invite by username."""
+    # Create owner
+    owner = create_test_user(email="owner@example.com", username="owner")
+    session.add(owner)
+    await session.flush()
+
+    # Create user to preview
+    user_to_invite = create_test_user(
+        email="invitee@example.com", username="invitee"
+    )
+    session.add(user_to_invite)
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add owner membership
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    session.add(owner_membership)
+    await session.flush()
+
+    # Get access token
+    access_token = create_access_token(owner.id, owner.email)
+
+    # Preview invite by username
+    response = await client.post(
+        f"/groups/{group.id}/members/preview",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"username": "invitee"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["found"] is True
+    assert data["already_member"] is False
+    assert data["user"]["email"] == "invitee@example.com"
+    assert data["user"]["username"] == "invitee"
+
+
+@pytest.mark.asyncio
+async def test_preview_member_invite_already_member(client: AsyncClient, session: AsyncSession):
+    """Test previewing a member invite for user who is already a member."""
+    # Create owner
+    owner = create_test_user(email="owner@example.com", username="owner")
+    session.add(owner)
+    await session.flush()
+
+    # Create user who is already a member
+    existing_member = create_test_user(
+        email="member@example.com", username="member"
+    )
+    session.add(existing_member)
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add owner membership
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    session.add(owner_membership)
+    await session.flush()
+
+    # Add existing member
+    member_membership = Membership(
+        group_id=group.id, user_id=existing_member.id, role=MembershipRole.MEMBER
+    )
+    session.add(member_membership)
+    await session.flush()
+
+    # Get access token
+    access_token = create_access_token(owner.id, owner.email)
+
+    # Preview invite for existing member
+    response = await client.post(
+        f"/groups/{group.id}/members/preview",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"email": "member@example.com"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["found"] is True
+    assert data["already_member"] is True
+    assert data["membership_id"] == str(member_membership.id)
+    assert data["role"] == "member"
+
+
+@pytest.mark.asyncio
+async def test_preview_member_invite_user_not_found(client: AsyncClient, session: AsyncSession):
+    """Test previewing a member invite for non-existent user."""
+    # Create owner
+    owner = create_test_user(email="owner@example.com", username="owner")
+    session.add(owner)
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add owner membership
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    session.add(owner_membership)
+    await session.flush()
+
+    # Get access token
+    access_token = create_access_token(owner.id, owner.email)
+
+    # Preview invite for non-existent user
+    response = await client.post(
+        f"/groups/{group.id}/members/preview",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"email": "nonexistent@example.com"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["found"] is False
+
+
+@pytest.mark.asyncio
+async def test_preview_member_invite_not_owner(client: AsyncClient, session: AsyncSession):
+    """Test that only owners can preview member invites."""
+    # Create users
+    owner = create_test_user(email="owner@example.com", username="owner")
+    member = create_test_user(email="member@example.com", username="member")
+    session.add_all([owner, member])
+    await session.flush()
+
+    # Create group
+    group = Group(name="Test Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    # Add memberships
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    member_membership = Membership(
+        group_id=group.id, user_id=member.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([owner_membership, member_membership])
+    await session.flush()
+
+    # Get access token for member (not owner)
+    access_token = create_access_token(member.id, member.email)
+
+    # Member tries to preview invite (should fail)
+    response = await client.post(
+        f"/groups/{group.id}/members/preview",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"email": "someone@example.com"},
+    )
+
+    assert response.status_code == 403
 
