@@ -1,0 +1,58 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/api
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.clearsplit.com  # Update with your staging URL
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull latest image
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main || true
+
+      - name: Health check
+        run: |
+          echo "Health check would run here"
+          # curl -f https://staging.clearsplit.com/health || exit 1
+
+      - name: Deployment notification
+        if: success()
+        run: |
+          echo "✅ Deployment to staging successful"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+
+      - name: Rollback notification
+        if: failure()
+        run: |
+          echo "❌ Deployment failed - rollback required"
+          # Add rollback logic here
+
+# NOTE: This is a template. Update with your actual deployment method:
+# - SSH deployment
+# - Kubernetes
+# - AWS ECS/Fargate
+# - Heroku
+# - Railway
+# - etc.
