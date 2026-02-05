@@ -23,6 +23,14 @@ class ReceiptUploadRead(BaseSchema):
     created_at: datetime
 
 
+class ReceiptDownloadURLResponse(BaseSchema):
+    """Response schema for presigned receipt download URL."""
+
+    receipt_upload_id: UUID
+    expires_in_seconds: int
+    url: str
+
+
 # ============================================================================
 # Shopping Item Split schemas
 # ============================================================================

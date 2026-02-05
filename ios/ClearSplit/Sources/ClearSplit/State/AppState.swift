@@ -72,4 +72,18 @@ final class AppState: ObservableObject {
         _ = try await shoppingService.createItem(sessionId: sessionId, request: request)
         return try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
     }
+    
+    func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> String {
+        print("[AppState] Getting receipt download URL for: \(receiptUploadId)")
+        do {
+            let response = try await shoppingService.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
+            print("[AppState] ✅ Received download URL response")
+            print("[AppState] URL: \(response.url)")
+            print("[AppState] Expires in: \(response.expiresInSeconds) seconds")
+            return response.url
+        } catch {
+            print("[AppState] ❌ Failed to get receipt download URL: \(error)")
+            throw error
+        }
+    }
 }
