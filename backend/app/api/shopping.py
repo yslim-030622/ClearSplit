@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas.shopping import (
     ParticipantSetRequest,
     ReceiptDownloadURLResponse,
+    ReceiptDeleteResponse,
     ReceiptUploadRead,
     SharersSetRequest,
     SharersSetResponse,
@@ -28,6 +29,7 @@ from app.services.shopping import (
     get_shopping_session,
     list_shopping_sessions,
     receipt_storage,
+    delete_receipt_upload,
     set_item_sharers,
     set_session_participants,
     upload_receipt,
@@ -295,6 +297,32 @@ async def get_receipt_download_url(
     )
 
 
+@router.delete(
+    "/receipts/{receipt_upload_id}",
+    response_model=ReceiptDeleteResponse,
+)
+async def delete_receipt(
+    receipt_upload_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ReceiptDeleteResponse:
+    """Delete a receipt upload (payer only)."""
+    receipt = await get_receipt_upload(db, receipt_upload_id)
+    shopping_session = await get_shopping_session(db, receipt.session_id)
+
+    user_membership = await verify_user_is_group_member(
+        db, current_user.id, shopping_session.group_id
+    )
+
+    await delete_receipt_upload(db, receipt, shopping_session, user_membership.id)
+    await db.commit()
+
+    return ReceiptDeleteResponse(
+        receipt_upload_id=receipt.id,
+        deleted=True,
+    )
+
+
 # ============================================================================
 # Shopping Item endpoints
 # ============================================================================
@@ -405,4 +433,3 @@ async def set_sharers(
         total_cents=item.total_cents,
         splits=[ShoppingItemSplitRead.model_validate(s) for s in splits],
     )
-

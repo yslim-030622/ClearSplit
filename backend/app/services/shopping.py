@@ -187,6 +187,19 @@ class ReceiptStorage:
                 detail="Failed to generate download URL",
             )
 
+    def delete_receipt(self, storage_key: str) -> None:
+        """Delete a receipt object from S3."""
+        try:
+            self.s3_client.delete_object(
+                Bucket=self.settings.s3_bucket_name,
+                Key=storage_key,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete receipt from S3",
+            )
+
     def _get_file_extension(self, filename: str) -> str:
         """Extract file extension from filename."""
         if "." in filename:
@@ -450,6 +463,30 @@ async def get_receipt_upload(
     return receipt
 
 
+async def delete_receipt_upload(
+    db: AsyncSession,
+    receipt: ReceiptUpload,
+    shopping_session: ShoppingSession,
+    requester_membership_id: UUID,
+) -> None:
+    """Delete a receipt upload (S3 object + DB record).
+
+    Only the payer can delete receipts.
+    """
+    if requester_membership_id != shopping_session.paid_by_membership_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the payer can delete receipts",
+        )
+
+    # Delete from S3 first
+    receipt_storage.delete_receipt(receipt.storage_key)
+
+    # Delete DB record
+    await db.delete(receipt)
+    await db.flush()
+
+
 # ============================================================================
 # Shopping Item operations
 # ============================================================================
@@ -647,4 +684,3 @@ async def verify_user_is_group_member(
         )
 
     return membership
-
