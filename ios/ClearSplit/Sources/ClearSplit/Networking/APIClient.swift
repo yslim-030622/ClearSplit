@@ -1,6 +1,6 @@
 import Foundation
 
-enum APIError: Error {
+public enum APIError: Error {
     case unauthorized
     case decoding
     case server(status: Int, message: String?)

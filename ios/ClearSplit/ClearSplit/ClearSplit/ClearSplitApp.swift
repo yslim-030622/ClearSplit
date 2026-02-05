@@ -145,6 +145,11 @@ struct ReceiptDownloadURLResponse: Codable {
     // converts receipt_upload_id -> receiptUploadId and expires_in_seconds -> expiresInSeconds
 }
 
+struct ReceiptDeleteResponse: Codable {
+    let receiptUploadId: UUID
+    let deleted: Bool
+}
+
 struct ShoppingItem: Codable, Identifiable {
     let id: UUID
     let sessionId: UUID
@@ -570,6 +575,14 @@ final class AppState: ObservableObject {
         print("[AppState] Getting download URL for receipt: \(receiptUploadId)")
         let response = try await apiClient.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
         return response.url
+    }
+    
+    func deleteReceipt(receiptUploadId: UUID, sessionId: UUID, groupId: UUID) async throws {
+        print("[AppState] Deleting receipt: \(receiptUploadId) for session: \(sessionId)")
+        _ = try await apiClient.deleteReceipt(receiptUploadId: receiptUploadId)
+        // Refresh session to get updated receipts
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        print("[AppState] Receipt deleted and session refreshed.")
     }
     
     func previewMemberInvite(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> MemberPreviewResponse {
@@ -1250,6 +1263,15 @@ final class APIClient {
         return try await self.request(
             "/receipts/\(receiptUploadId.uuidString)/download-url",
             method: "GET",
+            requiresAuth: true
+        )
+    }
+    
+    func deleteReceipt(receiptUploadId: UUID) async throws -> ReceiptDeleteResponse {
+        print("[APIClient] Deleting receipt: \(receiptUploadId)")
+        return try await self.request(
+            "/receipts/\(receiptUploadId.uuidString)",
+            method: "DELETE",
             requiresAuth: true
         )
     }
@@ -4828,8 +4850,37 @@ struct ShoppingSessionDetailView: View {
                                 // Receipts Card
                                 ReceiptsDetailCardOld(
                                     receipts: session.receipts,
+                                    sessionId: session.id,
+                                    groupId: groupId,
+                                    paidByMembershipId: session.paidByMembershipId,
+                                    currentMembershipId: membershipId,
                                     onUploadTap: {
                                         showingReceiptUpload = true
+                                    },
+                                    onDelete: { deletedReceiptId in
+                                        // Update UI immediately by removing the receipt from local state
+                                        // Use self.session to reference the @State property, not the local binding
+                                        if let currentSession = self.session {
+                                            let updatedSession = ShoppingSession(
+                                                id: currentSession.id,
+                                                groupId: currentSession.groupId,
+                                                title: currentSession.title,
+                                                shoppingDate: currentSession.shoppingDate,
+                                                totalAmount: currentSession.totalAmount,
+                                                currency: currentSession.currency,
+                                                paidByMembershipId: currentSession.paidByMembershipId,
+                                                createdAt: currentSession.createdAt,
+                                                participants: currentSession.participants,
+                                                receipts: currentSession.receipts.filter { $0.id != deletedReceiptId },
+                                                items: currentSession.items
+                                            )
+                                            self.session = updatedSession
+                                        }
+                                        
+                                        // Then sync with server
+                                        Task {
+                                            await loadSession()
+                                        }
                                     }
                                 )
                                 
@@ -5197,7 +5248,12 @@ struct ParticipantAvatarViewOld: View {
 
 struct ReceiptsDetailCardOld: View {
     let receipts: [ReceiptUpload]
+    let sessionId: UUID
+    let groupId: UUID
+    let paidByMembershipId: UUID
+    let currentMembershipId: UUID?
     let onUploadTap: () -> Void
+    let onDelete: (UUID) -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -5249,7 +5305,14 @@ struct ReceiptsDetailCardOld: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(receipts) { receipt in
-                            ReceiptThumbnailView(receipt: receipt)
+                            ReceiptThumbnailView(
+                                receipt: receipt,
+                                sessionId: sessionId,
+                                groupId: groupId,
+                                paidByMembershipId: paidByMembershipId,
+                                currentMembershipId: currentMembershipId,
+                                onDelete: onDelete
+                            )
                         }
                     }
                 }
@@ -6162,16 +6225,61 @@ struct ImagePickerView: UIViewControllerRepresentable {
 
 struct ReceiptThumbnailView: View {
     let receipt: ReceiptUpload
+    let sessionId: UUID
+    let groupId: UUID
+    let paidByMembershipId: UUID
+    let currentMembershipId: UUID?
+    let onDelete: (UUID) -> Void
     @EnvironmentObject private var appState: AppState
     
     @State private var imageURL: URL?
     @State private var isLoading = true
     @State private var loadError = false
+    @State private var showDeleteConfirm = false
+    
+    private var canDelete: Bool {
+        guard let currentMembershipId = currentMembershipId else { return false }
+        return currentMembershipId == paidByMembershipId
+    }
     
     var body: some View {
         contentView
             .task {
                 await loadImageURL()
+            }
+            .contextMenu {
+                if canDelete {
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("Delete Receipt", systemImage: "trash")
+                    }
+                }
+            }
+            .alert("Delete receipt?", isPresented: $showDeleteConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    Task {
+                        // Optimistically update UI immediately
+                        onDelete(receipt.id)
+                        
+                        // Then delete on server
+                        do {
+                            try await appState.deleteReceipt(
+                                receiptUploadId: receipt.id,
+                                sessionId: sessionId,
+                                groupId: groupId
+                            )
+                            // Server sync will happen via loadSession() in onDelete callback
+                        } catch {
+                            print("[ReceiptThumbnailView] Failed to delete receipt: \(error)")
+                            // On error, reload session to restore correct state (receipt will reappear)
+                            // The onDelete callback already calls loadSession(), so we're covered
+                        }
+                    }
+                }
+            } message: {
+                Text("This will permanently remove the receipt.")
             }
     }
     
