@@ -9,6 +9,7 @@ import SwiftUI
 import Foundation
 import Security
 import Combine
+import PhotosUI
 
 // MARK: - Models
 
@@ -133,6 +134,15 @@ struct ReceiptUpload: Codable, Identifiable {
     let storageKey: String
     let contentType: String
     let createdAt: Date
+}
+
+struct ReceiptDownloadURLResponse: Codable {
+    let receiptUploadId: UUID
+    let expiresInSeconds: Int
+    let url: String
+    
+    // No CodingKeys needed - APIClient uses convertFromSnakeCase which automatically
+    // converts receipt_upload_id -> receiptUploadId and expires_in_seconds -> expiresInSeconds
 }
 
 struct ShoppingItem: Codable, Identifiable {
@@ -544,6 +554,22 @@ final class AppState: ObservableObject {
         _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
         
         return item
+    }
+    
+    func uploadReceipt(sessionId: UUID, groupId: UUID, imageData: Data, contentType: String = "image/jpeg") async throws -> ReceiptUpload {
+        print("[AppState] Uploading receipt for session: \(sessionId)")
+        let receipt = try await apiClient.uploadReceipt(sessionId: sessionId, imageData: imageData, contentType: contentType)
+        
+        // Refresh session to get updated receipts
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        
+        return receipt
+    }
+    
+    func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> String {
+        print("[AppState] Getting download URL for receipt: \(receiptUploadId)")
+        let response = try await apiClient.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
+        return response.url
     }
     
     func previewMemberInvite(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> MemberPreviewResponse {
@@ -1184,6 +1210,64 @@ final class APIClient {
             body: request,
             requiresAuth: true
         )
+    }
+    
+    func uploadReceipt(sessionId: UUID, imageData: Data, contentType: String) async throws -> ReceiptUpload {
+        print("[APIClient] Uploading receipt for session: \(sessionId)")
+        let boundary = "Boundary-\(UUID().uuidString)"
+        let body = createMultipartBody(boundary: boundary, imageData: imageData, contentType: contentType)
+        
+        guard let url = URL(string: "/shopping-sessions/\(sessionId.uuidString)/receipt", relativeTo: baseURL) else {
+            throw APIError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        if let tokens = tokenProvider() {
+            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        
+        request.httpBody = body
+        
+        let (data, response) = try await session.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.serverError(-1, "Invalid response")
+        }
+        
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+        
+        return try decoder.decode(ReceiptUpload.self, from: data)
+    }
+    
+    func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> ReceiptDownloadURLResponse {
+        print("[APIClient] Fetching download URL for receipt: \(receiptUploadId)")
+        return try await self.request(
+            "/receipts/\(receiptUploadId.uuidString)/download-url",
+            method: "GET",
+            requiresAuth: true
+        )
+    }
+    
+    private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {
+        var body = Data()
+        
+        // Add file field
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"receipt.jpg\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(contentType)\r\n\r\n".data(using: .utf8)!)
+        body.append(imageData)
+        body.append("\r\n".data(using: .utf8)!)
+        
+        // End boundary
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        return body
     }
 
     private func performRequest<T: Decodable>(
@@ -4827,6 +4911,24 @@ struct ShoppingSessionDetailView: View {
                 currentParticipantIds: session?.participants.map { $0.membershipId } ?? []
             )
         }
+        .sheet(isPresented: $showingReceiptUpload) {
+            if let session = session {
+                ReceiptUploadView(
+                    sessionId: session.id,
+                    groupId: groupId,
+                    onUploadComplete: { receipt in
+                        Task {
+                            await loadSession()
+                            showingReceiptUpload = false
+                        }
+                    },
+                    onBack: {
+                        showingReceiptUpload = false
+                    }
+                )
+                .environmentObject(appState)
+            }
+        }
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -5147,9 +5249,7 @@ struct ReceiptsDetailCardOld: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(receipts) { receipt in
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.gray200)
-                                .frame(width: 80, height: 80)
+                            ReceiptThumbnailView(receipt: receipt)
                         }
                     }
                 }
@@ -5705,6 +5805,447 @@ struct AddItemSheet: View {
         } catch {
             errorMessage = "Failed to create item: \(error.localizedDescription)"
             showError = true
+        }
+    }
+}
+
+// MARK: - Receipt Upload Sheet
+
+struct ReceiptUploadView: View {
+    let sessionId: UUID
+    let groupId: UUID
+    @EnvironmentObject private var appState: AppState
+    let onUploadComplete: (ReceiptUpload) -> Void
+    let onBack: () -> Void
+    
+    @State private var selectedImage: UIImage?
+    @State private var isUploading = false
+    @State private var showCamera = false
+    @State private var showPhotoPicker = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.gray50
+                    .ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if selectedImage == nil {
+                            emptyStateView
+                        } else {
+                            previewStateView
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 80)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onBack) {
+                        Image(systemName: "arrow.left")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.gray900)
+                    }
+                }
+                
+                ToolbarItem(placement: .principal) {
+                    Text("Upload Receipt")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+            }
+            .sheet(isPresented: $showPhotoPicker) {
+                PhotoPickerView(selectedImage: $selectedImage)
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                ImagePickerView(sourceType: .camera, selectedImage: $selectedImage)
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK") {
+                    errorMessage = nil
+                }
+            } message: {
+                Text(errorMessage ?? "An error occurred")
+            }
+        }
+    }
+    
+    private var emptyStateView: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.blue200)
+                        .frame(width: 80, height: 80)
+                    
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.blue600)
+                }
+                .padding(.bottom, 12)
+                
+                Text("Add Receipt Photo")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.gray900)
+                    .padding(.bottom, 4)
+                
+                Text("Take a photo or select one from your gallery to add items automatically")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray600)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+                    .padding(.bottom, 32)
+            }
+            .padding(.top, 40)
+            
+            VStack(spacing: 16) {
+                Button(action: {
+                    showCamera = true
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.white)
+                        
+                        Text("Take Photo")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: 448)
+                    .frame(height: 96)
+                    .background(Color.blue600)
+                    .cornerRadius(16)
+                }
+                
+                Button(action: {
+                    showPhotoPicker = true
+                }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray900)
+                        
+                        Text("Choose from Gallery")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundColor(.gray900)
+                    }
+                    .frame(maxWidth: 448)
+                    .frame(height: 96)
+                    .background(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray300, lineWidth: 2)
+                    )
+                    .cornerRadius(16)
+                }
+            }
+            .padding(.top, 32)
+        }
+    }
+    
+    private var previewStateView: some View {
+        VStack(spacing: 16) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.gray900)
+                    .frame(minHeight: 400, maxHeight: 600)
+                    .frame(maxWidth: .infinity)
+                
+                if let image = selectedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(minHeight: 400, maxHeight: 600)
+                        .frame(maxWidth: .infinity)
+                        .cornerRadius(16)
+                        .clipped()
+                }
+                
+                Button(action: {
+                    withAnimation {
+                        selectedImage = nil
+                    }
+                }) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.gray900.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                        
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .padding(16)
+            }
+            
+            VStack(spacing: 12) {
+                Button(action: handleUpload) {
+                    HStack(spacing: 8) {
+                        if isUploading {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(width: 20, height: 20)
+                            
+                            Text("Processing...")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundColor(.white)
+                        } else {
+                            Text("Use This Photo")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(isUploading ? Color.blue500 : Color.blue600)
+                    .cornerRadius(12)
+                }
+                .disabled(isUploading)
+                
+                Button(action: {
+                    showPhotoPicker = true
+                }) {
+                    Text("Choose Different Photo")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(.gray900)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(isUploading ? Color.gray100 : Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.gray300, lineWidth: 1)
+                        )
+                        .cornerRadius(12)
+                }
+                .disabled(isUploading)
+            }
+            
+            Text("We'll automatically extract items and prices from your receipt")
+                .font(.system(size: 14))
+                .foregroundColor(.gray600)
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+        }
+    }
+    
+    private func handleUpload() {
+        guard let image = selectedImage,
+              let imageData = image.jpegData(compressionQuality: 0.8) else {
+            errorMessage = "Failed to process image"
+            showError = true
+            return
+        }
+        
+        isUploading = true
+        
+        Task {
+            do {
+                let receipt = try await appState.uploadReceipt(
+                    sessionId: sessionId,
+                    groupId: groupId,
+                    imageData: imageData,
+                    contentType: "image/jpeg"
+                )
+                
+                await MainActor.run {
+                    isUploading = false
+                    onUploadComplete(receipt)
+                }
+            } catch {
+                await MainActor.run {
+                    isUploading = false
+                    errorMessage = "Failed to upload receipt: \(error.localizedDescription)"
+                    showError = true
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Photo Picker Components
+
+struct PhotoPickerView: UIViewControllerRepresentable {
+    @Binding var selectedImage: UIImage?
+    @Environment(\.dismiss) private var dismiss
+    
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var config = PHPickerConfiguration()
+        config.filter = .images
+        config.selectionLimit = 1
+        
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let parent: PhotoPickerView
+        
+        init(_ parent: PhotoPickerView) {
+            self.parent = parent
+        }
+        
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true)
+            
+            guard let result = results.first else { return }
+            
+            result.itemProvider.loadObject(ofClass: UIImage.self) { image, error in
+                if let image = image as? UIImage {
+                    DispatchQueue.main.async {
+                        self.parent.selectedImage = image
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ImagePickerView: UIViewControllerRepresentable {
+    let sourceType: UIImagePickerController.SourceType
+    @Binding var selectedImage: UIImage?
+    @Environment(\.dismiss) private var dismiss
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = sourceType
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        picker.modalPresentationStyle = .fullScreen
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePickerView
+        
+        init(_ parent: ImagePickerView) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                DispatchQueue.main.async {
+                    self.parent.selectedImage = image
+                }
+            }
+            picker.dismiss(animated: true)
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+        }
+    }
+}
+
+// MARK: - Receipt Thumbnail View
+
+struct ReceiptThumbnailView: View {
+    let receipt: ReceiptUpload
+    @EnvironmentObject private var appState: AppState
+    
+    @State private var imageURL: URL?
+    @State private var isLoading = true
+    @State private var loadError = false
+    
+    var body: some View {
+        contentView
+            .task {
+                await loadImageURL()
+            }
+    }
+    
+    @ViewBuilder
+    private var contentView: some View {
+        if let url = imageURL {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    loadingView
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.gray200, lineWidth: 1)
+                        )
+                case .failure:
+                    errorView
+                @unknown default:
+                    loadingView
+                }
+            }
+        } else if isLoading {
+            loadingView
+        } else {
+            errorView
+        }
+    }
+    
+    private var loadingView: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(Color.gray200)
+            .frame(width: 80, height: 80)
+            .overlay(
+                ProgressView()
+                    .scaleEffect(0.8)
+            )
+    }
+    
+    private var errorView: some View {
+        RoundedRectangle(cornerRadius: 12)
+            .fill(Color.gray200)
+            .frame(width: 80, height: 80)
+            .overlay(
+                Image(systemName: "doc.text.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.gray400)
+            )
+    }
+    
+    private func loadImageURL() async {
+        do {
+            let urlString = try await appState.getReceiptDownloadURL(receiptUploadId: receipt.id)
+            if let url = URL(string: urlString) {
+                await MainActor.run {
+                    self.imageURL = url
+                    self.isLoading = false
+                }
+            } else {
+                await MainActor.run {
+                    self.loadError = true
+                    self.isLoading = false
+                }
+            }
+        } catch {
+            print("[ReceiptThumbnailView] Failed to load image URL: \(error)")
+            await MainActor.run {
+                self.loadError = true
+                self.isLoading = false
+            }
         }
     }
 }
