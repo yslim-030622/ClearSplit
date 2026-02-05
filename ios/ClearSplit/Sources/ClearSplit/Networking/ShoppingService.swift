@@ -6,6 +6,7 @@ protocol ShoppingServicing {
     func createSession(groupId: UUID, request: ShoppingSessionCreate) async throws -> ShoppingSession
     func setParticipants(sessionId: UUID, request: ParticipantSetRequest) async throws -> ShoppingSession
     func uploadReceipt(sessionId: UUID, imageData: Data, contentType: String) async throws -> ReceiptUpload
+    func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> ReceiptDownloadURLResponse
     func createItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem
     func setSharers(itemId: UUID, request: SharersSetRequest) async throws -> SharersSetResponse
 }
@@ -64,6 +65,22 @@ final class ShoppingService: ShoppingServicing {
         request.contentType = "multipart/form-data; boundary=\(boundary)"
         
         return try await client.upload(request: request, body: body)
+    }
+    
+    func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> ReceiptDownloadURLResponse {
+        print("[ShoppingService] Requesting download URL for receipt: \(receiptUploadId)")
+        let path = "receipts/\(receiptUploadId.uuidString)/download-url"
+        print("[ShoppingService] Request path: \(path)")
+        do {
+            let response = try await client.request(APIRequest(
+                path: path
+            ))
+            print("[ShoppingService] ✅ Successfully received download URL response")
+            return response
+        } catch {
+            print("[ShoppingService] ❌ Failed to get download URL: \(error)")
+            throw error
+        }
     }
     
     private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {

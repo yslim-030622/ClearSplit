@@ -121,11 +121,29 @@ final class APIClient {
 
     private func perform<T: Decodable>(_ apiRequest: APIRequest<T>, retryingOn401: Bool) async throws -> T {
         var request = try await buildRequest(apiRequest)
+        
+        // Log receipt download URL requests
+        if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
+            print("[APIClient] 📥 Requesting receipt download URL: \(apiRequest.path)")
+            print("[APIClient] Full URL: \(request.url?.absoluteString ?? "nil")")
+            print("[APIClient] Method: \(apiRequest.method)")
+            print("[APIClient] Requires auth: \(apiRequest.requiresAuth)")
+            if let authHeader = request.value(forHTTPHeaderField: "Authorization") {
+                let tokenPreview = authHeader.prefix(20) + "..."
+                print("[APIClient] Auth header present: \(tokenPreview)")
+            } else {
+                print("[APIClient] ⚠️ No auth header found")
+            }
+        }
+        
         let (data, response): (Data, URLResponse)
 
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
+                print("[APIClient] ❌ Network error for receipt download URL: \(error)")
+            }
             throw APIError.network(error)
         }
 
@@ -134,22 +152,39 @@ final class APIClient {
         }
 
         if http.statusCode == 401, retryingOn401, apiRequest.requiresAuth {
+            if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
+                print("[APIClient] 🔄 Received 401, attempting token refresh for receipt download URL")
+            }
             // attempt refresh once
             let refreshed = try await auth.refresh { current in
                 try await self.refreshTokens(refreshToken: current.refreshToken)
             }
             request.setValue("Bearer \(refreshed.accessToken)", forHTTPHeaderField: "Authorization")
             let (retryData, retryResponse) = try await session.data(for: request)
-            return try decodeResponse(data: retryData, response: retryResponse)
+            return try decodeResponse(data: retryData, response: retryResponse, path: apiRequest.path)
         }
 
-        return try decodeResponse(data: data, response: response)
+        return try decodeResponse(data: data, response: response, path: apiRequest.path)
     }
 
-    private func decodeResponse<T: Decodable>(data: Data, response: URLResponse) throws -> T {
+    private func decodeResponse<T: Decodable>(data: Data, response: URLResponse, path: String = "") throws -> T {
         guard let http = response as? HTTPURLResponse else {
             throw APIError.server(status: -1, message: "Invalid response")
         }
+        
+        // Enhanced logging for receipt download URL endpoint
+        let isReceiptDownload = path.contains("/receipts/") && path.contains("/download-url")
+        
+        if isReceiptDownload {
+            print("[APIClient] 📥 Receipt download URL response - Status: \(http.statusCode)")
+            print("[APIClient] Response headers: \(http.allHeaderFields)")
+            if let responseBody = String(data: data, encoding: .utf8) {
+                print("[APIClient] Response body: \(responseBody)")
+            } else {
+                print("[APIClient] Response body (binary): \(data.count) bytes")
+            }
+        }
+        
         guard (200..<300).contains(http.statusCode) else {
             // Try to parse FastAPI error response format: {"detail": "error message"}
             var errorMessage: String?
@@ -160,12 +195,33 @@ final class APIClient {
                 errorMessage = message
             }
             // Debug logging (no secrets/tokens are in the body)
-            print("🚨 API error status=\(http.statusCode) message=\(errorMessage ?? "nil")")
+            if isReceiptDownload {
+                print("[APIClient] ❌ Receipt download URL error - Status: \(http.statusCode), Message: \(errorMessage ?? "nil")")
+            } else {
+                print("🚨 API error status=\(http.statusCode) message=\(errorMessage ?? "nil")")
+            }
             throw APIError.server(status: http.statusCode, message: errorMessage)
         }
+        
         do {
-            return try decoder.decode(T.self, from: data)
+            let decoded = try decoder.decode(T.self, from: data)
+            if isReceiptDownload {
+                print("[APIClient] ✅ Successfully decoded ReceiptDownloadURLResponse")
+                if let urlResponse = decoded as? ReceiptDownloadURLResponse {
+                    print("[APIClient] URL: \(urlResponse.url)")
+                    print("[APIClient] URL scheme: \(URL(string: urlResponse.url)?.scheme ?? "nil")")
+                    print("[APIClient] Expires in: \(urlResponse.expiresInSeconds) seconds")
+                }
+            }
+            return decoded
         } catch {
+            if isReceiptDownload {
+                print("[APIClient] ❌ Failed to decode ReceiptDownloadURLResponse")
+                print("[APIClient] Decoding error: \(error)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[APIClient] Raw JSON: \(jsonString)")
+                }
+            }
             throw APIError.decoding
         }
     }
@@ -191,10 +247,10 @@ final class APIClient {
             }
             request.setValue("Bearer \(refreshed.accessToken)", forHTTPHeaderField: "Authorization")
             let (retryData, retryResponse) = try await session.data(for: request)
-            return try decodeResponse(data: retryData, response: retryResponse)
+            return try decodeResponse(data: retryData, response: retryResponse, path: apiRequest.path)
         }
 
-        return try decodeResponse(data: data, response: response)
+        return try decodeResponse(data: data, response: response, path: apiRequest.path)
     }
 
     private func buildRequest<T: Decodable>(_ apiRequest: APIRequest<T>) async throws -> URLRequest {
