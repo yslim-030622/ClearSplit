@@ -4,6 +4,8 @@ struct ShoppingSessionDetailView: View {
     @StateObject private var viewModel: ShoppingSessionDetailViewModel
     @State private var showingAddItem = false
     @State private var showingReceiptUpload = false
+    @State private var pendingDeleteReceipt: ReceiptUpload?
+    @State private var showDeleteConfirm = false
     @State private var groupMemberships: [Membership] = []
     @Environment(\.dismiss) private var dismiss
     
@@ -44,6 +46,11 @@ struct ShoppingSessionDetailView: View {
                                 ReceiptsDetailCard(
                                     receipts: session.receipts,
                                     appState: appState,
+                                    canDelete: canDeleteReceipts(session: session),
+                                    onDeleteTap: { receipt in
+                                        pendingDeleteReceipt = receipt
+                                        showDeleteConfirm = true
+                                    },
                                     onUploadTap: {
                                         showingReceiptUpload = true
                                     }
@@ -151,6 +158,22 @@ struct ShoppingSessionDetailView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .alert("Delete receipt?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                guard let receipt = pendingDeleteReceipt else { return }
+                Task {
+                    do {
+                        try await appState.deleteReceipt(receiptUploadId: receipt.id)
+                        await viewModel.load()
+                    } catch {
+                        viewModel.errorMessage = "Failed to delete receipt."
+                    }
+                }
+            }
+        } message: {
+            Text("This will permanently remove the receipt.")
+        }
     }
     
     private func loadGroupMemberships(groupId: UUID) async {
@@ -171,6 +194,14 @@ struct ShoppingSessionDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, yyyy"
         return formatter.string(from: date)
+    }
+
+    private func canDeleteReceipts(session: ShoppingSession) -> Bool {
+        guard let currentUserId = appState.user?.id else { return false }
+        guard let membership = groupMemberships.first(where: { $0.user?.id == currentUserId }) else {
+            return false
+        }
+        return membership.id == session.paidByMembershipId
     }
 }
 
@@ -366,6 +397,8 @@ struct ParticipantAvatarView: View {
 struct ReceiptsDetailCard: View {
     let receipts: [ReceiptUpload]
     let appState: AppState
+    let canDelete: Bool
+    let onDeleteTap: (ReceiptUpload) -> Void
     let onUploadTap: () -> Void
     
     var body: some View {
@@ -424,7 +457,12 @@ struct ReceiptsDetailCard: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(receipts) { receipt in
-                            ReceiptThumbnailView(receipt: receipt, appState: appState)
+                            ReceiptThumbnailView(
+                                receipt: receipt,
+                                appState: appState,
+                                canDelete: canDelete,
+                                onDeleteTap: onDeleteTap
+                            )
                         }
                     }
                 }
@@ -447,6 +485,8 @@ struct ReceiptsDetailCard: View {
 struct ReceiptThumbnailView: View {
     let receipt: ReceiptUpload
     let appState: AppState
+    let canDelete: Bool
+    let onDeleteTap: (ReceiptUpload) -> Void
     
     @State private var imageURL: URL?
     @State private var isLoading = true
@@ -456,6 +496,15 @@ struct ReceiptThumbnailView: View {
         contentView
             .task {
                 await loadImageURL()
+            }
+            .contextMenu {
+                if canDelete {
+                    Button(role: .destructive) {
+                        onDeleteTap(receipt)
+                    } label: {
+                        Label("Delete Receipt", systemImage: "trash")
+                    }
+                }
             }
     }
     
