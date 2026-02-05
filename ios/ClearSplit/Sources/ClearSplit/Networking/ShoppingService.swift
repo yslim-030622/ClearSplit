@@ -7,6 +7,7 @@ protocol ShoppingServicing {
     func setParticipants(sessionId: UUID, request: ParticipantSetRequest) async throws -> ShoppingSession
     func uploadReceipt(sessionId: UUID, imageData: Data, contentType: String) async throws -> ReceiptUpload
     func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> ReceiptDownloadURLResponse
+    func deleteReceipt(receiptUploadId: UUID) async throws -> ReceiptDeleteResponse
     func createItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem
     func setSharers(itemId: UUID, request: SharersSetRequest) async throws -> SharersSetResponse
 }
@@ -81,6 +82,15 @@ final class ShoppingService: ShoppingServicing {
             print("[ShoppingService] ❌ Failed to get download URL: \(error)")
             throw error
         }
+    }
+
+    func deleteReceipt(receiptUploadId: UUID) async throws -> ReceiptDeleteResponse {
+        print("[ShoppingService] Requesting delete for receipt: \(receiptUploadId)")
+        let path = "receipts/\(receiptUploadId.uuidString)"
+        return try await client.request(APIRequest(
+            path: path,
+            method: "DELETE"
+        ))
     }
     
     private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {

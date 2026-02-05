@@ -31,6 +31,13 @@ class ReceiptDownloadURLResponse(BaseSchema):
     url: str
 
 
+class ReceiptDeleteResponse(BaseSchema):
+    """Response schema for receipt deletion."""
+
+    receipt_upload_id: UUID
+    deleted: bool
+
+
 # ============================================================================
 # Shopping Item Split schemas
 # ============================================================================
@@ -156,4 +163,3 @@ class SharersSetResponse(BaseSchema):
     item_id: UUID
     total_cents: int
     splits: list[ShoppingItemSplitRead]
-

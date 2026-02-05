@@ -102,6 +102,11 @@ public struct ReceiptDownloadURLResponse: Codable {
     // converts receipt_upload_id -> receiptUploadId and expires_in_seconds -> expiresInSeconds
 }
 
+public struct ReceiptDeleteResponse: Codable {
+    public let receiptUploadId: UUID
+    public let deleted: Bool
+}
+
 // MARK: - Shopping Item
 
 public struct ShoppingItem: Codable, Equatable, Identifiable {

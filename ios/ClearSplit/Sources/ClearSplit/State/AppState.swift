@@ -86,4 +86,9 @@ final class AppState: ObservableObject {
             throw error
         }
     }
+
+    func deleteReceipt(receiptUploadId: UUID) async throws {
+        print("[AppState] Deleting receipt: \(receiptUploadId)")
+        _ = try await shoppingService.deleteReceipt(receiptUploadId: receiptUploadId)
+    }
 }
