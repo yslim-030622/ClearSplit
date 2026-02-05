@@ -807,14 +807,14 @@ upc: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 ### Phase 2: Polish
 
-7. ✅ Subtotal/total validation
+1. ✅ Subtotal/total validation
 2. ✅ Parser metadata storage
 3. ✅ Re-parse endpoint
 4. ✅ S3 migration (from local filesystem)
 
 ### Phase 3: Advanced
 
-11. ✅ Server-side OCR (Textract/Google Vision)
+1. ✅ Server-side OCR (Textract/Google Vision)
 2. ✅ Item categories
 3. ✅ UPC extraction
 4. ✅ Multi-receipt aggregation

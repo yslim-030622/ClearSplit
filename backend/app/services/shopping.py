@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID
 
+import boto3
+from dotenv import load_dotenv
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models.group import Group
 from app.models.membership import Membership
 from app.models.receipt_upload import ReceiptUpload
@@ -88,20 +91,26 @@ async def validate_memberships_in_group(
 
 
 # ============================================================================
-# Storage abstraction (local filesystem for MVP)
+# Storage abstraction (S3)
 # ============================================================================
+
+# Load .env file to make AWS credentials available to boto3
+# This ensures AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from .env are in environment
+env_path = Path(__file__).parent.parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 
 class ReceiptStorage:
-    """Simple local filesystem storage for receipt images."""
+    """S3 storage for receipt images."""
 
-    def __init__(self, base_path: str = "/tmp/clearsplit_receipts"):
-        """Initialize storage with base path."""
-        self.base_path = Path(base_path)
-        self.base_path.mkdir(parents=True, exist_ok=True)
+    def __init__(self):
+        """Initialize S3 storage client."""
+        self.settings = get_settings()
+        self.s3_client = boto3.client("s3", region_name=self.settings.aws_region)
 
     async def save_receipt(self, file: UploadFile, session_id: UUID) -> tuple[str, str]:
-        """Save receipt file to storage.
+        """Save receipt file to S3.
 
         Args:
             file: Uploaded file
@@ -111,7 +120,7 @@ class ReceiptStorage:
             Tuple of (storage_key, content_type)
 
         Raises:
-            HTTPException: If file type is invalid or save fails
+            HTTPException: If file type is invalid, too large, or upload fails
         """
         # Validate content type
         if not file.content_type or not file.content_type.startswith("image/"):
@@ -120,35 +129,69 @@ class ReceiptStorage:
                 detail=f"Invalid file type. Expected image/*, got {file.content_type}",
             )
 
-        # Generate unique storage key
+        # Read file content
+        content = await file.read()
+
+        # Validate file size
+        if len(content) > self.settings.max_receipt_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File too large. Maximum size is {self.settings.max_receipt_bytes} bytes",
+            )
+
+        # Generate unique storage key: {prefix}/{session_id}/{uuid}.{ext}
         file_ext = self._get_file_extension(file.filename or "receipt.jpg")
-        storage_key = f"{session_id}/{uuid.uuid4()}{file_ext}"
-        file_path = self.base_path / storage_key
+        storage_key = f"{self.settings.s3_prefix}/{session_id}/{uuid.uuid4()}{file_ext}"
 
-        # Ensure directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Save file
+        # Upload to S3
         try:
-            content = await file.read()
-            file_path.write_bytes(content)
+            self.s3_client.put_object(
+                Bucket=self.settings.s3_bucket_name,
+                Key=storage_key,
+                Body=content,
+                ContentType=file.content_type,
+            )
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to save receipt: {str(e)}",
+                detail=f"Failed to upload receipt to S3: {str(e)}",
             )
 
         return storage_key, file.content_type
+
+    def create_presigned_get_url(self, storage_key: str) -> str:
+        """Generate a presigned GET URL for downloading a receipt from S3.
+
+        Args:
+            storage_key: S3 object key (from ReceiptUpload.storage_key)
+
+        Returns:
+            Presigned URL string
+
+        Raises:
+            HTTPException: If URL generation fails
+        """
+        try:
+            url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.settings.s3_bucket_name,
+                    "Key": storage_key,
+                },
+                ExpiresIn=self.settings.s3_presigned_get_expire_seconds,
+            )
+            return url
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate download URL",
+            )
 
     def _get_file_extension(self, filename: str) -> str:
         """Extract file extension from filename."""
         if "." in filename:
             return "." + filename.rsplit(".", 1)[1].lower()
         return ".jpg"
-
-    def get_file_path(self, storage_key: str) -> Path:
-        """Get full file path for a storage key."""
-        return self.base_path / storage_key
 
 
 # Global storage instance
@@ -377,6 +420,33 @@ async def upload_receipt(
     await db.flush()
     await db.refresh(receipt)
 
+    return receipt
+
+
+async def get_receipt_upload(
+    db: AsyncSession, receipt_id: UUID
+) -> ReceiptUpload:
+    """Get receipt upload by ID.
+
+    Args:
+        db: Database session
+        receipt_id: Receipt upload UUID
+
+    Returns:
+        Receipt upload
+
+    Raises:
+        HTTPException: If receipt not found
+    """
+    result = await db.execute(
+        select(ReceiptUpload).where(ReceiptUpload.id == receipt_id)
+    )
+    receipt = result.scalar_one_or_none()
+    if not receipt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Receipt upload {receipt_id} not found",
+        )
     return receipt
 
 
