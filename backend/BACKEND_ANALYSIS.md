@@ -9,9 +9,11 @@
 ## 1. Project Overview
 
 ### Purpose
+
 ClearSplit helps groups (especially roommates) track shared expenses and automatically calculate who owes whom. The current focus is on **Shopping Sessions** - a feature for splitting grocery receipts with item-level granularity.
 
 ### Core Value Proposition
+
 - Create groups and invite members
 - Track expenses with automatic equal splits
 - Handle shopping trips with receipt uploads and item-level splitting
@@ -23,31 +25,37 @@ ClearSplit helps groups (especially roommates) track shared expenses and automat
 ## 2. Technology Stack
 
 ### Framework & Runtime
+
 - **FastAPI 0.111.0** - Modern async Python web framework
 - **Python 3.11+** - Programming language
 - **Uvicorn** - ASGI server for running FastAPI
 
 ### Database
+
 - **PostgreSQL 16** - Primary database
 - **SQLAlchemy 2.0.30** - ORM with async support
 - **asyncpg 0.29.0** - Async PostgreSQL driver
 - **Alembic 1.13.1** - Database migration tool
 
 ### Authentication & Security
+
 - **python-jose** - JWT token handling
 - **bcrypt 4.1.2** - Password hashing
 - **HTTPBearer** - Token-based authentication
 
 ### Data Validation
+
 - **Pydantic 2.8.2** - Request/response validation and serialization
 - **pydantic-settings 2.3.3** - Configuration management
 
 ### Testing
+
 - **pytest 8.3.2** - Testing framework
 - **pytest-asyncio 0.25.2** - Async test support
 - **httpx 0.27.0** - HTTP client for testing
 
 ### Development Tools
+
 - **python-dotenv 1.0.1** - Environment variable management
 - **Docker & Docker Compose** - Containerization and local development
 
@@ -189,6 +197,7 @@ backend/
 ### Core Entities
 
 #### Users (`users`)
+
 - `id` (UUID, PK)
 - `username` (CITEXT, unique)
 - `email` (CITEXT, unique)
@@ -197,6 +206,7 @@ backend/
 - `created_at`, `updated_at` (Timestamp)
 
 #### Groups (`groups`)
+
 - `id` (UUID, PK)
 - `name` (Text)
 - `currency` (String(3), default: "USD")
@@ -204,6 +214,7 @@ backend/
 - `created_at`, `updated_at` (Timestamp)
 
 #### Memberships (`memberships`)
+
 - `id` (UUID, PK)
 - `group_id` (UUID, FK → groups)
 - `user_id` (UUID, FK → users)
@@ -212,6 +223,7 @@ backend/
 - **Unique constraint**: (group_id, user_id)
 
 #### Expenses (`expenses`)
+
 - `id` (UUID, PK)
 - `group_id` (UUID, FK → groups)
 - `title` (Text)
@@ -224,6 +236,7 @@ backend/
 - `created_at`, `updated_at` (Timestamp)
 
 #### Expense Splits (`expense_splits`)
+
 - `id` (UUID, PK)
 - `expense_id` (UUID, FK → expenses)
 - `membership_id` (UUID, FK → memberships)
@@ -233,6 +246,7 @@ backend/
 ### Shopping Feature
 
 #### Shopping Sessions (`shopping_sessions`)
+
 - `id` (UUID, PK)
 - `group_id` (UUID, FK → groups)
 - `title` (Text)
@@ -243,6 +257,7 @@ backend/
 - `created_at` (Timestamp)
 
 #### Shopping Items (`shopping_items`)
+
 - `id` (UUID, PK)
 - `session_id` (UUID, FK → shopping_sessions)
 - `name` (Text)
@@ -252,6 +267,7 @@ backend/
 - `created_at` (Timestamp)
 
 #### Shopping Item Splits (`shopping_item_splits`)
+
 - `id` (UUID, PK)
 - `item_id` (UUID, FK → shopping_items)
 - `membership_id` (UUID, FK → memberships)
@@ -259,12 +275,14 @@ backend/
 - `created_at` (Timestamp)
 
 #### Shopping Session Participants (`shopping_session_participants`)
+
 - `id` (UUID, PK)
 - `session_id` (UUID, FK → shopping_sessions)
 - `membership_id` (UUID, FK → memberships)
 - `created_at` (Timestamp)
 
 #### Receipt Uploads (`receipt_uploads`)
+
 - `id` (UUID, PK)
 - `session_id` (UUID, FK → shopping_sessions)
 - `file_path` (Text) - Storage path
@@ -277,6 +295,7 @@ backend/
 ### Settlement Feature
 
 #### Settlement Batches (`settlement_batches`)
+
 - `id` (UUID, PK)
 - `group_id` (UUID, FK → groups)
 - `status` (Enum: suggested, paid, voided)
@@ -286,6 +305,7 @@ backend/
 - `voided_reason` (Text, nullable)
 
 #### Settlements (`settlements`)
+
 - `id` (UUID, PK)
 - `batch_id` (UUID, FK → settlement_batches)
 - `group_id` (UUID, FK → groups)
@@ -294,17 +314,19 @@ backend/
 - `amount_cents` (BigInteger)
 - `status` (Enum: suggested, paid, voided)
 - `created_at` (Timestamp)
-- **Constraints**: 
+- **Constraints**:
   - `amount_cents > 0`
   - `from_membership <> to_membership`
 
 ### Supporting Tables
 
 #### Idempotency Keys (`idempotency_keys`)
+
 - Stores request hashes and responses for idempotent operations
 - Prevents duplicate operations on retries
 
 #### Activity Logs (`activity_logs`)
+
 - Audit trail for group activities
 
 ---
@@ -321,6 +343,7 @@ backend/
 | GET | `/auth/me` | Get current user info | Yes |
 
 **Token Types:**
+
 - **Access Token**: Short-lived (15 minutes default)
 - **Refresh Token**: Long-lived (30 days default)
 
@@ -344,6 +367,7 @@ backend/
 | GET | `/expenses/{expense_id}` | Get expense by ID | Yes (member) | No |
 
 **Features:**
+
 - Automatic equal split calculation
 - Auto-computes settlements after creation
 - Supports idempotency via `Idempotency-Key` header
@@ -361,6 +385,7 @@ backend/
 | PUT | `/items/{item_id}/sharers` | Set item sharers | Yes (payer) |
 
 **Authorization Rules:**
+
 - Only the **payer** (paid_by_membership_id) can:
   - Set participants
   - Upload receipts
@@ -376,6 +401,7 @@ backend/
 | PATCH | `/settlements/{settlement_id}` | Mark settlement as paid | Yes (debtor) | No |
 
 **Settlement Algorithm:**
+
 - Computes minimal transfers to settle all debts
 - Creates immutable snapshot (batch)
 - Only status updates allowed (paid/voided)
@@ -441,12 +467,14 @@ backend/
 ## 8. Key Features & Business Logic
 
 ### 1. Group Management
+
 - Users create groups with name and currency
 - Creator automatically becomes owner
 - Owners can invite members by email/username
 - Three roles: owner, member, viewer
 
 ### 2. Expense Tracking
+
 - Create expenses with title, amount, date
 - Specify who paid (membership ID)
 - Specify who to split among (list of membership IDs)
@@ -455,6 +483,7 @@ backend/
 - **Auto-computes settlements** after expense creation
 
 ### 3. Shopping Sessions (Primary Feature)
+
 - Create shopping trips with title, date, payer
 - Add participants (who was shopping)
 - Upload receipt images (optional)
@@ -465,11 +494,13 @@ backend/
 - **Deterministic remainder distribution** (no rounding errors)
 
 **Workflow:**
+
 1. Create session → Set participants → Upload receipt (optional)
 2. Add items → Set sharers for each item
 3. System computes splits automatically
 
 ### 4. Settlement Engine
+
 - Computes who owes whom based on expenses/shopping
 - Creates **immutable settlement batches**
 - Uses minimal transfer algorithm
@@ -477,6 +508,7 @@ backend/
 - Only status updates allowed (no edits to amounts)
 
 ### 5. Idempotency
+
 - All write operations support idempotency
 - Client sends `Idempotency-Key` header
 - Server stores request hash + response
@@ -487,24 +519,28 @@ backend/
 ## 9. Code Organization Patterns
 
 ### API Routes (`app/api/`)
+
 - **Thin controllers** - Minimal logic, delegate to services
 - **Dependency injection** - Auth, database session
 - **Request/response models** - Pydantic schemas
 - **Error handling** - HTTP exceptions with proper status codes
 
 ### Services (`app/services/`)
+
 - **Business logic** - All complex operations
 - **Database access** - Encapsulated in services
 - **Validation** - Business rules enforcement
 - **Reusable functions** - Shared across routes
 
 ### Models (`app/models/`)
+
 - **SQLAlchemy 2.0** - Modern ORM syntax
 - **Type hints** - Full type annotations
 - **Relationships** - Properly defined with back_populates
 - **Constraints** - Database-level validation
 
 ### Schemas (`app/schemas/`)
+
 - **Pydantic models** - Request/response validation
 - **Separation** - Create, Read, Update schemas
 - **Serialization** - Automatic JSON conversion
@@ -535,6 +571,7 @@ backend/
    - Added username field to users
 
 ### Migration Workflow
+
 ```bash
 # Create new migration
 alembic revision --autogenerate -m "description"
@@ -569,6 +606,7 @@ ENV=local
 ```
 
 ### Settings Management
+
 - Uses `pydantic-settings` for configuration
 - Loads from `.env` file
 - Type-safe settings class
@@ -581,28 +619,33 @@ ENV=local
 ### Local Development
 
 1. **Start Database**
+
    ```bash
    docker-compose up -d db
    ```
 
 2. **Install Dependencies**
+
    ```bash
    cd backend
    make install
    ```
 
 3. **Run Migrations**
+
    ```bash
    alembic upgrade head
    ```
 
 4. **Start Server**
+
    ```bash
    make run
    # Server runs on http://localhost:8000
    ```
 
 5. **Run Tests**
+
    ```bash
    make test
    ```
@@ -618,6 +661,7 @@ docker-compose up
 ```
 
 ### API Documentation
+
 - **Swagger UI**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
 - **OpenAPI JSON**: `http://localhost:8000/openapi.json`
@@ -627,12 +671,14 @@ docker-compose up
 ## 13. Testing
 
 ### Test Structure
+
 - Tests in `app/tests/`
 - Uses pytest with async support
 - `conftest.py` for fixtures (database, test client)
 - Separate test files per feature
 
 ### Test Coverage
+
 - Authentication tests
 - Expense tests
 - Group tests
@@ -642,6 +688,7 @@ docker-compose up
 - Health check tests
 
 ### Running Tests
+
 ```bash
 # All tests
 make test
@@ -658,31 +705,37 @@ pytest --cov=app
 ## 14. Notable Design Decisions
 
 ### 1. Money as Integer Cents
+
 - **Why**: Avoids floating-point precision errors
 - **Storage**: `BigInteger` for `amount_cents`
 - **API**: Accepts/returns cents, not dollars
 
 ### 2. Immutable Settlements
+
 - **Why**: Audit trail, prevents accidental changes
 - **Implementation**: New batch created for each computation
 - **Updates**: Only status changes allowed
 
 ### 3. Optimistic Locking
+
 - **Why**: Prevents concurrent modification conflicts
 - **Implementation**: `version` field on groups, expenses, settlement_batches
 - **Usage**: Increment on updates, check on conflicts
 
 ### 4. Composite Foreign Keys
+
 - **Why**: Ensures data integrity across group boundaries
 - **Implementation**: Deferred constraints on settlements
 - **Benefit**: Prevents orphaned records
 
 ### 5. Membership-Based Authorization
+
 - **Why**: Users can have different roles in different groups
 - **Implementation**: All operations use membership IDs, not user IDs
 - **Benefit**: Flexible permission model
 
 ### 6. Async/Await Throughout
+
 - **Why**: Better performance for I/O-bound operations
 - **Implementation**: AsyncSession, async route handlers
 - **Benefit**: Handles concurrent requests efficiently
@@ -692,6 +745,7 @@ pytest --cov=app
 ## 15. Current State & Health
 
 ### ✅ Strengths
+
 - **Modern stack** - FastAPI, SQLAlchemy 2.0, async/await
 - **Well-organized** - Clear separation of concerns
 - **Type-safe** - Full type hints, Pydantic validation
@@ -701,6 +755,7 @@ pytest --cov=app
 - **Documented** - Good code organization, README
 
 ### ⚠️ Areas for Improvement
+
 - **Error handling** - Could be more comprehensive
 - **Logging** - Basic logging, could be enhanced
 - **Rate limiting** - Not implemented (mentioned in preview endpoint)
@@ -709,6 +764,7 @@ pytest --cov=app
 - **Monitoring** - No observability/metrics infrastructure
 
 ### 🔄 Active Development
+
 - Shopping sessions feature is the current focus
 - Receipt upload functionality exists but needs storage backend
 - Settlement engine is functional but may need optimization
@@ -718,17 +774,20 @@ pytest --cov=app
 ## 16. Integration Points
 
 ### iOS Client
+
 - REST API communication
 - JWT token storage in Keychain
 - Token refresh handling
 - Error handling and retry logic
 
 ### Database
+
 - PostgreSQL 16
 - Async connection pooling
 - Transaction management per request
 
 ### Future Integrations (Potential)
+
 - File storage service (S3, etc.) for receipts
 - Email service for invitations
 - Push notifications
@@ -739,6 +798,7 @@ pytest --cov=app
 ## 17. API Response Examples
 
 ### Signup Response
+
 ```json
 {
   "access_token": "eyJ...",
@@ -755,6 +815,7 @@ pytest --cov=app
 ```
 
 ### Expense Response
+
 ```json
 {
   "id": "uuid",
@@ -776,6 +837,7 @@ pytest --cov=app
 ```
 
 ### Settlement Batch Response
+
 ```json
 {
   "id": "uuid",
@@ -811,6 +873,7 @@ ClearSplit backend is a **well-architected, modern Python API** built with FastA
 The codebase follows best practices with clear separation of concerns, proper error handling, and a focus on data integrity. The shopping sessions feature is the current primary focus, with receipt uploads and item-level splitting capabilities.
 
 **Next Steps for Development:**
+
 1. Implement file storage for receipt uploads
 2. Add rate limiting to prevent abuse
 3. Enhance logging and monitoring
