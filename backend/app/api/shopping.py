@@ -10,6 +10,7 @@ from app.db.session import get_session
 from app.models.user import User
 from app.schemas.shopping import (
     ParticipantSetRequest,
+    ReceiptDownloadURLResponse,
     ReceiptUploadRead,
     SharersSetRequest,
     SharersSetResponse,
@@ -22,9 +23,11 @@ from app.schemas.shopping import (
 from app.services.shopping import (
     create_shopping_item,
     create_shopping_session,
+    get_receipt_upload,
     get_shopping_item,
     get_shopping_session,
     list_shopping_sessions,
+    receipt_storage,
     set_item_sharers,
     set_session_participants,
     upload_receipt,
@@ -243,6 +246,53 @@ async def upload_session_receipt(
     await db.commit()
 
     return ReceiptUploadRead.model_validate(receipt)
+
+
+@router.get(
+    "/receipts/{receipt_upload_id}/download-url",
+    response_model=ReceiptDownloadURLResponse,
+)
+async def get_receipt_download_url(
+    receipt_upload_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ReceiptDownloadURLResponse:
+    """Get a presigned download URL for a receipt.
+
+    User must be a member of the receipt's shopping session group.
+
+    Args:
+        receipt_upload_id: Receipt upload UUID
+        current_user: Current authenticated user
+        db: Database session
+
+    Returns:
+        Presigned download URL response
+
+    Raises:
+        HTTPException: If receipt not found or user not authorized
+    """
+    # Load receipt upload
+    receipt = await get_receipt_upload(db, receipt_upload_id)
+
+    # Load shopping session to get group_id
+    shopping_session = await get_shopping_session(db, receipt.session_id)
+
+    # Verify user is a member of the group
+    await verify_user_is_group_member(db, current_user.id, shopping_session.group_id)
+
+    # Generate presigned URL
+    presigned_url = receipt_storage.create_presigned_get_url(receipt.storage_key)
+
+    # Get expiration from settings
+    from app.core.config import get_settings
+    settings = get_settings()
+
+    return ReceiptDownloadURLResponse(
+        receipt_upload_id=receipt.id,
+        expires_in_seconds=settings.s3_presigned_get_expire_seconds,
+        url=presigned_url,
+    )
 
 
 # ============================================================================

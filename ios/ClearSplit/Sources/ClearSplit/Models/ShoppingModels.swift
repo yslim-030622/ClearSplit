@@ -93,6 +93,15 @@ public struct ReceiptUpload: Codable, Equatable, Identifiable {
     }
 }
 
+public struct ReceiptDownloadURLResponse: Codable {
+    public let receiptUploadId: UUID
+    public let expiresInSeconds: Int
+    public let url: String
+    
+    // No CodingKeys needed - APIClient uses convertFromSnakeCase which automatically
+    // converts receipt_upload_id -> receiptUploadId and expires_in_seconds -> expiresInSeconds
+}
+
 // MARK: - Shopping Item
 
 public struct ShoppingItem: Codable, Equatable, Identifiable {
