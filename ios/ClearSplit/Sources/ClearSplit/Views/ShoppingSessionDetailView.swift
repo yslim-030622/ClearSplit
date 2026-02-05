@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct ShoppingSessionDetailView: View {
     @StateObject private var viewModel: ShoppingSessionDetailViewModel
@@ -167,7 +168,25 @@ struct ShoppingSessionDetailView: View {
                         try await appState.deleteReceipt(receiptUploadId: receipt.id)
                         await viewModel.load()
                     } catch {
-                        viewModel.errorMessage = "Failed to delete receipt."
+                        // Provide more specific error messages
+                        if let apiError = error as? APIError {
+                            switch apiError {
+                            case .unauthorized:
+                                viewModel.errorMessage = "You don't have permission to delete this receipt. Only the payer can delete receipts."
+                            case .server(let status, let message):
+                                if status == 403 {
+                                    viewModel.errorMessage = "You don't have permission to delete this receipt. Only the payer can delete receipts."
+                                } else {
+                                    viewModel.errorMessage = message ?? "Failed to delete receipt. Please try again."
+                                }
+                            case .network(let underlyingError):
+                                viewModel.errorMessage = "Network error: \(underlyingError.localizedDescription). Please check your connection and try again."
+                            default:
+                                viewModel.errorMessage = "Failed to delete receipt. Please try again."
+                            }
+                        } else {
+                            viewModel.errorMessage = "Failed to delete receipt: \(error.localizedDescription)"
+                        }
                     }
                 }
             }
