@@ -8,8 +8,8 @@ enum APIConfig {
             return url
         }
 
-        // Default for simulator/local dev
-        return URL(string: "http://localhost:8000")!
+        // Default for simulator/local dev (use IPv4 to avoid IPv6 connection issues)
+        return URL(string: "http://127.0.0.1:8000")!
     }
 
     /// Helper for devices: pass a LAN URL like http://192.168.1.10:8000 via Info.plist or scheme-specific xcconfig.

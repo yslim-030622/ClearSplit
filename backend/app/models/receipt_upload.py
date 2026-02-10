@@ -11,6 +11,7 @@ from app.db import Base
 
 if TYPE_CHECKING:
     from app.models.shopping_session import ShoppingSession
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
 
 
 class ReceiptUpload(Base):
@@ -38,4 +39,9 @@ class ReceiptUpload(Base):
 
     # Relationships
     session: Mapped["ShoppingSession"] = relationship(back_populates="receipts")
+    extracted_items: Mapped[list["ReceiptExtractedItem"]] = relationship(
+        back_populates="receipt",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 

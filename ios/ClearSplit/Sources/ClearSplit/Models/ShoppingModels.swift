@@ -107,6 +107,30 @@ public struct ReceiptDeleteResponse: Codable {
     public let deleted: Bool
 }
 
+// MARK: - Receipt Extracted Item (OCR)
+
+public struct ReceiptExtractedItem: Codable, Equatable, Identifiable {
+    public let id: UUID
+    public let receiptUploadId: UUID
+    public let name: String
+    public let quantity: Int
+    public let unitPriceCents: Int?
+    public let totalCents: Int
+    public let rawLine: String?
+    public let confidence: Double?
+    public let createdAt: Date
+    
+    enum CodingKeys: String, CodingKey {
+        case id, name, quantity
+        case receiptUploadId = "receipt_upload_id"
+        case unitPriceCents = "unit_price_cents"
+        case totalCents = "total_cents"
+        case rawLine = "raw_line"
+        case confidence
+        case createdAt = "created_at"
+    }
+}
+
 // MARK: - Shopping Item
 
 public struct ShoppingItem: Codable, Equatable, Identifiable {

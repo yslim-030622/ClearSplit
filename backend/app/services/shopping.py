@@ -159,6 +159,30 @@ class ReceiptStorage:
 
         return storage_key, file.content_type
 
+    def get_receipt_bytes(self, storage_key: str) -> bytes:
+        """Download receipt image bytes from S3.
+
+        Args:
+            storage_key: S3 object key (from ReceiptUpload.storage_key)
+
+        Returns:
+            Image bytes
+
+        Raises:
+            HTTPException: If download fails
+        """
+        try:
+            response = self.s3_client.get_object(
+                Bucket=self.settings.s3_bucket_name,
+                Key=storage_key,
+            )
+            return response["Body"].read()
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to download receipt from S3: {str(e)}",
+            )
+
     def create_presigned_get_url(self, storage_key: str) -> str:
         """Generate a presigned GET URL for downloading a receipt from S3.
 
@@ -359,6 +383,32 @@ async def set_session_participants(
     await validate_memberships_in_group(
         db, shopping_session.group_id, participant_membership_ids
     )
+    
+    # BUSINESS RULE: If session has items with sharers, validate that new participants
+    # include all current sharers (otherwise sharers would be orphaned)
+    if shopping_session.items:
+        from app.models.shopping_item_split import ShoppingItemSplit
+        # Get all unique sharer membership IDs from existing items
+        current_sharers = set()
+        for item in shopping_session.items:
+            result = await db.execute(
+                select(ShoppingItemSplit.membership_id).where(
+                    ShoppingItemSplit.item_id == item.id
+                )
+            )
+            sharers = result.scalars().all()
+            current_sharers.update(sharers)
+        
+        # Check if new participants include all current sharers
+        new_participants_set = set(participant_membership_ids)
+        missing_sharers = current_sharers - new_participants_set
+        
+        if missing_sharers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot remove participants who are sharers in existing items. "
+                       f"Remove or update item sharers first. Missing: {missing_sharers}",
+            )
 
     # Remove existing participants
     result = await db.execute(
@@ -485,6 +535,103 @@ async def delete_receipt_upload(
     # Delete DB record
     await db.delete(receipt)
     await db.flush()
+
+
+async def extract_items_from_receipt_upload(
+    db: AsyncSession,
+    receipt: ReceiptUpload,
+) -> list["ReceiptExtractedItem"]:
+    """Extract items from a receipt image using OCR.
+    
+    Downloads the receipt from S3, runs OCR, parses items,
+    and saves them to the database.
+    
+    Args:
+        db: Database session
+        receipt: Receipt upload to extract items from
+    
+    Returns:
+        List of extracted items saved to database
+    
+    Raises:
+        HTTPException: If extraction fails
+    """
+    import asyncio
+    import logging
+    
+    from fastapi import HTTPException, status as http_status
+    
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
+    from app.services.ocr import extract_items_from_receipt as ocr_extract
+    
+    logger = logging.getLogger(__name__)
+    
+    import time
+    start_time = time.time()
+    
+    logger.info(f"Starting extraction for receipt {receipt.id}")
+    
+    try:
+        # Wrap entire operation (S3 download + OCR) with timeout
+        async def _extract_with_download():
+            # Download receipt image from S3 (async-safe)
+            logger.info(f"Downloading receipt from S3: {receipt.storage_key}")
+            image_bytes = await asyncio.to_thread(
+                receipt_storage.get_receipt_bytes,
+                receipt.storage_key
+            )
+            download_time = time.time() - start_time
+            logger.info(f"Downloaded {len(image_bytes)} bytes from S3 in {download_time:.2f}s")
+            
+            # Run OCR and parse items
+            logger.info("Starting OCR extraction")
+            ocr_start = time.time()
+            ocr_items = await ocr_extract(image_bytes)
+            ocr_time = time.time() - ocr_start
+            logger.info(f"OCR extraction completed in {ocr_time:.2f}s, found {len(ocr_items)} items")
+            
+            return ocr_items
+        
+        # Apply 30-second timeout to entire operation
+        logger.info("Starting extraction with 30s timeout (S3 download + OCR)")
+        ocr_items = await asyncio.wait_for(
+            _extract_with_download(),
+            timeout=30.0
+        )
+        
+        total_time = time.time() - start_time
+        logger.info(f"Extraction completed successfully in {total_time:.2f}s")
+        
+    except asyncio.TimeoutError:
+        elapsed = time.time() - start_time
+        logger.error(f"Extraction timed out after {elapsed:.2f}s for receipt {receipt.id}")
+        raise HTTPException(
+            status_code=http_status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Receipt extraction took too long. Please try with a clearer or smaller image."
+        )
+    
+    # Save extracted items to database
+    db_items: list[ReceiptExtractedItem] = []
+    for ocr_item in ocr_items:
+        db_item = ReceiptExtractedItem(
+            receipt_upload_id=receipt.id,
+            name=ocr_item.name,
+            quantity=ocr_item.quantity,
+            unit_price_cents=ocr_item.unit_price_cents,
+            total_cents=ocr_item.total_cents,
+            raw_line=ocr_item.raw_line,
+            confidence=ocr_item.confidence,
+        )
+        db.add(db_item)
+        db_items.append(db_item)
+    
+    await db.flush()
+    
+    # Refresh to get IDs and timestamps
+    for db_item in db_items:
+        await db.refresh(db_item)
+    
+    return db_items
 
 
 # ============================================================================

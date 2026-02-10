@@ -150,6 +150,18 @@ struct ReceiptDeleteResponse: Codable {
     let deleted: Bool
 }
 
+struct ReceiptExtractedItem: Codable, Equatable, Identifiable {
+    let id: UUID
+    let receiptUploadId: UUID
+    let name: String
+    let quantity: Int
+    let unitPriceCents: Int?
+    let totalCents: Int
+    let rawLine: String?
+    let confidence: Double?
+    let createdAt: Date
+}
+
 struct ShoppingItem: Codable, Identifiable {
     let id: UUID
     let sessionId: UUID
@@ -273,7 +285,7 @@ enum APIConfig {
             return url
         }
         #if DEBUG
-        return URL(string: "http://localhost:8000")!
+        return URL(string: "http://127.0.0.1:8000")!  // Use IPv4 to avoid IPv6 connection issues
         #else
         fatalError("API_BASE_URL must be configured in production")
         #endif
@@ -328,8 +340,18 @@ final class AppState: ObservableObject {
     @Published var isLoadingShopping: Bool = false
 
     private let keychain = KeychainService()
+    
+    // Custom URLSession with timeout for long-running operations like OCR
+    private lazy var urlSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 35.0  // 35s timeout (backend has 30s)
+        config.timeoutIntervalForResource = 60.0  // Total resource timeout
+        return URLSession(configuration: config)
+    }()
+    
     private lazy var apiClient = APIClient(
         baseURL: APIConfig.baseURL,
+        session: urlSession,
         tokenProvider: { [weak self] in self?.keychain.readTokens() },
         refreshHandler: { [weak self] in try await self?.refreshTokensDirectly() ?? { throw APIError.unauthorized }() }
     )
@@ -583,6 +605,18 @@ final class AppState: ObservableObject {
         // Refresh session to get updated receipts
         _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
         print("[AppState] Receipt deleted and session refreshed.")
+    }
+    
+    func extractReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
+        print("[AppState] Extracting items from receipt: \(receiptUploadId)")
+        do {
+            let items = try await apiClient.extractReceiptItems(receiptUploadId: receiptUploadId)
+            print("[AppState] ✅ Extracted \(items.count) items from receipt")
+            return items
+        } catch {
+            print("[AppState] ❌ Extraction FAILED: \(error)")
+            throw error
+        }
     }
     
     func previewMemberInvite(groupId: UUID, username: String? = nil, email: String? = nil) async throws -> MemberPreviewResponse {
@@ -1274,6 +1308,26 @@ final class APIClient {
             method: "DELETE",
             requiresAuth: true
         )
+    }
+    
+    func extractReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
+        print("[APIClient] Extracting items from receipt: \(receiptUploadId)")
+        do {
+            let items: [ReceiptExtractedItem] = try await self.request(
+                "/receipts/\(receiptUploadId.uuidString)/extract-items",
+                method: "POST",
+                requiresAuth: true
+            )
+            print("[APIClient] ✅ Extract-items SUCCESS: Got \(items.count) items")
+            return items
+        } catch {
+            print("[APIClient] ❌ Extract-items FAILED: \(error)")
+            print("[APIClient] ❌ Error type: \(type(of: error))")
+            if let urlError = error as? URLError {
+                print("[APIClient] ❌ URLError code: \(urlError.code.rawValue)")
+            }
+            throw error
+        }
     }
     
     private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {
@@ -4812,6 +4866,10 @@ struct ShoppingSessionDetailView: View {
     @State private var showingAddItem = false
     @State private var showingSetParticipants = false
     @State private var showingReceiptUpload = false
+    @State private var showingExtractedItems = false
+    @State private var uploadedReceiptId: UUID?
+    @State private var capturedSessionId: UUID?
+    @State private var capturedParticipants: [ShoppingSessionParticipant] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var showError = false
@@ -4941,7 +4999,9 @@ struct ShoppingSessionDetailView: View {
                 }
             }
         }
-        .task {
+        .task(id: sessionId) {
+            // Only run when sessionId changes, not on every view update
+            print("[ShoppingSessionDetailView] Initial load for session: \(sessionId)")
             await loadSession()
             await loadGroupMemberships()
         }
@@ -4968,9 +5028,16 @@ struct ShoppingSessionDetailView: View {
                     sessionId: session.id,
                     groupId: groupId,
                     onUploadComplete: { receipt in
-                        Task {
-                            await loadSession()
-                            showingReceiptUpload = false
+                        // Capture session data NOW (before it changes)
+                        // session is already unwrapped by the if-let above
+                        uploadedReceiptId = receipt.id
+                        capturedSessionId = session.id
+                        capturedParticipants = session.participants
+                        
+                        showingReceiptUpload = false
+                        // Add a small delay to allow the current sheet to dismiss smoothly
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingExtractedItems = true
                         }
                     },
                     onBack: {
@@ -4978,6 +5045,30 @@ struct ShoppingSessionDetailView: View {
                     }
                 )
                 .environmentObject(appState)
+            }
+        }
+        .sheet(isPresented: $showingExtractedItems) {
+            // Use captured values (not live session) to prevent task cancellation
+            if let receiptId = uploadedReceiptId, let sessionId = capturedSessionId {
+                ExtractedItemsReviewView(
+                    sessionId: sessionId,
+                    groupId: groupId,
+                    receiptUploadId: receiptId,
+                    participants: capturedParticipants,
+                    appState: appState
+                )
+            }
+        }
+        .onChange(of: showingExtractedItems) { isShowing in
+            // IMPORTANT: Only reload when dismissed, never while showing!
+            // Reloading session while sheet is open cancels the OCR task
+            if !isShowing {
+                print("[ShoppingSessionDetailView] ExtractedItems sheet dismissed, reloading session")
+                Task {
+                    await loadSession()
+                }
+            } else {
+                print("[ShoppingSessionDetailView] ExtractedItems sheet opened")
             }
         }
         .alert("Error", isPresented: $showError) {
@@ -5869,6 +5960,402 @@ struct AddItemSheet: View {
             errorMessage = "Failed to create item: \(error.localizedDescription)"
             showError = true
         }
+    }
+}
+
+// MARK: - Extracted Items Review
+
+/// View for reviewing and confirming OCR-extracted items from a receipt
+struct ExtractedItemsReviewView: View {
+    let sessionId: UUID
+    let groupId: UUID
+    let receiptUploadId: UUID
+    let participants: [ShoppingSessionParticipant]
+    let appState: AppState
+    
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var extractedItems: [EditableExtractedItem] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var isConfirming = false
+    @State private var hasLoaded = false
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                if isLoading {
+                    ProgressView("Extracting items from receipt...")
+                        .padding()
+                } else if let error = error {
+                    errorView(error)
+                } else if extractedItems.isEmpty {
+                    emptyView
+                } else {
+                    itemsList
+                }
+            }
+            .navigationTitle("Review Extracted Items")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                if !extractedItems.isEmpty {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Confirm") {
+                            confirmItems()
+                        }
+                        .disabled(isConfirming || !hasSelectedItems)
+                    }
+                }
+            }
+        }
+        .task(id: receiptUploadId) {
+            // SwiftUI manages task lifecycle automatically
+            // Task only runs once per unique receiptUploadId
+            // Cancellation is handled gracefully in loadExtractedItems()
+            print("[ExtractedItemsReviewView] .task starting for receipt: \(receiptUploadId)")
+            await loadExtractedItems()
+        }
+    }
+    
+    private var itemsList: some View {
+        VStack(spacing: 0) {
+            // Header with count
+            HStack {
+                Text("\(selectedItemsCount) of \(extractedItems.count) items selected")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: { selectAll() }) {
+                    Text("Select All")
+                        .font(.subheadline)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(Color(.systemGroupedBackground))
+            
+            // Items list
+            List {
+                ForEach($extractedItems) { $item in
+                    ExtractedItemRow(item: $item)
+                }
+            }
+            .listStyle(.insetGrouped)
+        }
+    }
+    
+    private var emptyView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary)
+            
+            Text("No Items Found")
+                .font(.headline)
+            
+            Text("The OCR couldn't extract any items from this receipt. You can add items manually.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button("Close") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding()
+    }
+    
+    private func errorView(_ message: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 60))
+                .foregroundColor(.red)
+            
+            Text("Extraction Failed")
+                .font(.headline)
+            
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button("Close") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding()
+    }
+    
+    private var hasSelectedItems: Bool {
+        extractedItems.contains { $0.isIncluded }
+    }
+    
+    private var selectedItemsCount: Int {
+        extractedItems.filter { $0.isIncluded }.count
+    }
+    
+    private func selectAll() {
+        for index in extractedItems.indices {
+            extractedItems[index].isIncluded = true
+        }
+    }
+    
+    private func loadExtractedItems() async {
+        print("[ExtractedItemsReviewView] loadExtractedItems() called for receipt: \(receiptUploadId)")
+        
+        // Prevent duplicate extractions ONLY if successfully loaded
+        guard !hasLoaded else {
+            print("[ExtractedItemsReviewView] ⚠️ Already loaded, skipping")
+            return
+        }
+        
+        print("[ExtractedItemsReviewView] Starting extraction...")
+        isLoading = true
+        error = nil
+        
+        do {
+            // Call the extract-items endpoint (idempotent)
+            print("[ExtractedItemsReviewView] Calling appState.extractReceiptItems...")
+            let items = try await appState.extractReceiptItems(receiptUploadId: receiptUploadId)
+            print("[ExtractedItemsReviewView] Got \(items.count) items")
+            
+            // Check for cancellation before updating state
+            try Task.checkCancellation()
+            
+            extractedItems = items.map { item in
+                EditableExtractedItem(
+                    id: item.id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    unitPriceCents: item.unitPriceCents,
+                    totalCents: item.totalCents,
+                    confidence: item.confidence,
+                    rawLine: item.rawLine,
+                    isIncluded: true  // Include all by default
+                )
+            }
+            
+            // ✅ Only mark as loaded AFTER successful completion
+            hasLoaded = true
+            isLoading = false
+            print("[ExtractedItemsReviewView] ✅ Successfully loaded \(items.count) items")
+            
+        } catch is CancellationError {
+            // Task was cancelled - allow retry by keeping hasLoaded = false
+            print("[ExtractedItemsReviewView] ⚠️ Task cancelled, allowing retry")
+            isLoading = false
+            hasLoaded = false  // Allow retry!
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // Network request was cancelled - allow retry
+            print("[ExtractedItemsReviewView] ⚠️ URLError cancelled, allowing retry")
+            isLoading = false
+            hasLoaded = false  // Allow retry!
+            return
+        } catch let apiError as APIError {
+            // Handle specific API errors
+            switch apiError {
+            case .serverError(let status, let message) where status == 403:
+                self.error = "Only the payer can extract items from receipts. \(message ?? "")"
+            case .unauthorized:
+                self.error = "You are not authorized. Please log in again."
+            default:
+                self.error = "Failed to extract items: \(apiError.localizedDescription)"
+            }
+            isLoading = false
+        } catch {
+            self.error = "Failed to extract items: \(error.localizedDescription)"
+            isLoading = false
+        }
+    }
+    
+    private func confirmItems() {
+        isConfirming = true
+        
+        Task {
+            do {
+                // Get participant membership IDs for auto-setting sharers
+                let participantIds = participants.map { $0.membershipId }
+                
+                // Create shopping items for selected extracted items
+                for item in extractedItems where item.isIncluded {
+                    let createdItem = try await appState.createShoppingItem(
+                        sessionId: sessionId,
+                        groupId: groupId,
+                        name: item.name,
+                        quantity: item.quantity,
+                        totalCents: item.totalCents
+                    )
+                    
+                    // Auto-set sharers if there are participants
+                    if !participantIds.isEmpty {
+                        _ = try await appState.setItemSharers(
+                            itemId: createdItem.id,
+                            sessionId: sessionId,
+                            groupId: groupId,
+                            membershipIds: participantIds
+                        )
+                    }
+                }
+                
+                // Dismiss the view
+                await MainActor.run {
+                    isConfirming = false
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Failed to create items: \(error.localizedDescription)"
+                    isConfirming = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Editable Extracted Item
+
+private struct EditableExtractedItem: Identifiable {
+    let id: UUID
+    var name: String
+    var quantity: Int
+    var unitPriceCents: Int?
+    var totalCents: Int
+    let confidence: Double?
+    let rawLine: String?
+    var isIncluded: Bool
+}
+
+// MARK: - Extracted Item Row
+
+private struct ExtractedItemRow: View {
+    @Binding var item: EditableExtractedItem
+    @State private var isExpanded = false
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Main row with checkbox
+            HStack(spacing: 12) {
+                // Checkbox
+                Button(action: { item.isIncluded.toggle() }) {
+                    Image(systemName: item.isIncluded ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24))
+                        .foregroundColor(item.isIncluded ? .blue : .gray)
+                }
+                .buttonStyle(.plain)
+                
+                // Item details
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.name)
+                        .font(.body)
+                        .strikethrough(!item.isIncluded)
+                        .foregroundColor(item.isIncluded ? .primary : .secondary)
+                    
+                    HStack(spacing: 12) {
+                        Text("Qty: \(item.quantity)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        if let confidence = item.confidence {
+                            confidenceBadge(confidence)
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                // Price
+                Text(formatCents(item.totalCents))
+                    .font(.body.weight(.medium))
+                    .foregroundColor(item.isIncluded ? .primary : .secondary)
+            }
+            
+            // Expandable details
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider()
+                    
+                    if let rawLine = item.rawLine, !rawLine.isEmpty {
+                        Text("Raw: \(rawLine)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    }
+                    
+                    // Editable fields
+                    VStack(spacing: 12) {
+                        HStack {
+                            Text("Name:")
+                                .font(.caption.weight(.medium))
+                                .frame(width: 60, alignment: .leading)
+                            TextField("Item name", text: $item.name)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        
+                        HStack {
+                            Text("Quantity:")
+                                .font(.caption.weight(.medium))
+                                .frame(width: 60, alignment: .leading)
+                            TextField("Qty", value: $item.quantity, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.numberPad)
+                        }
+                        
+                        HStack {
+                            Text("Total:")
+                                .font(.caption.weight(.medium))
+                                .frame(width: 60, alignment: .leading)
+                            TextField("Total", value: $item.totalCents, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .keyboardType(.decimalPad)
+                            Text("¢")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation {
+                isExpanded.toggle()
+            }
+        }
+    }
+    
+    private func confidenceBadge(_ confidence: Double) -> some View {
+        let color: Color = {
+            if confidence >= 0.8 { return .green }
+            else if confidence >= 0.5 { return .orange }
+            else { return .red }
+        }()
+        
+        let percentage = Int(confidence * 100)
+        
+        return Text("\(percentage)%")
+            .font(.caption2.weight(.medium))
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color)
+            .cornerRadius(4)
+    }
+    
+    private func formatCents(_ cents: Int) -> String {
+        let dollars = Double(cents) / 100.0
+        return String(format: "$%.2f", dollars)
     }
 }
 
