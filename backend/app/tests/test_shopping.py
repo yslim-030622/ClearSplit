@@ -787,3 +787,356 @@ async def test_non_payer_cannot_upload_receipt(
     )
     assert response.status_code == 403
 
+
+# ============================================================================
+# OCR Tests
+# ============================================================================
+
+
+@pytest.mark.asyncio
+async def test_extract_items_from_receipt_success(
+    client: AsyncClient, session: AsyncSession, monkeypatch
+):
+    """Test successful OCR extraction of items from receipt."""
+    from app.services.ocr import ExtractedItem
+    
+    # Mock OCR function to return test data
+    def mock_extract(image_bytes: bytes):
+        return [
+            ExtractedItem(
+                name="Bananas",
+                quantity=2,
+                unit_price_cents=150,
+                total_cents=300,
+                raw_line="2 x Bananas 3.00",
+                confidence=0.95,
+            ),
+            ExtractedItem(
+                name="Milk",
+                quantity=1,
+                unit_price_cents=None,
+                total_cents=499,
+                raw_line="Milk 4.99",
+                confidence=0.88,
+            ),
+        ]
+    
+    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    
+    # Mock S3 download
+    def mock_get_bytes(storage_key: str):
+        return b"fake image data"
+    
+    from app.services.shopping import receipt_storage
+    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
+    
+    # Create user and group
+    user = create_test_user(email="payer@example.com", username="payer")
+    session.add(user)
+    await session.flush()
+    
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+    
+    membership = Membership(
+        group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
+    )
+    session.add(membership)
+    await session.flush()
+    
+    # Create shopping session
+    access_token = create_access_token(user.id, user.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Grocery Run",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership.id),
+        },
+    )
+    shopping_session_id = response.json()["id"]
+    
+    # Upload receipt
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": receipt_file},
+    )
+    assert response.status_code == 201
+    receipt_id = response.json()["id"]
+    
+    # Extract items using OCR
+    response = await client.post(
+        f"/receipts/{receipt_id}/extract-items",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 2
+    
+    # Check first item
+    assert items[0]["name"] == "Bananas"
+    assert items[0]["quantity"] == 2
+    assert items[0]["unit_price_cents"] == 150
+    assert items[0]["total_cents"] == 300
+    assert items[0]["confidence"] == 0.95
+    
+    # Check second item
+    assert items[1]["name"] == "Milk"
+    assert items[1]["quantity"] == 1
+    assert items[1]["unit_price_cents"] is None
+    assert items[1]["total_cents"] == 499
+    assert items[1]["confidence"] == 0.88
+
+
+@pytest.mark.asyncio
+async def test_extract_items_non_payer_forbidden(
+    client: AsyncClient, session: AsyncSession
+):
+    """Test that non-payer cannot extract items from receipt."""
+    # Create users
+    user1 = create_test_user(email="payer@example.com", username="payer")
+    user2 = create_test_user(email="member@example.com", username="member")
+    session.add_all([user1, user2])
+    await session.flush()
+    
+    # Create group
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+    
+    # Add memberships
+    membership1 = Membership(
+        group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER
+    )
+    membership2 = Membership(
+        group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([membership1, membership2])
+    await session.flush()
+    
+    # User1 (payer) creates shopping session
+    access_token1 = create_access_token(user1.id, user1.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token1}"},
+        json={
+            "title": "Grocery Run",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership1.id),
+        },
+    )
+    shopping_session_id = response.json()["id"]
+    
+    # User1 uploads receipt
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token1}"},
+        files={"file": receipt_file},
+    )
+    assert response.status_code == 201
+    receipt_id = response.json()["id"]
+    
+    # User2 (non-payer) tries to extract items (should fail)
+    access_token2 = create_access_token(user2.id, user2.email)
+    response = await client.post(
+        f"/receipts/{receipt_id}/extract-items",
+        headers={"Authorization": f"Bearer {access_token2}"},
+    )
+    
+    assert response.status_code == 403
+    assert "payer" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_extract_items_idempotent(
+    client: AsyncClient, session: AsyncSession, monkeypatch
+):
+    """Test that extracting items twice returns existing items (idempotent)."""
+    from app.services.ocr import ExtractedItem
+    
+    # Track how many times OCR is called
+    ocr_call_count = [0]
+    
+    def mock_extract(image_bytes: bytes):
+        ocr_call_count[0] += 1
+        return [
+            ExtractedItem(
+                name="Test Item",
+                quantity=1,
+                unit_price_cents=None,
+                total_cents=100,
+                raw_line="Test Item 1.00",
+                confidence=0.9,
+            ),
+        ]
+    
+    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    
+    # Mock S3 download
+    def mock_get_bytes(storage_key: str):
+        return b"fake image data"
+    
+    from app.services.shopping import receipt_storage
+    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
+    
+    # Create user and group
+    user = create_test_user(email="payer@example.com", username="payer")
+    session.add(user)
+    await session.flush()
+    
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+    
+    membership = Membership(
+        group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
+    )
+    session.add(membership)
+    await session.flush()
+    
+    # Create shopping session
+    access_token = create_access_token(user.id, user.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Grocery Run",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership.id),
+        },
+    )
+    shopping_session_id = response.json()["id"]
+    
+    # Upload receipt
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": receipt_file},
+    )
+    assert response.status_code == 201
+    receipt_id = response.json()["id"]
+    
+    # First extraction
+    response1 = await client.post(
+        f"/receipts/{receipt_id}/extract-items",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response1.status_code == 200
+    items1 = response1.json()
+    assert len(items1) == 1
+    assert ocr_call_count[0] == 1  # OCR was called once
+    
+    # Second extraction (should return existing items)
+    response2 = await client.post(
+        f"/receipts/{receipt_id}/extract-items",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response2.status_code == 200
+    items2 = response2.json()
+    assert len(items2) == 1
+    assert items2[0]["id"] == items1[0]["id"]  # Same item ID
+    assert ocr_call_count[0] == 1  # OCR was NOT called again
+
+
+@pytest.mark.asyncio
+async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, monkeypatch):
+    """Test getting previously extracted items."""
+    from app.services.ocr import ExtractedItem
+    
+    # Mock OCR function
+    def mock_extract(image_bytes: bytes):
+        return [
+            ExtractedItem(
+                name="Item A",
+                quantity=1,
+                unit_price_cents=None,
+                total_cents=100,
+                raw_line="Item A 1.00",
+                confidence=0.9,
+            ),
+        ]
+    
+    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    
+    # Mock S3 download
+    def mock_get_bytes(storage_key: str):
+        return b"fake image data"
+    
+    from app.services.shopping import receipt_storage
+    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
+    
+    # Create users (payer and member)
+    user1 = create_test_user(email="payer@example.com", username="payer")
+    user2 = create_test_user(email="member@example.com", username="member")
+    session.add_all([user1, user2])
+    await session.flush()
+    
+    # Create group
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+    
+    # Add memberships
+    membership1 = Membership(
+        group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER
+    )
+    membership2 = Membership(
+        group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([membership1, membership2])
+    await session.flush()
+    
+    # User1 creates shopping session
+    access_token1 = create_access_token(user1.id, user1.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token1}"},
+        json={
+            "title": "Grocery Run",
+            "shopping_date": str(date.today()),
+            "paid_by": str(membership1.id),
+        },
+    )
+    shopping_session_id = response.json()["id"]
+    
+    # Upload receipt
+    receipt_content = b"fake receipt image data"
+    receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
+    response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {access_token1}"},
+        files={"file": receipt_file},
+    )
+    assert response.status_code == 201
+    receipt_id = response.json()["id"]
+    
+    # Extract items
+    response = await client.post(
+        f"/receipts/{receipt_id}/extract-items",
+        headers={"Authorization": f"Bearer {access_token1}"},
+    )
+    assert response.status_code == 200
+    
+    # User2 (member, not payer) gets extracted items (should succeed)
+    access_token2 = create_access_token(user2.id, user2.email)
+    response = await client.get(
+        f"/receipts/{receipt_id}/extracted-items",
+        headers={"Authorization": f"Bearer {access_token2}"},
+    )
+    
+    assert response.status_code == 200
+    items = response.json()
+    assert len(items) == 1
+    assert items[0]["name"] == "Item A"
+    assert items[0]["total_cents"] == 100
+

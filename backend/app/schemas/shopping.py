@@ -9,6 +9,25 @@ from app.schemas.base import BaseSchema
 
 
 # ============================================================================
+# Receipt Extracted Item Schemas (OCR Results)
+# ============================================================================
+
+
+class ReceiptExtractedItemRead(BaseSchema):
+    """Receipt extracted item read schema (OCR result)."""
+
+    id: UUID
+    receipt_upload_id: UUID
+    name: str
+    quantity: int
+    unit_price_cents: int | None
+    total_cents: int
+    raw_line: str | None
+    confidence: float | None
+    created_at: datetime
+
+
+# ============================================================================
 # Receipt Upload schemas
 # ============================================================================
 

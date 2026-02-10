@@ -62,4 +62,3 @@ class Group(Base):
         back_populates="group",
         cascade="all, delete-orphan",
     )
-

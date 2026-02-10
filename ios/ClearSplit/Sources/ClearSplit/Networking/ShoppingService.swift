@@ -8,6 +8,8 @@ protocol ShoppingServicing {
     func uploadReceipt(sessionId: UUID, imageData: Data, contentType: String) async throws -> ReceiptUpload
     func getReceiptDownloadURL(receiptUploadId: UUID) async throws -> ReceiptDownloadURLResponse
     func deleteReceipt(receiptUploadId: UUID) async throws -> ReceiptDeleteResponse
+    func extractReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem]
+    func getExtractedReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem]
     func createItem(sessionId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem
     func setSharers(itemId: UUID, request: SharersSetRequest) async throws -> SharersSetResponse
 }
@@ -91,6 +93,35 @@ final class ShoppingService: ShoppingServicing {
             path: path,
             method: "DELETE"
         ))
+    }
+    
+    func extractReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
+        print("[ShoppingService] Triggering OCR extraction for receipt: \(receiptUploadId)")
+        let path = "receipts/\(receiptUploadId.uuidString)/extract-items"
+        do {
+            let items: [ReceiptExtractedItem] = try await client.request(APIRequest(
+                path: path,
+                method: .post
+            ))
+            print("[ShoppingService] ✅ Successfully extracted \(items.count) items")
+            return items
+        } catch {
+            print("[ShoppingService] ❌ Failed to extract items: \(error)")
+            throw error
+        }
+    }
+    
+    func getExtractedReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
+        print("[ShoppingService] Fetching extracted items for receipt: \(receiptUploadId)")
+        let path = "receipts/\(receiptUploadId.uuidString)/extracted-items"
+        do {
+            let items: [ReceiptExtractedItem] = try await client.request(APIRequest(path: path))
+            print("[ShoppingService] ✅ Successfully retrieved \(items.count) extracted items")
+            return items
+        } catch {
+            print("[ShoppingService] ❌ Failed to get extracted items: \(error)")
+            throw error
+        }
     }
     
     private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {
