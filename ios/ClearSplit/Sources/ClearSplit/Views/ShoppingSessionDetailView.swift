@@ -5,6 +5,8 @@ struct ShoppingSessionDetailView: View {
     @StateObject private var viewModel: ShoppingSessionDetailViewModel
     @State private var showingAddItem = false
     @State private var showingReceiptUpload = false
+    @State private var showingExtractedItems = false
+    @State private var uploadedReceiptId: UUID?
     @State private var pendingDeleteReceipt: ReceiptUpload?
     @State private var showDeleteConfirm = false
     @State private var groupMemberships: [Membership] = []
@@ -87,10 +89,13 @@ struct ShoppingSessionDetailView: View {
                         sessionId: session.id,
                         appState: appState,
                         onUploadComplete: { receipt in
+                            // Store receipt ID
+                            uploadedReceiptId = receipt.id
                             showingReceiptUpload = false
-                            // Reload session to get updated receipts
-                            Task {
-                                await viewModel.load()
+                            
+                            // Delay showing OCR review to allow upload sheet to dismiss properly
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                showingExtractedItems = true
                             }
                         },
                         onBack: {
@@ -100,15 +105,34 @@ struct ShoppingSessionDetailView: View {
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
                 }
+                .sheet(isPresented: $showingExtractedItems) {
+                    if let receiptId = uploadedReceiptId {
+                        ExtractedItemsReviewView(
+                            sessionId: session.id,
+                            groupId: session.groupId,
+                            receiptUploadId: receiptId,
+                            participants: session.participants,
+                            appState: appState
+                        )
+                    }
+                }
+                .onChange(of: showingExtractedItems) { _, isShowing in
+                    if !isShowing {
+                        // When ExtractedItemsReviewView is dismissed, reload session
+                        Task {
+                            await viewModel.load()
+                        }
+                    }
+                }
             } else {
                 ContentUnavailableView("Session Not Found", systemImage: "exclamationmark.triangle")
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    if let session = viewModel.session {
+            if let session = viewModel.session {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 2) {
                         Text(session.title)
                             .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.gray900)
@@ -121,10 +145,8 @@ struct ShoppingSessionDetailView: View {
                         }
                     }
                 }
-            }
-            
-            ToolbarItem(placement: .navigationBarTrailing) {
-                if let session = viewModel.session {
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         showingReceiptUpload = true
                     }) {

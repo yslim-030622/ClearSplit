@@ -3,13 +3,16 @@ from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import text
 
 from app.api import auth, expenses, groups, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.models.membership import Membership
 from app.models.user import User
@@ -18,7 +21,27 @@ from app.services.expense import get_expense_by_id
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ClearSplit API")
+app = FastAPI(title="ClearSplit API", version="1.0.0")
+
+# CORS middleware for iOS app
+settings = get_settings()
+cors_origins = [
+    "http://localhost:3000",  # iOS simulator
+    "http://127.0.0.1:3000",
+]
+if settings.env == "production":
+    cors_origins.append("https://yourdomain.com")  # Update with actual domain
+else:
+    # Allow all origins in development
+    cors_origins = ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True if settings.env != "local" else False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.exception_handler(RequestValidationError)
@@ -69,5 +92,32 @@ async def get_expense(
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health(db: AsyncSession = Depends(get_session)) -> dict[str, str | bool]:
+    """Health check endpoint with database connectivity test.
+    
+    Returns:
+        dict with status, database connectivity, and S3 availability
+    """
+    response = {
+        "status": "ok",
+        "database": False,
+        "s3": False,
+    }
+    
+    # Check database connection
+    try:
+        await db.execute(text("SELECT 1"))
+        response["database"] = True
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        response["status"] = "degraded"
+    
+    # Check S3 (basic check - we can't easily test without actually calling S3)
+    # For now, just check if settings are configured
+    try:
+        if settings.s3_bucket_name:
+            response["s3"] = True
+    except Exception:
+        pass
+    
+    return response
