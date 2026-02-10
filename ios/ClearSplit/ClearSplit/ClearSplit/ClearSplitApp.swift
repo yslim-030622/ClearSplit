@@ -5972,233 +5972,519 @@ struct ExtractedItemsReviewView: View {
     let receiptUploadId: UUID
     let participants: [ShoppingSessionParticipant]
     let appState: AppState
-    
+
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var extractedItems: [EditableExtractedItem] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var isConfirming = false
-    @State private var hasLoaded = false
-    
+    @State private var editingId: UUID?
+    @State private var editForm = EditForm(name: "", price: "", quantity: "")
+    @State private var showReceiptPreview = false
+    @State private var receiptPreviewURL: URL?
+    @State private var hasLoadedItems = false
+    @State private var isLoadingItems = false
+    @State private var extractionTask: Task<Void, Never>?
+    @State private var hasLoadedPreviewURL = false
+    @State private var isLoadingPreviewURL = false
+
+    private var totalAmount: Double {
+        extractedItems.reduce(0) { $0 + $1.totalPrice }
+    }
+
+    private var totalItems: Int {
+        extractedItems.reduce(0) { $0 + $1.quantity }
+    }
+
     var body: some View {
-        NavigationView {
-            ZStack {
-                if isLoading {
-                    ProgressView("Extracting items from receipt...")
-                        .padding()
-                } else if let error = error {
-                    errorView(error)
-                } else if extractedItems.isEmpty {
-                    emptyView
-                } else {
-                    itemsList
+        ZStack(alignment: .bottom) {
+            if isLoading {
+                ProgressView("Extracting items from receipt...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = error, extractedItems.isEmpty {
+                errorView(error)
+            } else {
+                contentView
+            }
+
+            confirmBar
+        }
+        .background(Color.gray50)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .foregroundColor(.gray900)
                 }
             }
-            .navigationTitle("Review Extracted Items")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+            ToolbarItem(placement: .principal) {
+                Text("Review Items")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.gray900)
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showReceiptPreview = true }) {
+                    Image(systemName: "photo")
+                        .foregroundColor(.blue600)
                 }
-                if !extractedItems.isEmpty {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Confirm") {
-                            confirmItems()
-                        }
-                        .disabled(isConfirming || !hasSelectedItems)
-                    }
-                }
+                .disabled(receiptPreviewURL == nil)
+            }
+        }
+        .sheet(isPresented: $showReceiptPreview) {
+            if let receiptPreviewURL = receiptPreviewURL {
+                ReceiptImagePreviewSheet(url: receiptPreviewURL)
             }
         }
         .task(id: receiptUploadId) {
-            // SwiftUI manages task lifecycle automatically
-            // Task only runs once per unique receiptUploadId
-            // Cancellation is handled gracefully in loadExtractedItems()
-            print("[ExtractedItemsReviewView] .task starting for receipt: \(receiptUploadId)")
-            await loadExtractedItems()
+            startExtractionIfNeeded()
+            await loadReceiptPreviewURL()
         }
     }
-    
-    private var itemsList: some View {
+
+    private var contentView: some View {
         VStack(spacing: 0) {
-            // Header with count
-            HStack {
-                Text("\(selectedItemsCount) of \(extractedItems.count) items selected")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
+            summaryCard
+
+            ScrollView {
+                VStack(spacing: 12) {
+                    if extractedItems.isEmpty {
+                        emptyStateView
+                    } else {
+                        ForEach(Array(extractedItems.enumerated()), id: \.element.id) { index, item in
+                            itemCard(item: item, index: index + 1)
+                        }
+                    }
+
+                    addItemButton
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 112)
+            }
+        }
+    }
+
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Total Amount")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                    Text(String(format: "$%.2f", totalAmount))
+                        .font(.system(size: 36, weight: .bold))
+                        .foregroundColor(.white)
+                }
                 Spacer()
-                
-                Button(action: { selectAll() }) {
-                    Text("Select All")
-                        .font(.subheadline)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("Items")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                    Text("\(totalItems)")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(.white)
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(Color(.systemGroupedBackground))
-            
-            // Items list
-            List {
-                ForEach($extractedItems) { $item in
-                    ExtractedItemRow(item: $item)
+
+            Text("Review and edit the items extracted from your receipt. Items with lower confidence may need verification.")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.9))
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.2))
+                .cornerRadius(12)
+        }
+        .padding(24)
+        .background(
+            LinearGradient(
+                colors: [Color.blue600, Color.blue700],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+    }
+
+    private func itemCard(item: EditableExtractedItem, index: Int) -> some View {
+        VStack(spacing: 0) {
+            if editingId == item.id {
+                editMode(item: item)
+            } else {
+                viewMode(item: item, index: index)
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.gray200, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
+    }
+
+    private func viewMode(item: EditableExtractedItem, index: Int) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(index)")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.blue600)
+                .frame(width: 32, height: 32)
+                .background(Color.blue200)
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    Text(item.name)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.gray900)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Button(action: { beginEdit(item) }) {
+                            Image(systemName: "pencil")
+                                .foregroundColor(.blue600)
+                        }
+                        .accessibilityLabel("Edit item")
+
+                        Button(action: { deleteItem(item.id) }) {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red)
+                        }
+                        .accessibilityLabel("Delete item")
+                    }
+                }
+
+                HStack(spacing: 4) {
+                    Text(String(format: "$%.2f × %d", item.price, item.quantity))
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray600)
+                    Text("•")
+                        .foregroundColor(.gray400)
+                    Text(String(format: "$%.2f", item.totalPrice))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+
+                confidenceBadge(item.confidence)
+            }
+        }
+        .padding(16)
+    }
+
+    private func editMode(item: EditableExtractedItem) -> some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Item Name")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray600)
+                TextField("Item name", text: $editForm.name)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Price")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray600)
+                    HStack {
+                        Text("$").foregroundColor(.gray500)
+                        TextField("0.00", text: $editForm.price)
+                            .keyboardType(.decimalPad)
+                    }
+                    .padding(8)
+                    .background(Color.gray100)
+                    .cornerRadius(8)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Quantity")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray600)
+                    TextField("1", text: $editForm.quantity)
+                        .keyboardType(.numberPad)
+                        .padding(8)
+                        .background(Color.gray100)
+                        .cornerRadius(8)
                 }
             }
-            .listStyle(.insetGrouped)
+
+            HStack(spacing: 8) {
+                Button(action: { saveEdit(item.id) }) {
+                    Label("Save", systemImage: "checkmark")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .foregroundColor(.white)
+                        .background(Color.blue600)
+                        .cornerRadius(8)
+                }
+
+                Button(action: cancelEdit) {
+                    Label("Cancel", systemImage: "xmark")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 40)
+                        .foregroundColor(.gray800)
+                        .background(Color.gray100)
+                        .cornerRadius(8)
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private func confidenceBadge(_ confidence: Double?) -> some View {
+        let level = ExtractedConfidenceLevel.from(confidence: confidence)
+        return HStack(spacing: 4) {
+            if level == .low {
+                Text("⚠")
+                    .font(.system(size: 10))
+            }
+            Text("\(level.displayName) confidence")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(level.backgroundColor)
+        .foregroundColor(level.textColor)
+        .cornerRadius(12)
+    }
+
+    private var addItemButton: some View {
+        Button(action: addItem) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.system(size: 16, weight: .medium))
+                Text("Add Item")
+                    .font(.system(size: 16, weight: .medium))
+            }
+            .foregroundColor(.gray600)
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+            .background(Color.white)
+            .cornerRadius(16)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    .foregroundColor(Color.gray300)
+            )
         }
     }
-    
-    private var emptyView: some View {
-        VStack(spacing: 16) {
+
+    private var confirmBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            Button(action: confirmItems) {
+                HStack(spacing: 8) {
+                    if isConfirming {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 16, weight: .semibold))
+                    }
+                    Text("Confirm \(extractedItems.count) \(extractedItems.count == 1 ? "Item" : "Items") (\(String(format: "$%.2f", totalAmount)))")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(extractedItems.isEmpty || isConfirming ? Color.gray : Color.blue600)
+                .cornerRadius(12)
+            }
+            .disabled(extractedItems.isEmpty || isConfirming)
+            .padding(16)
+            .background(Color.white)
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 8) {
             Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 60))
-                .foregroundColor(.secondary)
-            
-            Text("No Items Found")
-                .font(.headline)
-            
-            Text("The OCR couldn't extract any items from this receipt. You can add items manually.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            
-            Button("Close") {
-                dismiss()
-            }
-            .buttonStyle(.bordered)
+                .font(.system(size: 40))
+                .foregroundColor(.gray400)
+            Text("No items found")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.gray700)
+            Text("Add items manually")
+                .font(.system(size: 13))
+                .foregroundColor(.gray500)
         }
-        .padding()
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(Color.white)
+        .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.gray200, lineWidth: 1)
+        )
     }
-    
+
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 60))
                 .foregroundColor(.red)
-            
             Text("Extraction Failed")
                 .font(.headline)
-            
             Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            
-            Button("Close") {
-                dismiss()
-            }
-            .buttonStyle(.bordered)
+            Button("Close") { dismiss() }
+                .buttonStyle(.bordered)
         }
         .padding()
     }
-    
-    private var hasSelectedItems: Bool {
-        extractedItems.contains { $0.isIncluded }
+
+    private func beginEdit(_ item: EditableExtractedItem) {
+        editingId = item.id
+        editForm = EditForm(
+            name: item.name,
+            price: String(format: "%.2f", item.price),
+            quantity: "\(item.quantity)"
+        )
     }
-    
-    private var selectedItemsCount: Int {
-        extractedItems.filter { $0.isIncluded }.count
+
+    private func saveEdit(_ id: UUID) {
+        let trimmedName = editForm.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let price = max(0, Double(editForm.price) ?? 0)
+        let quantity = max(1, Int(editForm.quantity) ?? 1)
+
+        extractedItems = extractedItems.map { item in
+            guard item.id == id else { return item }
+            var updated = item
+            updated.name = trimmedName.isEmpty ? "Unnamed Item" : trimmedName
+            updated.price = price
+            updated.quantity = quantity
+            return updated
+        }
+        cancelEdit()
     }
-    
-    private func selectAll() {
-        for index in extractedItems.indices {
-            extractedItems[index].isIncluded = true
+
+    private func cancelEdit() {
+        editingId = nil
+        editForm = EditForm(name: "", price: "", quantity: "")
+    }
+
+    private func deleteItem(_ id: UUID) {
+        extractedItems.removeAll { $0.id == id }
+        if editingId == id {
+            cancelEdit()
         }
     }
-    
-    private func loadExtractedItems() async {
-        print("[ExtractedItemsReviewView] loadExtractedItems() called for receipt: \(receiptUploadId)")
-        
-        // Prevent duplicate extractions ONLY if successfully loaded
-        guard !hasLoaded else {
-            print("[ExtractedItemsReviewView] ⚠️ Already loaded, skipping")
-            return
+
+    private func addItem() {
+        let newItem = EditableExtractedItem(
+            id: UUID(),
+            name: "New Item",
+            price: 0,
+            quantity: 1,
+            confidence: 0.95
+        )
+        extractedItems.append(newItem)
+        beginEdit(newItem)
+    }
+
+    private func loadReceiptPreviewURL() async {
+        guard !hasLoadedPreviewURL, !isLoadingPreviewURL else { return }
+        isLoadingPreviewURL = true
+        do {
+            let urlString = try await appState.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
+            await MainActor.run {
+                receiptPreviewURL = URL(string: urlString)
+                hasLoadedPreviewURL = true
+                isLoadingPreviewURL = false
+            }
+        } catch {
+            // Optional feature; keep screen usable even if preview fails.
+            await MainActor.run {
+                isLoadingPreviewURL = false
+            }
         }
-        
-        print("[ExtractedItemsReviewView] Starting extraction...")
+    }
+
+    private func startExtractionIfNeeded() {
+        guard !hasLoadedItems, extractionTask == nil else { return }
+
+        isLoadingItems = true
         isLoading = true
         error = nil
-        
-        do {
-            // Call the extract-items endpoint (idempotent)
-            print("[ExtractedItemsReviewView] Calling appState.extractReceiptItems...")
-            let items = try await appState.extractReceiptItems(receiptUploadId: receiptUploadId)
-            print("[ExtractedItemsReviewView] Got \(items.count) items")
-            
-            // Check for cancellation before updating state
-            try Task.checkCancellation()
-            
-            extractedItems = items.map { item in
-                EditableExtractedItem(
-                    id: item.id,
-                    name: item.name,
-                    quantity: item.quantity,
-                    unitPriceCents: item.unitPriceCents,
-                    totalCents: item.totalCents,
-                    confidence: item.confidence,
-                    rawLine: item.rawLine,
-                    isIncluded: true  // Include all by default
-                )
+
+        extractionTask = Task {
+            do {
+                let items = try await appState.extractReceiptItems(receiptUploadId: receiptUploadId)
+                let mapped = items.map { item in
+                    let qty = max(1, item.quantity)
+                    let unitPriceCents = item.unitPriceCents ?? (qty > 0 ? item.totalCents / qty : item.totalCents)
+                    return EditableExtractedItem(
+                        id: item.id,
+                        name: item.name,
+                        price: Double(unitPriceCents) / 100.0,
+                        quantity: qty,
+                        confidence: item.confidence
+                    )
+                }
+
+                await MainActor.run {
+                    extractedItems = mapped
+                    hasLoadedItems = true
+                    isLoading = false
+                    isLoadingItems = false
+                    extractionTask = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    isLoading = false
+                    isLoadingItems = false
+                    extractionTask = nil
+                }
+            } catch let urlError as URLError where urlError.code == .cancelled {
+                await MainActor.run {
+                    isLoading = false
+                    isLoadingItems = false
+                    extractionTask = nil
+                }
+            } catch let apiError as APIError {
+                await MainActor.run {
+                    switch apiError {
+                    case .serverError(let status, let message) where status == 403:
+                        error = "Only the payer can extract items from receipts. \(message ?? "")"
+                    case .unauthorized:
+                        error = "You are not authorized. Please log in again."
+                    default:
+                        error = "Failed to extract items: \(apiError.localizedDescription)"
+                    }
+                    isLoading = false
+                    isLoadingItems = false
+                    extractionTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Failed to extract items: \(error.localizedDescription)"
+                    isLoading = false
+                    isLoadingItems = false
+                    extractionTask = nil
+                }
             }
-            
-            // ✅ Only mark as loaded AFTER successful completion
-            hasLoaded = true
-            isLoading = false
-            print("[ExtractedItemsReviewView] ✅ Successfully loaded \(items.count) items")
-            
-        } catch is CancellationError {
-            // Task was cancelled - allow retry by keeping hasLoaded = false
-            print("[ExtractedItemsReviewView] ⚠️ Task cancelled, allowing retry")
-            isLoading = false
-            hasLoaded = false  // Allow retry!
-            return
-        } catch let urlError as URLError where urlError.code == .cancelled {
-            // Network request was cancelled - allow retry
-            print("[ExtractedItemsReviewView] ⚠️ URLError cancelled, allowing retry")
-            isLoading = false
-            hasLoaded = false  // Allow retry!
-            return
-        } catch let apiError as APIError {
-            // Handle specific API errors
-            switch apiError {
-            case .serverError(let status, let message) where status == 403:
-                self.error = "Only the payer can extract items from receipts. \(message ?? "")"
-            case .unauthorized:
-                self.error = "You are not authorized. Please log in again."
-            default:
-                self.error = "Failed to extract items: \(apiError.localizedDescription)"
-            }
-            isLoading = false
-        } catch {
-            self.error = "Failed to extract items: \(error.localizedDescription)"
-            isLoading = false
         }
     }
-    
+
     private func confirmItems() {
         isConfirming = true
-        
+
         Task {
             do {
-                // Get participant membership IDs for auto-setting sharers
                 let participantIds = participants.map { $0.membershipId }
-                
-                // Create shopping items for selected extracted items
-                for item in extractedItems where item.isIncluded {
+
+                for item in extractedItems {
+                    let totalCents = Int((item.totalPrice * 100).rounded())
                     let createdItem = try await appState.createShoppingItem(
                         sessionId: sessionId,
                         groupId: groupId,
                         name: item.name,
-                        quantity: item.quantity,
-                        totalCents: item.totalCents
+                        quantity: max(1, item.quantity),
+                        totalCents: totalCents
                     )
-                    
-                    // Auto-set sharers if there are participants
+
                     if !participantIds.isEmpty {
                         _ = try await appState.setItemSharers(
                             itemId: createdItem.id,
@@ -6208,8 +6494,7 @@ struct ExtractedItemsReviewView: View {
                         )
                     }
                 }
-                
-                // Dismiss the view
+
                 await MainActor.run {
                     isConfirming = false
                     dismiss()
@@ -6224,138 +6509,104 @@ struct ExtractedItemsReviewView: View {
     }
 }
 
-// MARK: - Editable Extracted Item
+private struct EditForm {
+    var name: String
+    var price: String
+    var quantity: String
+}
 
 private struct EditableExtractedItem: Identifiable {
     let id: UUID
     var name: String
+    var price: Double
     var quantity: Int
-    var unitPriceCents: Int?
-    var totalCents: Int
-    let confidence: Double?
-    let rawLine: String?
-    var isIncluded: Bool
+    var confidence: Double?
+
+    var totalPrice: Double {
+        price * Double(quantity)
+    }
 }
 
-// MARK: - Extracted Item Row
+private enum ExtractedConfidenceLevel {
+    case high
+    case medium
+    case low
 
-private struct ExtractedItemRow: View {
-    @Binding var item: EditableExtractedItem
-    @State private var isExpanded = false
-    
+    static func from(confidence: Double?) -> ExtractedConfidenceLevel {
+        guard let confidence = confidence else { return .medium }
+        if confidence >= 0.8 { return .high }
+        if confidence >= 0.5 { return .medium }
+        return .low
+    }
+
+    var displayName: String {
+        switch self {
+        case .high: return "High"
+        case .medium: return "Medium"
+        case .low: return "Low"
+        }
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .high: return .green.opacity(0.15)
+        case .medium: return .yellow.opacity(0.15)
+        case .low: return .orange.opacity(0.15)
+        }
+    }
+
+    var textColor: Color {
+        switch self {
+        case .high: return .green.opacity(0.9)
+        case .medium: return .yellow.opacity(0.9)
+        case .low: return .orange.opacity(0.9)
+        }
+    }
+}
+
+private struct ReceiptImagePreviewSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Main row with checkbox
-            HStack(spacing: 12) {
-                // Checkbox
-                Button(action: { item.isIncluded.toggle() }) {
-                    Image(systemName: item.isIncluded ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(item.isIncluded ? .blue : .gray)
-                }
-                .buttonStyle(.plain)
-                
-                // Item details
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.name)
-                        .font(.body)
-                        .strikethrough(!item.isIncluded)
-                        .foregroundColor(item.isIncluded ? .primary : .secondary)
-                    
-                    HStack(spacing: 12) {
-                        Text("Qty: \(item.quantity)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        if let confidence = item.confidence {
-                            confidenceBadge(confidence)
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView().tint(.white)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .padding()
+                    case .failure:
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 28))
+                                .foregroundColor(.gray)
+                            Text("Failed to load receipt image")
+                                .foregroundColor(.gray)
                         }
-                    }
-                }
-                
-                Spacer()
-                
-                // Price
-                Text(formatCents(item.totalCents))
-                    .font(.body.weight(.medium))
-                    .foregroundColor(item.isIncluded ? .primary : .secondary)
-            }
-            
-            // Expandable details
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Divider()
-                    
-                    if let rawLine = item.rawLine, !rawLine.isEmpty {
-                        Text("Raw: \(rawLine)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.vertical, 4)
-                    }
-                    
-                    // Editable fields
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("Name:")
-                                .font(.caption.weight(.medium))
-                                .frame(width: 60, alignment: .leading)
-                            TextField("Item name", text: $item.name)
-                                .textFieldStyle(.roundedBorder)
-                        }
-                        
-                        HStack {
-                            Text("Quantity:")
-                                .font(.caption.weight(.medium))
-                                .frame(width: 60, alignment: .leading)
-                            TextField("Qty", value: $item.quantity, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .keyboardType(.numberPad)
-                        }
-                        
-                        HStack {
-                            Text("Total:")
-                                .font(.caption.weight(.medium))
-                                .frame(width: 60, alignment: .leading)
-                            TextField("Total", value: $item.totalCents, format: .number)
-                                .textFieldStyle(.roundedBorder)
-                                .keyboardType(.decimalPad)
-                            Text("¢")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    @unknown default:
+                        EmptyView()
                     }
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .foregroundColor(.white)
+                }
+            }
+            .toolbarBackground(Color.black.opacity(0.9), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation {
-                isExpanded.toggle()
-            }
-        }
-    }
-    
-    private func confidenceBadge(_ confidence: Double) -> some View {
-        let color: Color = {
-            if confidence >= 0.8 { return .green }
-            else if confidence >= 0.5 { return .orange }
-            else { return .red }
-        }()
-        
-        let percentage = Int(confidence * 100)
-        
-        return Text("\(percentage)%")
-            .font(.caption2.weight(.medium))
-            .foregroundColor(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color)
-            .cornerRadius(4)
-    }
-    
-    private func formatCents(_ cents: Int) -> String {
-        let dollars = Double(cents) / 100.0
-        return String(format: "$%.2f", dollars)
     }
 }
 
