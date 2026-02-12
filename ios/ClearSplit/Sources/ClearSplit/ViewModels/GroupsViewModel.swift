@@ -3,7 +3,7 @@ import Combine
 
 @MainActor
 final class GroupsViewModel: ObservableObject {
-    @Published var groups: [CSGroup] = []
+    @Published var groups: [Group] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
 

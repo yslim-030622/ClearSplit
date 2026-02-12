@@ -7,6 +7,20 @@ struct ItemsDetailCard: View {
     let currentUserId: UUID?
     let onItemTap: (UUID) -> Void
 
+    init(
+        items: [ShoppingItem],
+        participants: [ShoppingSessionParticipant],
+        groupMemberships: [Membership] = [],
+        currentUserId: UUID? = nil,
+        onItemTap: @escaping (UUID) -> Void = { _ in }
+    ) {
+        self.items = items
+        self.participants = participants
+        self.groupMemberships = groupMemberships
+        self.currentUserId = currentUserId
+        self.onItemTap = onItemTap
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header

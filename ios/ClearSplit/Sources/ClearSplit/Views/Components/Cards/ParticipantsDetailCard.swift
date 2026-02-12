@@ -5,6 +5,16 @@ struct ParticipantsDetailCard: View {
     let groupMemberships: [Membership]
     let currentUserId: UUID?
 
+    init(
+        participants: [ShoppingSessionParticipant],
+        groupMemberships: [Membership] = [],
+        currentUserId: UUID? = nil
+    ) {
+        self.participants = participants
+        self.groupMemberships = groupMemberships
+        self.currentUserId = currentUserId
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header

@@ -66,6 +66,18 @@ struct APIRequest<T: Decodable> {
 }
 
 final class APIClient {
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601WithoutFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
     private let baseURL: URL
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -82,7 +94,17 @@ final class APIClient {
         self.auth = AuthCoordinator(store: tokenStore)
 
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let value = try container.decode(String.self)
+            if let date = Self.parseDate(value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported date format: \(value)"
+            )
+        }
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.decoder = decoder
 
@@ -215,6 +237,16 @@ final class APIClient {
             }
             return decoded
         } catch {
+            if path == "auth/login" || path == "auth/me" || path == "groups" {
+                print("[APIClient] ❌ Decoding failed for path=\(path): \(error)")
+                if let object = try? JSONSerialization.jsonObject(with: data),
+                   let dict = object as? [String: Any] {
+                    print("[APIClient] Response keys: \(dict.keys.sorted())")
+                    if let user = dict["user"] as? [String: Any] {
+                        print("[APIClient] User keys: \(user.keys.sorted())")
+                    }
+                }
+            }
             if isReceiptDownload {
                 print("[APIClient] ❌ Failed to decode ReceiptDownloadURLResponse")
                 print("[APIClient] Decoding error: \(error)")
@@ -289,14 +321,45 @@ final class APIClient {
     }
 
     private func refreshTokens(refreshToken: String) async throws -> AuthTokens {
-        let request = APIRequest<TokenResponse>(
+        let request = APIRequest<RefreshTokenResponse>(
             path: "auth/refresh",
             method: "POST",
             body: RefreshRequest(refreshToken: refreshToken),
             requiresAuth: false
         )
-        let response: TokenResponse = try await perform(request, retryingOn401: false)
-        return AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken, tokenType: response.tokenType)
+        let response: RefreshTokenResponse = try await perform(request, retryingOn401: false)
+        return AuthTokens(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken ?? refreshToken,
+            tokenType: response.tokenType
+        )
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        if let date = iso8601WithFractionalSeconds.date(from: value) ??
+            iso8601WithoutFractionalSeconds.date(from: value) {
+            return date
+        }
+
+        // FastAPI commonly emits microseconds and a numeric timezone offset.
+        let formats = [
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+        ]
+
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        return nil
     }
 }
 

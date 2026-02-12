@@ -3,61 +3,277 @@ import SwiftUI
 struct SignUpView: View {
     @StateObject private var viewModel: SignUpViewModel
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var focusedField: Field?
+
+    enum Field {
+        case firstName
+        case lastName
+        case username
+        case email
+        case password
+        case confirmPassword
+    }
 
     init(appState: AppState) {
         _viewModel = StateObject(wrappedValue: SignUpViewModel(appState: appState))
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text("Create Account")
-                .font(.title.weight(.semibold))
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [Color.blue50, Color.gray50],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-            TextField("Email", text: $viewModel.email)
-                .textContentType(.emailAddress)
-                .keyboardType(.emailAddress)
-                .autocapitalization(.none)
-                .padding()
-                .background(.ultraThinMaterial)
-                .cornerRadius(8)
-                .disabled(viewModel.isLoading)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Spacer()
+                            .frame(height: 24)
 
-            SecureField("Password (min 8 chars)", text: $viewModel.password)
-                .textContentType(.newPassword)
-                .padding()
-                .background(.ultraThinMaterial)
-                .cornerRadius(8)
-                .disabled(viewModel.isLoading)
+                        VStack(spacing: 8) {
+                            Text("Create Account")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundColor(.gray900)
+                            Text("Set up your ClearSplit profile")
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundColor(.gray600)
+                        }
 
-            SecureField("Confirm Password", text: $viewModel.confirmPassword)
-                .textContentType(.newPassword)
-                .padding()
-                .background(.ultraThinMaterial)
-                .cornerRadius(8)
-                .disabled(viewModel.isLoading)
+                        Spacer()
+                            .frame(height: 24)
 
-            Button {
-                Task { await viewModel.signup() }
-            } label: {
-                HStack {
-                    if viewModel.isLoading { ProgressView().tint(.white) }
-                    Text("Sign Up").bold()
+                        VStack(spacing: 16) {
+                            VStack(spacing: 12) {
+                                inputField(
+                                    title: "First Name",
+                                    placeholder: "John",
+                                    text: $viewModel.firstName,
+                                    field: .firstName,
+                                    textContentType: .givenName,
+                                    submitLabel: .next
+                                ) {
+                                    focusedField = .lastName
+                                }
+
+                                inputField(
+                                    title: "Last Name",
+                                    placeholder: "Doe",
+                                    text: $viewModel.lastName,
+                                    field: .lastName,
+                                    textContentType: .familyName,
+                                    submitLabel: .next
+                                ) {
+                                    focusedField = .username
+                                }
+
+                                inputField(
+                                    title: "Username",
+                                    placeholder: "john_doe",
+                                    text: $viewModel.username,
+                                    field: .username,
+                                    textContentType: .username,
+                                    submitLabel: .next
+                                ) {
+                                    focusedField = .email
+                                }
+
+                                inputField(
+                                    title: "Email",
+                                    placeholder: "you@example.com",
+                                    text: $viewModel.email,
+                                    field: .email,
+                                    textContentType: .emailAddress,
+                                    keyboardType: .emailAddress,
+                                    autocapitalization: .never,
+                                    submitLabel: .next
+                                ) {
+                                    focusedField = .password
+                                }
+
+                                secureInputField(
+                                    title: "Password",
+                                    placeholder: "Minimum 8 characters",
+                                    text: $viewModel.password,
+                                    field: .password,
+                                    textContentType: .newPassword,
+                                    submitLabel: .next
+                                ) {
+                                    focusedField = .confirmPassword
+                                }
+
+                                secureInputField(
+                                    title: "Confirm Password",
+                                    placeholder: "Re-enter password",
+                                    text: $viewModel.confirmPassword,
+                                    field: .confirmPassword,
+                                    textContentType: .newPassword,
+                                    submitLabel: .done
+                                ) {
+                                    Task { _ = await viewModel.signup() }
+                                }
+                            }
+
+                            Button {
+                                Task {
+                                    let success = await viewModel.signup()
+                                    if success {
+                                        dismiss()
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    if viewModel.isLoading {
+                                        ProgressView()
+                                            .tint(.white)
+                                    }
+                                    Text("Create Account")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(.white)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                                .background(
+                                    viewModel.isLoading ||
+                                    viewModel.email.isEmpty ||
+                                    viewModel.password.isEmpty ||
+                                    viewModel.confirmPassword.isEmpty
+                                        ? Color.blue600.opacity(0.75)
+                                        : Color.blue600
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .disabled(
+                                viewModel.isLoading ||
+                                viewModel.email.isEmpty ||
+                                viewModel.password.isEmpty ||
+                                viewModel.confirmPassword.isEmpty
+                            )
+                            .buttonStyle(ScaleButtonStyle())
+                        }
+                        .padding(24)
+                        .background(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.gray200, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: Color.black.opacity(0.05), radius: 2, y: 1)
+
+                        Spacer()
+                            .frame(height: 20)
+
+                        Button("Already have an account? Log In") {
+                            dismiss()
+                        }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray700)
+                        .disabled(viewModel.isLoading)
+                        .padding(.bottom, 24)
+                    }
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: 420)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(viewModel.isLoading ? Color.gray : Color.green)
-                .foregroundColor(.white)
-                .cornerRadius(10)
             }
-            .disabled(viewModel.isLoading)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(viewModel.isLoading)
+                }
+            }
         }
-        .padding()
-        .navigationTitle("Sign Up")
         .alert("Sign Up Failed", isPresented: $viewModel.showAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.alertMessage ?? "Unknown error")
         }
     }
-}
 
+    private func inputField(
+        title: String,
+        placeholder: String,
+        text: Binding<String>,
+        field: Field,
+        textContentType: UITextContentType? = nil,
+        keyboardType: UIKeyboardType = .default,
+        autocapitalization: TextInputAutocapitalization = .words,
+        submitLabel: SubmitLabel,
+        onSubmit: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.gray700)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        focusedField == field ? Color.blue500 : Color.gray300,
+                        lineWidth: focusedField == field ? 2 : 1
+                    )
+
+                TextField(placeholder, text: text)
+                    .textContentType(textContentType)
+                    .keyboardType(keyboardType)
+                    .textInputAutocapitalization(autocapitalization)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.gray900)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .focused($focusedField, equals: field)
+                    .submitLabel(submitLabel)
+                    .onSubmit(onSubmit)
+            }
+            .frame(height: 48)
+        }
+        .disabled(viewModel.isLoading)
+    }
+
+    private func secureInputField(
+        title: String,
+        placeholder: String,
+        text: Binding<String>,
+        field: Field,
+        textContentType: UITextContentType? = nil,
+        submitLabel: SubmitLabel,
+        onSubmit: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.gray700)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white)
+
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        focusedField == field ? Color.blue500 : Color.gray300,
+                        lineWidth: focusedField == field ? 2 : 1
+                    )
+
+                SecureField(placeholder, text: text)
+                    .textContentType(textContentType)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(.gray900)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .focused($focusedField, equals: field)
+                    .submitLabel(submitLabel)
+                    .onSubmit(onSubmit)
+            }
+            .frame(height: 48)
+        }
+        .disabled(viewModel.isLoading)
+    }
+}

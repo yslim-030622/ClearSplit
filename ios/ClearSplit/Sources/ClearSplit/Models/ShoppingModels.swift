@@ -14,16 +14,6 @@ public struct ShoppingSession: Codable, Equatable, Identifiable {
     public let participants: [ShoppingSessionParticipant]
     public let receipts: [ReceiptUpload]
     public let items: [ShoppingItem]
-    
-    enum CodingKeys: String, CodingKey {
-        case id, title, currency
-        case groupId = "group_id"
-        case shoppingDate = "shopping_date"
-        case totalAmount = "total_amount"
-        case paidByMembershipId = "paid_by_membership_id"
-        case createdAt = "created_at"
-        case participants, receipts, items
-    }
 }
 
 public struct ShoppingSessionCreate: Codable {
@@ -31,14 +21,7 @@ public struct ShoppingSessionCreate: Codable {
     public let shoppingDate: String?  // String format: "yyyy-MM-dd"
     public let totalAmount: Double?
     public let paidBy: UUID
-    
-    enum CodingKeys: String, CodingKey {
-        case title
-        case shoppingDate = "shopping_date"
-        case totalAmount = "total_amount"
-        case paidBy = "paid_by"
-    }
-    
+
     public init(title: String, shoppingDate: String?, totalAmount: Double? = nil, paidBy: UUID) {
         self.title = title
         self.shoppingDate = shoppingDate
@@ -54,22 +37,11 @@ public struct ShoppingSessionParticipant: Codable, Equatable, Identifiable {
     public let sessionId: UUID
     public let membershipId: UUID
     public let createdAt: Date
-    
-    enum CodingKeys: String, CodingKey {
-        case id
-        case sessionId = "session_id"
-        case membershipId = "membership_id"
-        case createdAt = "created_at"
-    }
 }
 
 public struct ParticipantSetRequest: Codable {
     public let participantMembershipIds: [UUID]
-    
-    enum CodingKeys: String, CodingKey {
-        case participantMembershipIds = "participant_membership_ids"
-    }
-    
+
     public init(participantMembershipIds: [UUID]) {
         self.participantMembershipIds = participantMembershipIds
     }
@@ -83,23 +55,12 @@ public struct ReceiptUpload: Codable, Equatable, Identifiable {
     public let storageKey: String
     public let contentType: String
     public let createdAt: Date
-    
-    enum CodingKeys: String, CodingKey {
-        case id
-        case sessionId = "session_id"
-        case storageKey = "storage_key"
-        case contentType = "content_type"
-        case createdAt = "created_at"
-    }
 }
 
 public struct ReceiptDownloadURLResponse: Codable {
     public let receiptUploadId: UUID
     public let expiresInSeconds: Int
     public let url: String
-    
-    // No CodingKeys needed - APIClient uses convertFromSnakeCase which automatically
-    // converts receipt_upload_id -> receiptUploadId and expires_in_seconds -> expiresInSeconds
 }
 
 public struct ReceiptDeleteResponse: Codable {
@@ -119,16 +80,6 @@ public struct ReceiptExtractedItem: Codable, Equatable, Identifiable {
     public let rawLine: String?
     public let confidence: Double?
     public let createdAt: Date
-    
-    enum CodingKeys: String, CodingKey {
-        case id, name, quantity
-        case receiptUploadId = "receipt_upload_id"
-        case unitPriceCents = "unit_price_cents"
-        case totalCents = "total_cents"
-        case rawLine = "raw_line"
-        case confidence
-        case createdAt = "created_at"
-    }
 }
 
 // MARK: - Shopping Item
@@ -142,15 +93,6 @@ public struct ShoppingItem: Codable, Equatable, Identifiable {
     public let totalCents: Int
     public let createdAt: Date
     public let splits: [ShoppingItemSplit]
-    
-    enum CodingKeys: String, CodingKey {
-        case id, name, quantity
-        case sessionId = "session_id"
-        case unitPriceCents = "unit_price_cents"
-        case totalCents = "total_cents"
-        case createdAt = "created_at"
-        case splits
-    }
 }
 
 public struct ShoppingItemCreate: Codable {
@@ -158,13 +100,7 @@ public struct ShoppingItemCreate: Codable {
     public let quantity: Int
     public let unitPriceCents: Int?
     public let totalCents: Int
-    
-    enum CodingKeys: String, CodingKey {
-        case name, quantity
-        case unitPriceCents = "unit_price_cents"
-        case totalCents = "total_cents"
-    }
-    
+
     public init(name: String, quantity: Int, unitPriceCents: Int? = nil, totalCents: Int) {
         self.name = name
         self.quantity = quantity
@@ -180,22 +116,11 @@ public struct ShoppingItemSplit: Codable, Equatable, Identifiable {
     public let itemId: UUID
     public let membershipId: UUID
     public let shareCents: Int
-    
-    enum CodingKeys: String, CodingKey {
-        case id
-        case itemId = "item_id"
-        case membershipId = "membership_id"
-        case shareCents = "share_cents"
-    }
 }
 
 public struct SharersSetRequest: Codable {
     public let membershipIds: [UUID]
-    
-    enum CodingKeys: String, CodingKey {
-        case membershipIds = "membership_ids"
-    }
-    
+
     public init(membershipIds: [UUID]) {
         self.membershipIds = membershipIds
     }
@@ -205,12 +130,6 @@ public struct SharersSetResponse: Codable {
     public let itemId: UUID
     public let totalCents: Int
     public let splits: [ShoppingItemSplit]
-    
-    enum CodingKeys: String, CodingKey {
-        case itemId = "item_id"
-        case totalCents = "total_cents"
-        case splits
-    }
 }
 
 // MARK: - Helper Extensions
@@ -218,20 +137,18 @@ public struct SharersSetResponse: Codable {
 extension ShoppingSession {
     /// Compute the total cost of all items in the session
     public var totalCents: Int {
-        // If totalAmount is set, use it; otherwise calculate from items
         if let total = totalAmount {
             return Int(total * 100)
         }
         return items.reduce(0) { $0 + $1.totalCents }
     }
-    
+
     /// Formatted total amount
     public var displayTotal: String {
-        // This will be implemented in Utilities
         let dollars = Double(totalCents) / 100.0
         return String(format: "$%.2f", dollars)
     }
-    
+
     /// Check if a membership is a participant
     public func isParticipant(_ membershipId: UUID) -> Bool {
         participants.contains { $0.membershipId == membershipId }
@@ -244,7 +161,7 @@ extension ShoppingItem {
         let dollars = Double(totalCents) / 100.0
         return String(format: "$%.2f", dollars)
     }
-    
+
     /// Formatted unit price derived from total and quantity
     public var formattedUnitPrice: String? {
         guard quantity > 0 else { return nil }
