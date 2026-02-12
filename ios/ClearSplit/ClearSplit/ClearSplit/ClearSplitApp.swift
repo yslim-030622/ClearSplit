@@ -1025,6 +1025,89 @@ struct GroupsListView: View {
     }
 }
 
+struct CreateGroupView: View {
+    let onGroupCreated: (Group) -> Void
+    let onBack: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var currency = "USD"
+    @State private var isCreating = false
+    @State private var errorMessage: String?
+    @State private var showError = false
+
+    private let currencies = ["USD", "EUR", "GBP", "JPY", "KRW", "CNY", "CAD", "AUD"]
+
+    private var canCreate: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreating
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Group Details")) {
+                    TextField("Group name", text: $name)
+                        .textInputAutocapitalization(.words)
+                        .disabled(isCreating)
+
+                    Picker("Currency", selection: $currency) {
+                        ForEach(currencies, id: \.self) { code in
+                            Text(code).tag(code)
+                        }
+                    }
+                    .disabled(isCreating)
+                }
+            }
+            .navigationTitle("Create Group")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        onBack()
+                        dismiss()
+                    }
+                    .disabled(isCreating)
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isCreating {
+                        ProgressView()
+                    } else {
+                        Button("Create") {
+                            Task { await createGroup() }
+                        }
+                        .disabled(!canCreate)
+                    }
+                }
+            }
+            .alert("Error", isPresented: $showError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "Failed to create group.")
+            }
+        }
+    }
+
+    private func createGroup() async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isCreating = true
+        defer { isCreating = false }
+
+        do {
+            let created = try await appState.createGroup(name: trimmed, currency: currency)
+            onGroupCreated(created)
+            dismiss()
+        } catch {
+            errorMessage = "Failed to create group: \(error.localizedDescription)"
+            showError = true
+        }
+    }
+}
+
 struct GroupCardView: View {
     let group: Group
     let onTap: () -> Void
