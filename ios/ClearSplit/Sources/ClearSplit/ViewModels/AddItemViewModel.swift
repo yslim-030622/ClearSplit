@@ -53,18 +53,21 @@ final class AddItemViewModel: ObservableObject {
             let request: ShoppingItemCreate
             
             if useUnitPrice, let unitPriceDollars = Double(unitPrice) {
-                let totalCents = roundedCents(from: unitPriceDollars * Double(quantityInt))
+                let unitPriceCents = roundedCents(from: unitPriceDollars)
+                let totalCents = unitPriceCents * quantityInt
                 request = ShoppingItemCreate(
                     name: name.trimmingCharacters(in: .whitespaces),
-                    priceCents: totalCents,
-                    quantity: quantityInt
+                    quantity: quantityInt,
+                    unitPriceCents: unitPriceCents,
+                    totalCents: totalCents
                 )
             } else if let totalDollars = Double(totalPrice) {
                 let totalCents = roundedCents(from: totalDollars)
                 request = ShoppingItemCreate(
                     name: name.trimmingCharacters(in: .whitespaces),
-                    priceCents: totalCents,
-                    quantity: quantityInt
+                    quantity: quantityInt,
+                    unitPriceCents: nil,
+                    totalCents: totalCents
                 )
             } else {
                 errorMessage = "Invalid price input."

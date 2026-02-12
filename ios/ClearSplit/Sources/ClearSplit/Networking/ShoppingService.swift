@@ -38,7 +38,7 @@ final class ShoppingService: ShoppingServicing {
     func createSession(groupId: UUID, request: ShoppingSessionCreate) async throws -> ShoppingSession {
         try await client.request(APIRequest(
             path: "groups/\(groupId.uuidString)/shopping-sessions",
-            method: .post,
+            method: "POST",
             body: request
         ))
     }
@@ -46,7 +46,7 @@ final class ShoppingService: ShoppingServicing {
     func setParticipants(sessionId: UUID, request: ParticipantSetRequest) async throws -> ShoppingSession {
         try await client.request(APIRequest(
             path: "shopping-sessions/\(sessionId.uuidString)/participants",
-            method: .put,
+            method: "PUT",
             body: request
         ))
     }
@@ -63,7 +63,7 @@ final class ShoppingService: ShoppingServicing {
         
         var request = APIRequest<ReceiptUpload>(
             path: "shopping-sessions/\(sessionId.uuidString)/receipt",
-            method: .post
+            method: "POST"
         )
         request.contentType = "multipart/form-data; boundary=\(boundary)"
         
@@ -75,7 +75,7 @@ final class ShoppingService: ShoppingServicing {
         let path = "receipts/\(receiptUploadId.uuidString)/download-url"
         print("[ShoppingService] Request path: \(path)")
         do {
-            let response = try await client.request(APIRequest(
+            let response: ReceiptDownloadURLResponse = try await client.request(APIRequest(
                 path: path
             ))
             print("[ShoppingService] ✅ Successfully received download URL response")
@@ -101,7 +101,7 @@ final class ShoppingService: ShoppingServicing {
         do {
             let items: [ReceiptExtractedItem] = try await client.request(APIRequest(
                 path: path,
-                method: .post
+                method: "POST"
             ))
             print("[ShoppingService] ✅ Successfully extracted \(items.count) items")
             return items
@@ -149,7 +149,7 @@ final class ShoppingService: ShoppingServicing {
     func setSharers(itemId: UUID, request: SharersSetRequest) async throws -> SharersSetResponse {
         try await client.request(APIRequest(
             path: "items/\(itemId.uuidString)/sharers",
-            method: .put,
+            method: "PUT",
             body: request
         ))
     }

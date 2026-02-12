@@ -1,14 +1,5 @@
 import SwiftUI
 
-// Custom button style for press feedback
-struct ScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
 struct LoginView: View {
     @StateObject private var viewModel: LoginViewModel
     @State private var showSignUp = false
@@ -179,7 +170,7 @@ struct LoginView: View {
                         .buttonStyle(ScaleButtonStyle())
                     }
                     .padding(24)
-                    .background(Color.cardBackground)
+                    .background(Color.white)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(Color.gray200, lineWidth: 1)

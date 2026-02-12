@@ -31,9 +31,16 @@ final class CreateShoppingSessionViewModel: ObservableObject {
         errorMessage = nil
         
         do {
+            var dateString: String? = nil
+            if useDate {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                dateString = formatter.string(from: shoppingDate)
+            }
+
             let request = ShoppingSessionCreate(
                 title: title.trimmingCharacters(in: .whitespaces),
-                shoppingDate: useDate ? shoppingDate : nil,
+                shoppingDate: dateString,
                 paidBy: paidByMembershipId
             )
             return try await appState.shoppingService.createSession(groupId: groupId, request: request)

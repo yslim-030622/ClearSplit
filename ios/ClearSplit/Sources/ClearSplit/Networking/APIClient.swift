@@ -296,7 +296,7 @@ final class APIClient {
             requiresAuth: false
         )
         let response: TokenResponse = try await perform(request, retryingOn401: false)
-        return AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken)
+        return AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken, tokenType: response.tokenType)
     }
 }
 

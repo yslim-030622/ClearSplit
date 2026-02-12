@@ -13,28 +13,28 @@ struct SignUpView: View {
             Text("Create Account")
                 .font(.title.weight(.semibold))
 
-            Group {
-                TextField("Email", text: $viewModel.email)
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .autocapitalization(.none)
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(8)
+            TextField("Email", text: $viewModel.email)
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+                .autocapitalization(.none)
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(8)
+                .disabled(viewModel.isLoading)
 
-                SecureField("Password (min 8 chars)", text: $viewModel.password)
-                    .textContentType(.newPassword)
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(8)
+            SecureField("Password (min 8 chars)", text: $viewModel.password)
+                .textContentType(.newPassword)
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(8)
+                .disabled(viewModel.isLoading)
 
-                SecureField("Confirm Password", text: $viewModel.confirmPassword)
-                    .textContentType(.newPassword)
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(8)
-            }
-            .disabled(viewModel.isLoading)
+            SecureField("Confirm Password", text: $viewModel.confirmPassword)
+                .textContentType(.newPassword)
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(8)
+                .disabled(viewModel.isLoading)
 
             Button {
                 Task { await viewModel.signup() }
