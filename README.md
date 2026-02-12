@@ -1,147 +1,102 @@
-# ClearSplit Monorepo
+# ClearSplit
 
-Splitwise-style group expense and settlement tracker. Backend is the source of truth; iOS is the client. Architecture, scope, and non-negotiables are locked from the project brief.
+ClearSplit is a group expense and shopping split platform with a FastAPI backend and a SwiftUI iOS client.  
+The backend is the source of truth for auth, groups, expenses, settlements, shopping sessions, receipt storage, and OCR extraction.
 
-## Structure
+## Repository At A Glance
 
-- `.github/workflows/` — CI/CD pipelines (backend lint/type/test, iOS build/tests, docker build, deploy to staging).
-- `backend/` — FastAPI service, SQLAlchemy models, Alembic migrations, settlement engine.
-- `ios/` — SwiftUI app using MVVM; networking client for the API; Keychain token storage.
-- `docs/` — All project documentation organized by category (see [docs/README.md](./docs/README.md) for structure).
-- `docs/INDEX.md` — Quick documentation index.
-- `docker-compose.yml` — Local dev stack (API + Postgres).
-- `.env.example` — Environment variables for local and CI.
+- `backend/`: FastAPI app, SQLAlchemy models, Alembic migrations, tests.
+- `ios/`: SwiftUI app (`ClearSplitCore`) with MVVM, API client, and Keychain token storage.
+- `docs/`: project documentation index, architecture notes, dependency map, and implementation references.
+- `.github/workflows/`: CI, security scanning, Docker build, staging deploy template.
+- `scripts/`: local helper scripts for security checks and S3 smoke testing.
 
-## Product Features
+## Core Capabilities
 
-ClearSplit is now focused on **Shopping Sessions** — a powerful roommates grocery receipt splitting tool with item-level equal splits.
+- JWT authentication (signup, login, refresh, me).
+- Group and membership management (owner/member roles).
+- Expense creation with equal split calculation and idempotency.
+- Settlement batch computation and debtor-only settlement status updates.
+- Shopping sessions with participants, receipt uploads, item-level splits.
+- OCR extraction pipeline for receipts backed by S3 and Tesseract.
 
-### Shopping Sessions
+## Quick Start
 
-- Create shopping trips with title, date, and payer
-- Add participants from your group members
-- Upload receipt images (optional)
-- Add line items manually (name, price, quantity)
-- Assign sharers to each item
-- Automatic equal split calculations
-- Deterministic remainder distribution
+### 1. Configure environment
 
-See [docs/features/SHOPPING_MODEL.md](./docs/features/SHOPPING_MODEL.md) and [docs/features/HOW_TO_TEST_SHOPPING.md](./docs/features/HOW_TO_TEST_SHOPPING.md) for comprehensive documentation.
+```bash
+cp .env.example .env
+```
 
-## Non-negotiables
+Set at least:
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `S3_BUCKET_NAME`
+- `AWS_REGION`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 
-- Money stored as integer cents (bigint); no floats/decimals.
-- Expense creation is atomic (single DB transaction).
-- Settlement results are immutable snapshots (status-only changes; new batch to re-run).
-- Idempotency keys on all writes.
-- Timestamps stored/transmitted as UTC ISO-8601.
+### 2. Start PostgreSQL
 
-## Vertical slice phases
+```bash
+docker-compose up -d db
+```
 
-0. Foundation (walking skeleton, health, logging, idempotency middleware stub).
-1. Authentication (email/password, JWT access+refresh with rotation).
-2. Groups & Membership (roles: owner, member, optional viewer).
-3. Expenses (equal split only; splits recorded).
-4. Settlement Engine (minimal transfers; snapshot + status tracking).
-5. **Shopping Sessions (NEW)** — Grocery receipt splitting with item-level equal splits.
-6. CI/CD & Deployment (staging auto-deploy on PR, required checks).
+### 3. Start backend
 
-## Local Setup (macOS)
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-### Prerequisites
+Health check:
 
-- Docker Desktop installed and running
-- Python 3.11+ (`python3 --version`)
-- Xcode 15+ with Command Line Tools (`xcodebuild -version`)
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-### Backend Setup
+### 4. Run iOS app
 
-1. **Create environment file:**
+```bash
+open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
+```
 
-   ```bash
-   cp .env.example .env
-   # Edit .env and ensure DATABASE_URL and JWT_SECRET are set
-   ```
+Or CLI build:
 
-2. **Start PostgreSQL database:**
+```bash
+cd ios/ClearSplit
+xcodebuild -project ClearSplit/ClearSplit.xcodeproj -scheme ClearSplit -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+```
 
-   ```bash
-   docker-compose up -d db
-   ```
+## Testing
 
-   Expected: Container starts and healthcheck passes. Verify with `docker-compose ps`.
+Backend:
 
-3. **Install Python dependencies:**
+```bash
+cd backend
+pytest
+```
 
-   ```bash
-   cd backend
-   make install
-   ```
+iOS SwiftPM tests:
 
-   Expected: Packages install successfully.
+```bash
+cd ios/ClearSplit
+swift test
+```
 
-4. **Run database migrations:**
+## Documentation
 
-   ```bash
-   alembic upgrade head
-   ```
+Start here:
 
-   Expected: Migrations apply successfully:
-   - `20241218_0001_initial` — Core tables (users, groups, expenses, etc.)
-   - `20250107_0002_add_shopping_tables` — Shopping sessions and items
-
-5. **Start backend server:**
-
-   ```bash
-   make run
-   ```
-
-   Expected: Server starts on `http://0.0.0.0:8000`. Test with:
-
-   ```bash
-   curl http://localhost:8000/health
-   ```
-
-   Expected output: `{"status":"ok"}`
-
-6. **Run tests:**
-
-   ```bash
-   make test
-   ```
-
-   Expected: `test_health` passes.
-
-### iOS Setup
-
-1. **Open in Xcode:**
-
-   ```bash
-   open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
-   ```
-
-   Or build from command line:
-
-   ```bash
-   cd ios/ClearSplit
-   xcodebuild -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 15' build
-   ```
-
-   Expected: Project compiles without errors.
-
-2. **Run tests:**
-
-   ```bash
-   xcodebuild test -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 15'
-   ```
-
-   Expected: Tests pass (if any exist).
-
-### Verification Checklist
-
-- [ ] Backend starts via `docker-compose up -d db` and `make run`
-- [ ] `GET /health` returns `{"status":"ok"}`
-- [ ] Alembic `upgrade head` runs successfully against local Postgres
-- [ ] iOS project compiles via Xcode or `xcodebuild`
-- [ ] `.gitignore` does NOT ignore `project.pbxproj`
-- [ ] `.gitignore` ignores `DerivedData/` and `xcuserdata/`
+- `docs/INDEX.md`
+- `docs/project-overview.md`
+- `docs/repository-map.md`
+- `docs/file-tree-full.md`
+- `docs/dependencies.md`
+- `docs/backend-reference.md`
+- `docs/ios-reference.md`
+- `docs/workflows-and-operations.md`
