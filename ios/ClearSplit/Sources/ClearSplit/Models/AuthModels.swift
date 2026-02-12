@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Auth Tokens
 
-public struct AuthTokens: Codable {
+public struct AuthTokens: Codable, Equatable {
     public let accessToken: String
     public let refreshToken: String
     public let tokenType: String

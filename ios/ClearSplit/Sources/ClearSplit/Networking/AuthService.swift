@@ -22,7 +22,7 @@ final class AuthService: AuthServicing {
             requiresAuth: false
         )
         let response: TokenResponse = try await client.request(request)
-        let tokens = AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken)
+        let tokens = AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken, tokenType: response.tokenType)
         await client.store(tokens: tokens)
         return (tokens, response.user)
     }
@@ -37,7 +37,7 @@ final class AuthService: AuthServicing {
                 requiresAuth: false
             )
         )
-        let refreshed = AuthTokens(accessToken: newTokens.accessToken, refreshToken: newTokens.refreshToken)
+        let refreshed = AuthTokens(accessToken: newTokens.accessToken, refreshToken: newTokens.refreshToken, tokenType: newTokens.tokenType)
         await client.store(tokens: refreshed)
         return refreshed
     }
@@ -47,7 +47,7 @@ final class AuthService: AuthServicing {
         let signupRequest = APIRequest<TokenResponse>(
             path: "auth/signup",
             method: "POST",
-            body: LoginRequest(email: email, password: password),
+            body: LoginRequest(identifier: email, password: password),
             requiresAuth: false
         )
         let _: TokenResponse = try await client.request(signupRequest)

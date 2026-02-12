@@ -5,19 +5,23 @@ struct RootView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if appState.user != nil {
-                    GroupsListView(appState: appState) {
-                        Task { await appState.logout() }
-                    }
-                } else if appState.isLoading {
-                    ProgressView("Loading…")
-                } else {
-                    LoginView(appState: appState)
+            if appState.user != nil {
+                GroupsListView(appState: appState) {
+                    Task { await appState.logout() }
                 }
-            }
-            .task {
-                await appState.bootstrap()
+                .task {
+                    await appState.bootstrap()
+                }
+            } else if appState.isLoading {
+                ProgressView("Loading…")
+                    .task {
+                        await appState.bootstrap()
+                    }
+            } else {
+                LoginView(appState: appState)
+                    .task {
+                        await appState.bootstrap()
+                    }
             }
         }
     }

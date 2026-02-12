@@ -456,7 +456,7 @@ final class AppState: ObservableObject {
         groups = try await groupsService.listGroups()
     }
     
-    func createGroup(name: String, currency: String) async throws {
+    func createGroup(name: String, currency: String) async throws -> Group {
         print("[AppState] Creating group: \(name) with currency: \(currency)")
         
         struct CreateGroupRequest: Encodable {
@@ -474,6 +474,22 @@ final class AppState: ObservableObject {
         print("[AppState] Group created: \(newGroup.name)")
         
         // Refresh groups list
+        try await loadGroups()
+        return newGroup
+    }
+
+    func deleteGroup(groupId: UUID) async throws {
+        let _: Group = try await apiClient.request(
+            "/groups/\(groupId.uuidString)",
+            method: "DELETE",
+            body: Optional<String>.none,
+            requiresAuth: true
+        )
+
+        expensesByGroupId[groupId] = nil
+        membershipsByGroupId[groupId] = nil
+        settlementsByGroupId[groupId] = nil
+        shoppingSessionsByGroupId[groupId] = nil
         try await loadGroups()
     }
     
@@ -536,6 +552,17 @@ final class AppState: ObservableObject {
         return session
     }
     
+    func deleteShoppingSession(sessionId: UUID, groupId: UUID) async throws -> ShoppingSession {
+        let deletedSession = try await apiClient.deleteShoppingSession(sessionId: sessionId)
+        
+        if var sessions = shoppingSessionsByGroupId[groupId] {
+            sessions.removeAll { $0.id == sessionId }
+            shoppingSessionsByGroupId[groupId] = sessions
+        }
+        
+        return deletedSession
+    }
+    
     func refreshShoppingSession(sessionId: UUID, groupId: UUID) async throws -> ShoppingSession {
         let session = try await apiClient.getShoppingSession(sessionId: sessionId)
         
@@ -564,8 +591,20 @@ final class AppState: ObservableObject {
         return session
     }
     
-    func createShoppingItem(sessionId: UUID, groupId: UUID, name: String, quantity: Int, totalCents: Int) async throws -> ShoppingItem {
-        let request = ShoppingItemCreate(name: name, quantity: quantity, unitPriceCents: nil, totalCents: totalCents)
+    func createShoppingItem(
+        sessionId: UUID,
+        groupId: UUID,
+        name: String,
+        quantity: Int,
+        totalCents: Int,
+        unitPriceCents: Int? = nil
+    ) async throws -> ShoppingItem {
+        let request = ShoppingItemCreate(
+            name: name,
+            quantity: quantity,
+            unitPriceCents: unitPriceCents,
+            totalCents: totalCents
+        )
         let item = try await apiClient.createShoppingItem(sessionId: sessionId, request: request)
         
         // Refresh session to get updated items
@@ -581,6 +620,37 @@ final class AppState: ObservableObject {
         _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
         
         return item
+    }
+
+    func updateShoppingItem(
+        itemId: UUID,
+        sessionId: UUID,
+        groupId: UUID,
+        name: String,
+        quantity: Int,
+        unitPriceCents: Int?,
+        totalCents: Int,
+        membershipIds: [UUID]
+    ) async throws -> ShoppingItem {
+        guard !membershipIds.isEmpty else {
+            throw APIError.validationError("Select at least one participant")
+        }
+
+        let request = ShoppingItemCreate(
+            name: name,
+            quantity: quantity,
+            unitPriceCents: unitPriceCents,
+            totalCents: totalCents
+        )
+        let item = try await apiClient.updateShoppingItem(itemId: itemId, request: request)
+        _ = try await apiClient.setItemSharers(itemId: itemId, membershipIds: membershipIds)
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
+        return item
+    }
+
+    func deleteShoppingItem(itemId: UUID, sessionId: UUID, groupId: UUID) async throws {
+        try await apiClient.deleteShoppingItem(itemId: itemId)
+        _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
     }
     
     func uploadReceipt(sessionId: UUID, groupId: UUID, imageData: Data, contentType: String = "image/jpeg") async throws -> ReceiptUpload {
@@ -770,6 +840,8 @@ struct GroupsListView: View {
     @State private var showLogoutAlert = false
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var groupPendingDelete: Group?
+    @State private var selectedGroup: Group?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -778,32 +850,30 @@ struct GroupsListView: View {
                 .ignoresSafeArea()
             
             // Content
-            ScrollView {
-                VStack(spacing: 0) {
-                    // Header
-                    HStack {
-                        Text("My Groups")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(Color(hex: "111827"))
-                            .tracking(-0.5)
-                        
-                        Spacer()
-                        
-                        // Logout button (top right)
-                        Button(action: { showLogoutAlert = true }) {
-                            Image(systemName: "rectangle.portrait.and.arrow.right")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundColor(Color(hex: "2563EB"))
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Log out")
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("My Groups")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(Color(hex: "111827"))
+                        .tracking(-0.5)
+
+                    Spacer()
+
+                    // Logout button (top right)
+                    Button(action: { showLogoutAlert = true }) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(Color(hex: "2563EB"))
+                            .frame(width: 44, height: 44)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 47 + 8) // Safe area + spacing
-                    
-                    // Group Cards
-                    if isLoading && appState.groups.isEmpty {
-                        // Loading skeleton
+                    .accessibilityLabel("Log out")
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 47 + 8) // Safe area + spacing
+
+                if isLoading && appState.groups.isEmpty {
+                    ScrollView {
                         VStack(spacing: 12) {
                             ForEach(0..<3) { _ in
                                 GroupCardSkeleton()
@@ -811,17 +881,21 @@ struct GroupsListView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 16)
-                    } else if appState.groups.isEmpty {
-                        // Empty state
+                    }
+                    .refreshable {
+                        await refreshGroups()
+                    }
+                } else if appState.groups.isEmpty {
+                    ScrollView {
                         VStack(spacing: 16) {
                             Image(systemName: "person.3")
                                 .font(.system(size: 64))
                                 .foregroundColor(Color(hex: "D1D5DB"))
-                            
+
                             Text("No groups yet")
                                 .font(.system(size: 20, weight: .semibold))
                                 .foregroundColor(Color(hex: "4B5563"))
-                            
+
                             Text("Create a group to start splitting expenses")
                                 .font(.system(size: 16, weight: .regular))
                                 .foregroundColor(Color(hex: "6B7280"))
@@ -829,20 +903,38 @@ struct GroupsListView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.top, 100)
-                    } else {
-                        VStack(spacing: 12) {
-                            ForEach(appState.groups) { group in
-                                GroupCardView(group: group)
+                    }
+                    .refreshable {
+                        await refreshGroups()
+                    }
+                } else {
+                    List {
+                        ForEach(appState.groups) { group in
+                            GroupCardView(group: group) {
+                                selectedGroup = group
                             }
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        groupPendingDelete = group
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 100) // Space for button
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .refreshable {
+                        await refreshGroups()
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: 100)
                     }
                 }
-            }
-            .refreshable {
-                await refreshGroups()
             }
             
             // Bottom Button
@@ -861,7 +953,14 @@ struct GroupsListView: View {
             .accessibilityLabel("Create new group")
         }
         .sheet(isPresented: $showCreateGroup) {
-            CreateGroupView()
+            CreateGroupView(
+                onGroupCreated: { _ in
+                    showCreateGroup = false
+                },
+                onBack: {
+                    showCreateGroup = false
+                }
+            )
         }
         .alert("Log Out", isPresented: $showLogoutAlert) {
             Button("Cancel", role: .cancel) { }
@@ -874,14 +973,36 @@ struct GroupsListView: View {
         .task {
             await refreshGroups()
         }
-        .navigationDestination(for: Group.self) { group in
-            GroupDetailView(group: group)
+        .
+        navigationDestination(
+            isPresented: Binding(
+                get: { selectedGroup != nil },
+                set: { if !$0 { selectedGroup = nil } }
+            )
+        ) {
+            if let selectedGroup {
+                GroupDetailView(group: selectedGroup)
+            }
         }
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
             Button("Retry") { Task { await refreshGroups() } }
             Button("Cancel", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
+        }
+        .alert("Delete Group", isPresented: .constant(groupPendingDelete != nil)) {
+            Button("Cancel", role: .cancel) {
+                groupPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                let target = groupPendingDelete
+                groupPendingDelete = nil
+                if let target {
+                    Task { await deleteGroup(target) }
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(groupPendingDelete?.name ?? "")\"?")
         }
     }
     
@@ -894,10 +1015,19 @@ struct GroupsListView: View {
             errorMessage = "Failed to load groups: \(error.localizedDescription)"
         }
     }
+
+    private func deleteGroup(_ group: Group) async {
+        do {
+            try await appState.deleteGroup(groupId: group.id)
+        } catch {
+            errorMessage = "Failed to delete group: \(error.localizedDescription)"
+        }
+    }
 }
 
 struct GroupCardView: View {
     let group: Group
+    let onTap: () -> Void
     @EnvironmentObject private var appState: AppState
     @State private var isPressed = false
     
@@ -920,7 +1050,7 @@ struct GroupCardView: View {
     }
     
     var body: some View {
-        NavigationLink(value: group) {
+        Button(action: onTap) {
             HStack(spacing: 0) {
                 // Left: Group info
                 VStack(alignment: .leading, spacing: 6) {
@@ -963,8 +1093,8 @@ struct GroupCardView: View {
                         }
                     }
                     
-                    // Chevron
-                    Image(systemName: "chevron.right")
+                    // Keep only the left chevron indicator.
+                    Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(Color(hex: "9CA3AF"))
                 }
@@ -982,11 +1112,6 @@ struct GroupCardView: View {
             .animation(.easeOut(duration: 0.15), value: isPressed)
         }
         .buttonStyle(PlainButtonStyle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in isPressed = false }
-        )
     }
     
     private var balanceText: String {
@@ -1218,6 +1343,15 @@ final class APIClient {
         )
     }
     
+    func deleteShoppingSession(sessionId: UUID) async throws -> ShoppingSession {
+        print("[APIClient] Deleting shopping session: \(sessionId)")
+        return try await self.request(
+            "/shopping-sessions/\(sessionId.uuidString)",
+            method: "DELETE",
+            requiresAuth: true
+        )
+    }
+    
     func getShoppingSession(sessionId: UUID) async throws -> ShoppingSession {
         print("[APIClient] Fetching shopping session: \(sessionId)")
         return try await self.request(
@@ -1244,6 +1378,25 @@ final class APIClient {
             "/shopping-sessions/\(sessionId.uuidString)/items",
             method: "POST",
             body: request,
+            requiresAuth: true
+        )
+    }
+
+    func updateShoppingItem(itemId: UUID, request: ShoppingItemCreate) async throws -> ShoppingItem {
+        print("[APIClient] Updating item: \(itemId)")
+        return try await self.request(
+            "/items/\(itemId.uuidString)",
+            method: "PATCH",
+            body: request,
+            requiresAuth: true
+        )
+    }
+
+    func deleteShoppingItem(itemId: UUID) async throws {
+        print("[APIClient] Deleting item: \(itemId)")
+        let _: EmptyResponse = try await self.request(
+            "/items/\(itemId.uuidString)",
+            method: "DELETE",
             requiresAuth: true
         )
     }
@@ -1388,6 +1541,9 @@ final class APIClient {
         
         switch http.statusCode {
         case 200..<300:
+            if data.isEmpty, T.self == EmptyResponse.self {
+                return EmptyResponse() as! T
+            }
             #if DEBUG
             if let jsonString = String(data: data, encoding: .utf8) {
                 print("[APIClient] Response body: \(jsonString)")
@@ -1421,6 +1577,8 @@ final class APIClient {
         init(_ value: Encodable) { self.value = value }
         func encode(to encoder: Encoder) throws { try value.encode(to: encoder) }
     }
+
+    private struct EmptyResponse: Decodable {}
 }
 
 final class AuthService {
@@ -1556,8 +1714,11 @@ extension Color {
     static let blue700 = Color(hex: "1D4ED8")
     static let blue500 = Color(hex: "3B82F6")
     static let blue50 = Color(hex: "EFF6FF")
+    static let blue100 = Color(hex: "DBEAFE")
     static let blue200 = Color(hex: "BFDBFE")
     static let blue900 = Color(hex: "1E3A8A")
+    static let red600 = Color(hex: "DC2626")
+    static let red50 = Color(hex: "FEF2F2")
     static let green600 = Color(hex: "16A34A")
     static let gray800 = Color(hex: "1F2937")
     static let gray900 = Color(hex: "111827")
@@ -2253,105 +2414,6 @@ struct SignUpView: View {
         let usernameRegex = "^[a-zA-Z0-9_-]{3,30}$"
         let usernamePredicate = NSPredicate(format: "SELF MATCHES %@", usernameRegex)
         return usernamePredicate.evaluate(with: username)
-    }
-}
-
-// GroupsListView has been moved to Sources/ClearSplit/Views/GroupsListView.swift
-// This duplicate definition has been removed to avoid conflicts
-
-struct CreateGroupView: View {
-    @EnvironmentObject private var appState: AppState
-    @Environment(\.dismiss) private var dismiss
-    @State private var groupName: String = ""
-    @State private var selectedCurrency: String = "USD"
-    @State private var isCreating: Bool = false
-    @State private var errorMessage: String?
-    @State private var showError: Bool = false
-    
-    let currencies = ["USD", "EUR", "GBP", "JPY", "KRW", "CNY", "CAD", "AUD"]
-    
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("Group Details")) {
-                    TextField("Group Name", text: $groupName)
-                        .textInputAutocapitalization(.words)
-                        .disabled(isCreating)
-                    
-                    Picker("Currency", selection: $selectedCurrency) {
-                        ForEach(currencies, id: \.self) { currency in
-                            Text(currency).tag(currency)
-                        }
-                    }
-                    .disabled(isCreating)
-                }
-                
-                Section {
-                    Button {
-                        Task { await createGroup() }
-                    } label: {
-                        HStack {
-                            if isCreating {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                            }
-                            Text("Create Group")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .disabled(groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCreating)
-                }
-            }
-            .navigationTitle("New Group")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    .disabled(isCreating)
-                }
-            }
-            .alert("Error", isPresented: $showError) {
-                Button("OK", role: .cancel) {
-                    errorMessage = nil
-                }
-            } message: {
-                Text(errorMessage ?? "Unknown error")
-            }
-        }
-    }
-    
-    private func createGroup() async {
-        let trimmedName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Group name is required"
-            showError = true
-            return
-        }
-        
-        isCreating = true
-        
-        do {
-            print("[CreateGroup] Creating group: \(trimmedName) with currency: \(selectedCurrency)")
-            try await appState.createGroup(name: trimmedName, currency: selectedCurrency)
-            print("[CreateGroup] Success!")
-            dismiss()
-        } catch {
-            isCreating = false
-            print("[CreateGroup] Failed: \(error)")
-            if let apiError = error as? APIError {
-                switch apiError {
-                case .serverError(let code, let message):
-                    errorMessage = message ?? "Server error (\(code))"
-                default:
-                    errorMessage = apiError.localizedDescription
-                }
-            } else {
-                errorMessage = error.localizedDescription
-            }
-            showError = true
-        }
     }
 }
 
@@ -4280,6 +4342,15 @@ final class ShoppingSessionsViewModel: ObservableObject {
         }
     }
     
+    func delete(session: ShoppingSession) async {
+        do {
+            _ = try await appState.deleteShoppingSession(sessionId: session.id, groupId: groupId)
+            sessions.removeAll { $0.id == session.id }
+        } catch {
+            errorMessage = "Failed to delete shopping session."
+        }
+    }
+    
     private func parseDateString(_ dateString: String?) -> Date? {
         guard let dateString = dateString else { return nil }
         let formatter = DateFormatter()
@@ -4292,6 +4363,7 @@ struct ShoppingSessionsListView: View {
     @StateObject private var viewModel: ShoppingSessionsViewModel
     @State private var showingCreateSession = false
     @State private var isShowingHelp = false
+    @State private var sessionPendingDelete: ShoppingSession?
     
     let appState: AppState
     let groupId: UUID
@@ -4318,78 +4390,92 @@ struct ShoppingSessionsListView: View {
             Color(hex: "F9FAFB")
                 .ignoresSafeArea()
             
-            ScrollView {
-                VStack(spacing: 16) {
-                    if viewModel.isLoading && viewModel.sessions.isEmpty {
-                        // Loading skeleton
-                        VStack(spacing: 16) {
-                            ForEach(0..<3) { _ in
-                                ShoppingSessionCardSkeleton()
-                            }
+            if viewModel.isLoading && viewModel.sessions.isEmpty {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        ForEach(0..<3) { _ in
+                            ShoppingSessionCardSkeleton()
                         }
-                        .padding(.top, 16)
-                    } else if viewModel.sessions.isEmpty {
-                        // Empty state
-                        VStack(spacing: 16) {
-                            Image(systemName: "cart.badge.plus")
-                                .font(.system(size: 64, weight: .light))
-                                .foregroundColor(Color(hex: "9CA3AF"))
-                            
-                            Text("No Shopping Sessions Yet")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(Color(hex: "111827"))
-                            
-                            Text("Create your first shopping session to start tracking expenses with your group.")
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color(hex: "6B7280"))
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 32)
-                            
-                            Button(action: { showingCreateSession = true }) {
-                                Text("Create Session")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: 200)
-                                    .padding(.vertical, 12)
-                                    .background(Color(hex: "2563EB"))
-                                    .cornerRadius(8)
-                            }
-                            .padding(.top, 8)
-                        }
-                        .padding(.top, 100)
-                    } else {
-                        // Session cards
-                        ForEach(viewModel.sessions) { session in
-                            NavigationLink {
-                                ShoppingSessionDetailView(
-                                    sessionId: session.id,
-                                    groupId: groupId,
-                                    membershipId: paidByMembershipId
-                                )
-                                .environmentObject(appState)
-                            } label: {
-                                ShoppingSessionCard(
-                                    session: session,
-                                    members: members,
-                                    currentUserId: currentUserId
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                        }
-                        .padding(.top, 16)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                }
+                .refreshable {
+                    await viewModel.load()
+                }
+            } else if viewModel.sessions.isEmpty {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        Image(systemName: "cart.badge.plus")
+                            .font(.system(size: 64, weight: .light))
+                            .foregroundColor(Color(hex: "9CA3AF"))
                         
-                        // Pull down to refresh text
-                        Text("Pull down to refresh")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "2563EB"))
-                            .padding(.top, 20)
-                            .padding(.bottom, 16)
+                        Text("No Shopping Sessions Yet")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(Color(hex: "111827"))
+                        
+                        Text("Create your first shopping session to start tracking expenses with your group.")
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundColor(Color(hex: "6B7280"))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                        
+                        Button(action: { showingCreateSession = true }) {
+                            Text("Create Session")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: 200)
+                                .padding(.vertical, 12)
+                                .background(Color(hex: "2563EB"))
+                                .cornerRadius(8)
+                        }
+                        .padding(.top, 8)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 100)
+                }
+                .refreshable {
+                    await viewModel.load()
+                }
+            } else {
+                List {
+                    ForEach(viewModel.sessions) { session in
+                        NavigationLink {
+                            ShoppingSessionDetailView(
+                                sessionId: session.id,
+                                groupId: groupId,
+                                membershipId: paidByMembershipId
+                            )
+                            .environmentObject(appState)
+                        } label: {
+                            ShoppingSessionCard(
+                                session: session,
+                                members: members,
+                                currentUserId: currentUserId
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                sessionPendingDelete = session
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-            }
-            .refreshable {
-                await viewModel.load()
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .refreshable {
+                    await viewModel.load()
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: 80)
+                }
             }
             
             // Help Button (Bottom Right)
@@ -4454,6 +4540,20 @@ struct ShoppingSessionsListView: View {
             Button("Cancel", role: .cancel) { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .alert("Delete Session", isPresented: .constant(sessionPendingDelete != nil)) {
+            Button("Cancel", role: .cancel) {
+                sessionPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                let target = sessionPendingDelete
+                sessionPendingDelete = nil
+                if let target {
+                    Task { await viewModel.delete(session: target) }
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(sessionPendingDelete?.title ?? "")\"?")
         }
     }
 }
@@ -4874,6 +4974,9 @@ struct ShoppingSessionDetailView: View {
     @State private var errorMessage: String?
     @State private var showError = false
     @State private var groupMemberships: [Membership] = []
+    @State private var editingItem: ShoppingItem?
+    @State private var pendingDeleteItem: ShoppingItem?
+    @State private var showDeleteItemConfirm = false
     
     var body: some View {
         ZStack {
@@ -4881,93 +4984,91 @@ struct ShoppingSessionDetailView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let session = session {
-                ZStack(alignment: .bottom) {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            // Blue Gradient Hero Card
-                            TotalAmountHeroCardOld(
-                                totalCents: session.totalCents,
-                                paidByMembershipId: session.paidByMembershipId,
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Blue Gradient Hero Card
+                        TotalAmountHeroCardOld(
+                            totalCents: session.totalCents,
+                            paidByMembershipId: session.paidByMembershipId,
+                            groupMemberships: groupMemberships,
+                            currentUserId: appState.user?.id
+                        )
+
+                        // Content Area
+                        VStack(spacing: 16) {
+                            // Participants Card
+                            ParticipantsDetailCardOld(
+                                participants: session.participants,
                                 groupMemberships: groupMemberships,
-                                currentUserId: appState.user?.id
+                                currentUserId: appState.user?.id,
+                                membershipId: membershipId,
+                                onSetParticipants: {
+                                    showingSetParticipants = true
+                                }
                             )
-                            
-                            // Content Area
-                            VStack(spacing: 16) {
-                                // Participants Card
-                                ParticipantsDetailCardOld(
-                                    participants: session.participants,
-                                    groupMemberships: groupMemberships,
-                                    currentUserId: appState.user?.id,
-                                    membershipId: membershipId,
-                                    onSetParticipants: {
-                                        showingSetParticipants = true
+
+                            // Receipts Card
+                            ReceiptsDetailCardOld(
+                                receipts: session.receipts,
+                                sessionId: session.id,
+                                groupId: groupId,
+                                paidByMembershipId: session.paidByMembershipId,
+                                currentMembershipId: membershipId,
+                                onUploadTap: {
+                                    showingReceiptUpload = true
+                                },
+                                onDelete: { deletedReceiptId in
+                                    // Update UI immediately by removing the receipt from local state
+                                    // Use self.session to reference the @State property, not the local binding
+                                    if let currentSession = self.session {
+                                        let updatedSession = ShoppingSession(
+                                            id: currentSession.id,
+                                            groupId: currentSession.groupId,
+                                            title: currentSession.title,
+                                            shoppingDate: currentSession.shoppingDate,
+                                            totalAmount: currentSession.totalAmount,
+                                            currency: currentSession.currency,
+                                            paidByMembershipId: currentSession.paidByMembershipId,
+                                            createdAt: currentSession.createdAt,
+                                            participants: currentSession.participants,
+                                            receipts: currentSession.receipts.filter { $0.id != deletedReceiptId },
+                                            items: currentSession.items
+                                        )
+                                        self.session = updatedSession
                                     }
-                                )
-                                
-                                // Receipts Card
-                                ReceiptsDetailCardOld(
-                                    receipts: session.receipts,
-                                    sessionId: session.id,
-                                    groupId: groupId,
-                                    paidByMembershipId: session.paidByMembershipId,
-                                    currentMembershipId: membershipId,
-                                    onUploadTap: {
-                                        showingReceiptUpload = true
-                                    },
-                                    onDelete: { deletedReceiptId in
-                                        // Update UI immediately by removing the receipt from local state
-                                        // Use self.session to reference the @State property, not the local binding
-                                        if let currentSession = self.session {
-                                            let updatedSession = ShoppingSession(
-                                                id: currentSession.id,
-                                                groupId: currentSession.groupId,
-                                                title: currentSession.title,
-                                                shoppingDate: currentSession.shoppingDate,
-                                                totalAmount: currentSession.totalAmount,
-                                                currency: currentSession.currency,
-                                                paidByMembershipId: currentSession.paidByMembershipId,
-                                                createdAt: currentSession.createdAt,
-                                                participants: currentSession.participants,
-                                                receipts: currentSession.receipts.filter { $0.id != deletedReceiptId },
-                                                items: currentSession.items
-                                            )
-                                            self.session = updatedSession
-                                        }
-                                        
-                                        // Then sync with server
-                                        Task {
-                                            await loadSession()
-                                        }
+
+                                    // Then sync with server
+                                    Task {
+                                        await loadSession()
                                     }
-                                )
-                                
-                                // Items Card
-                                ItemsDetailCardOld(
-                                    items: session.items,
-                                    participants: session.participants,
-                                    groupMemberships: groupMemberships,
-                                    currentUserId: appState.user?.id,
-                                    membershipId: membershipId,
-                                    onItemTap: { itemId in
-                                        // TODO: Navigate to edit item
-                                    }
-                                )
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 100) // Space for fixed button
+                                }
+                            )
+
+                            // Items Card
+                            ItemsDetailCardOld(
+                                items: session.items,
+                                participants: session.participants,
+                                groupMemberships: groupMemberships,
+                                membershipId: membershipId,
+                                isEditable: session.paidByMembershipId == membershipId,
+                                onAddItem: {
+                                    showingAddItem = true
+                                },
+                                onEditItem: { item in
+                                    editingItem = item
+                                },
+                                onDeleteItem: { item in
+                                    pendingDeleteItem = item
+                                    showDeleteItemConfirm = true
+                                }
+                            )
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 24)
                     }
-                    .background(Color.white)
-                    
-                    // Fixed Add Item Button
-                    AddItemFixedButtonOld {
-                        showingAddItem = true
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
                 }
+                .background(Color.white)
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle")
@@ -5005,7 +5106,9 @@ struct ShoppingSessionDetailView: View {
             await loadSession()
             await loadGroupMemberships()
         }
-        .sheet(isPresented: $showingAddItem) {
+        .sheet(isPresented: $showingAddItem, onDismiss: {
+            Task { await loadSession() }
+        }) {
             if let session = session {
                 AddItemSheet(
                     sessionId: session.id,
@@ -5014,6 +5117,22 @@ struct ShoppingSessionDetailView: View {
                     participants: session.participants
                 )
             }
+        }
+        .sheet(item: $editingItem, onDismiss: {
+            Task { await loadSession() }
+        }) { item in
+            EditItemSheetOld(
+                item: item,
+                sessionId: sessionId,
+                groupId: groupId,
+                membershipId: membershipId,
+                participants: session?.participants ?? [],
+                groupMemberships: groupMemberships,
+                onSaved: {
+                    Task { await loadSession() }
+                }
+            )
+            .environmentObject(appState)
         }
         .sheet(isPresented: $showingSetParticipants) {
             SetParticipantsSheet(
@@ -5050,7 +5169,7 @@ struct ShoppingSessionDetailView: View {
         .sheet(isPresented: $showingExtractedItems) {
             // Use captured values (not live session) to prevent task cancellation
             if let receiptId = uploadedReceiptId, let sessionId = capturedSessionId {
-                ExtractedItemsReviewView(
+                ModernReceiptReviewFlowView(
                     sessionId: sessionId,
                     groupId: groupId,
                     receiptUploadId: receiptId,
@@ -5077,6 +5196,18 @@ struct ShoppingSessionDetailView: View {
             if let message = errorMessage {
                 Text(message)
             }
+        }
+        .alert("Delete Item", isPresented: $showDeleteItemConfirm) {
+            Button("Cancel", role: .cancel) {
+                pendingDeleteItem = nil
+            }
+            Button("Delete", role: .destructive) {
+                Task {
+                    await deleteSelectedItem()
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete this item?")
         }
     }
     
@@ -5111,6 +5242,25 @@ struct ShoppingSessionDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d, yyyy"
         return formatter.string(from: date)
+    }
+
+    private func deleteSelectedItem() async {
+        guard let pendingDeleteItem = pendingDeleteItem else { return }
+
+        do {
+            try await appState.deleteShoppingItem(
+                itemId: pendingDeleteItem.id,
+                sessionId: sessionId,
+                groupId: groupId
+            )
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            await loadSession()
+        } catch {
+            errorMessage = "Failed to delete item: \(error.localizedDescription)"
+            showError = true
+        }
+
+        self.pendingDeleteItem = nil
     }
 }
 
@@ -5426,61 +5576,66 @@ struct ItemsDetailCardOld: View {
     let items: [ShoppingItem]
     let participants: [ShoppingSessionParticipant]
     let groupMemberships: [Membership]
-    let currentUserId: UUID?
     let membershipId: UUID
-    let onItemTap: (UUID) -> Void
+    let isEditable: Bool
+    let onAddItem: () -> Void
+    let onEditItem: (ShoppingItem) -> Void
+    let onDeleteItem: (ShoppingItem) -> Void
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Header
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Items")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.primary)
                 
                 Spacer()
                 
-                // Count Badge
                 Text("\(items.count)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.gray700)
-                    .frame(width: 24, height: 24)
-                    .background(Color.gray100)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .background(Color(UIColor.systemGray5))
                     .clipShape(Circle())
             }
             
-            // Items List
             if items.isEmpty {
-                Text("No items yet")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.gray500)
+                Text("No items yet.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
             } else {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     ForEach(items) { item in
                         ItemDetailRowOld(
                             item: item,
-                            participants: participants,
                             groupMemberships: groupMemberships,
-                            currentUserId: currentUserId,
                             membershipId: membershipId,
-                            onTap: {
-                                onItemTap(item.id)
-                            }
+                            isEditable: isEditable,
+                            onEdit: { onEditItem(item) },
+                            onDelete: { onDeleteItem(item) }
                         )
                     }
                 }
             }
+
+            if isEditable {
+                Button(action: onAddItem) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Add Item")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.blue500)
+                    .cornerRadius(16)
+                }
+                .padding(.top, 4)
+            }
         }
-        .padding(20)
-        .background(Color.white)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 }
 
@@ -5488,81 +5643,163 @@ struct ItemsDetailCardOld: View {
 
 struct ItemDetailRowOld: View {
     let item: ShoppingItem
-    let participants: [ShoppingSessionParticipant]
     let groupMemberships: [Membership]
-    let currentUserId: UUID?
     let membershipId: UUID
-    let onTap: () -> Void
+    let isEditable: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
     
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Row 1: Name and Total
-                HStack {
+        SwiftUI.Group {
+            if isEditable {
+                fullDetailBody
+            } else {
+                simpleBody
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(UIColor.systemBackground))
+        .cornerRadius(isEditable ? 16 : 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: isEditable ? 16 : 12)
+                .stroke(Color(UIColor.separator).opacity(isEditable ? 1 : 0.5), lineWidth: 1)
+        )
+    }
+
+    private var fullDetailBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(item.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.gray900)
-                    
-                    Spacer()
-                    
-                    Text(formatCurrency(cents: item.totalCents, currency: "USD"))
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.gray900)
-                }
-                
-                // Row 2: Unit Price × Quantity
-                if let unitPriceCents = item.unitPriceCents {
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+
                     Text("\(formatCurrency(cents: unitPriceCents, currency: "USD")) × \(item.quantity)")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray500)
+                        .foregroundColor(.secondary)
                 }
-                
-                // Row 3: Shared by
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Shared by:")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.gray600)
-                    
-                    // Participant Badges
-                    HStack(spacing: 8) {
+
+                Spacer()
+
+                Text(formatCurrency(cents: item.totalCents, currency: "USD"))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                HStack(spacing: 8) {
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.blue)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.red)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Shared by:")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+
+                if sharedByMemberships.isEmpty {
+                    Text("No participants")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .italic()
+                } else {
+                    FlowLayoutOld(spacing: 6) {
                         ForEach(sharedByMemberships) { membership in
                             ParticipantBadgeOld(
                                 membership: membership,
-                                currentUserId: currentUserId,
                                 membershipId: membershipId
                             )
                         }
                     }
                 }
-                
-                // Row 4: Your Share
-                HStack {
-                    Text("Your share:")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray600)
-                    
-                    Spacer()
-                    
-                    Text(formatCurrency(cents: userShareCents, currency: "USD"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.gray900)
+            }
+
+            HStack {
+                Spacer()
+                Text("Your share:")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+                Text(formatCurrency(cents: userShareCents, currency: "USD"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
+        }
+    }
+
+    private var simpleBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(item.quantity) \(item.name)")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+
+                Spacer()
+
+                Text(formatCurrency(cents: item.totalCents, currency: "USD"))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Shared by:")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+
+                if sharedByMemberships.isEmpty {
+                    Text("No participants")
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary.opacity(0.6))
+                } else {
+                    Text(sharedByText)
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.gray50)
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray200, lineWidth: 1)
-            )
+
+            HStack {
+                Text("Your share:")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text(formatCurrency(cents: userShareCents, currency: "USD"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.primary)
+            }
         }
-        .buttonStyle(PlainButtonStyle())
     }
-    
+
     private var sharedByMemberships: [Membership] {
-        let membershipIds = item.splits.map { $0.membershipId }
-        return groupMemberships.filter { membershipIds.contains($0.id) }
+        let membershipsById = Dictionary(uniqueKeysWithValues: groupMemberships.map { ($0.id, $0) })
+        return item.splits.compactMap { membershipsById[$0.membershipId] }
+    }
+
+    private var sharedByText: String {
+        sharedByMemberships.map(displayName(for:)).joined(separator: ", ")
+    }
+
+    private var unitPriceCents: Int {
+        if let unitPriceCents = item.unitPriceCents {
+            return unitPriceCents
+        }
+        guard item.quantity > 0 else {
+            return item.totalCents
+        }
+        return item.totalCents / item.quantity
     }
     
     private var userShareCents: Int {
@@ -5571,23 +5808,35 @@ struct ItemDetailRowOld: View {
         }
         return 0
     }
+
+    private func displayName(for membership: Membership) -> String {
+        if membership.id == membershipId {
+            return "You"
+        }
+
+        if let user = membership.user {
+            let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
+            return fullName.isEmpty ? membership.displayName : fullName
+        }
+
+        return membership.displayName
+    }
 }
 
 // MARK: - Participant Badge (Old)
 
 struct ParticipantBadgeOld: View {
     let membership: Membership
-    let currentUserId: UUID?
     let membershipId: UUID
     
     var body: some View {
         Text(displayName)
             .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.blue700)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(Color.blue50)
-            .cornerRadius(14)
+            .foregroundColor(membership.id == membershipId ? .blue500 : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(membership.id == membershipId ? Color.blue500.opacity(0.1) : Color.gray100)
+            .cornerRadius(8)
     }
     
     private var displayName: String {
@@ -5598,6 +5847,63 @@ struct ParticipantBadgeOld: View {
             return "\(user.firstName) \(user.lastName)"
         }
         return "Member"
+    }
+}
+
+struct FlowLayoutOld: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        computeLayout(proposal: proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let layout = computeLayout(proposal: proposal, subviews: subviews)
+        for (index, position) in layout.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func computeLayout(
+        proposal: ProposedViewSize,
+        subviews: Subviews
+    ) -> (size: CGSize, positions: [CGPoint]) {
+        let availableWidth = proposal.width ?? .infinity
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var maxWidth: CGFloat = 0
+        var positions: [CGPoint] = []
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+
+            if currentX + size.width > availableWidth, currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            maxWidth = max(maxWidth, currentX - spacing)
+        }
+
+        return (CGSize(width: maxWidth, height: currentY + lineHeight), positions)
     }
 }
 
@@ -5829,92 +6135,207 @@ struct AddItemSheet: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var itemName = ""
-    @State private var quantity = "1"
-    @State private var priceText = ""
+    @State private var quantity = 1
+    @State private var unitPriceText = ""
     @State private var selectedSharerIds: Set<UUID> = []
     @State private var isCreating = false
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var showDiscardAlert = false
+
+    private var membershipById: [UUID: Membership] {
+        Dictionary(
+            uniqueKeysWithValues: (appState.membershipsByGroupId[groupId] ?? []).map { ($0.id, $0) }
+        )
+    }
     
     var isValid: Bool {
         !itemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !priceText.isEmpty &&
-        (Decimal(string: priceText) ?? 0) > 0 &&
-        (Int(quantity) ?? 0) >= 1 &&
+        !unitPriceText.isEmpty &&
+        (Decimal(string: unitPriceText) ?? 0) > 0 &&
+        quantity >= 1 &&
+        !selectedSharerIds.isEmpty
+    }
+    
+    var unitPrice: Decimal {
+        Decimal(string: unitPriceText) ?? 0
+    }
+    
+    var itemTotal: Decimal {
+        unitPrice * Decimal(quantity)
+    }
+    
+    var isDirty: Bool {
+        !itemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !unitPriceText.isEmpty ||
+        quantity != 1 ||
         !selectedSharerIds.isEmpty
     }
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Item Details") {
-                    TextField("Item name", text: $itemName)
-                        .disabled(isCreating)
-                    
-                    TextField("Quantity", text: $quantity)
-                        .keyboardType(.numberPad)
-                        .disabled(isCreating)
-                    
-                    HStack {
-                        Text("$")
-                        TextField("Price", text: $priceText)
-                            .keyboardType(.decimalPad)
-                            .disabled(isCreating)
-                    }
-                }
-                
-                Section("Who's Sharing This Item?") {
-                    if participants.isEmpty {
-                        Text("Set participants first")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(participants) { participant in
-                            Button {
-                                if selectedSharerIds.contains(participant.membershipId) {
-                                    selectedSharerIds.remove(participant.membershipId)
-                                } else {
-                                    selectedSharerIds.insert(participant.membershipId)
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: selectedSharerIds.contains(participant.membershipId) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(selectedSharerIds.contains(participant.membershipId) ? .blue : .gray)
-                                    
-                                    Text(participant.membershipId == membershipId ? "You" : String(participant.membershipId.uuidString.prefix(8)))
-                                        .foregroundColor(.primary)
-                                    
-                                    Spacer()
-                                    
-                                    if !priceText.isEmpty, let price = Decimal(string: priceText), !selectedSharerIds.isEmpty {
-                                        let totalCents = Int(truncating: (price * Decimal(100)) as NSDecimalNumber)
-                                        let shareCents = totalCents / selectedSharerIds.count
-                                        Text("$\(String(format: "%.2f", Double(shareCents) / 100.0))")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Item Details")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.gray700)
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField("Item name", text: $itemName)
+                                .padding(.horizontal, 14)
+                                .frame(height: 52)
+                                .background(Color.gray100)
+                                .cornerRadius(12)
+                                .disabled(isCreating)
+                        }
+                        
+                        Stepper(value: $quantity, in: 1...999) {
+                            HStack {
+                                Text("Quantity")
+                                    .foregroundColor(.gray700)
+                                Spacer()
+                                Text("\(quantity)")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.gray900)
                             }
-                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 52)
+                        .background(Color.gray100)
+                        .cornerRadius(12)
+                        .disabled(isCreating)
+                        
+                        HStack(spacing: 8) {
+                            Text("$")
+                                .foregroundColor(.gray700)
+                                .padding(.leading, 14)
+                            TextField("Price", text: $unitPriceText)
+                                .keyboardType(.decimalPad)
+                                .disabled(isCreating)
+                        }
+                        .frame(height: 52)
+                        .background(Color.gray100)
+                        .cornerRadius(12)
+                        
+                        HStack {
+                            Text("Item Total")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.blue900)
+                            Spacer()
+                            Text(formatCurrency(cents: decimalToCents(itemTotal), currency: "USD"))
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.blue900)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 52)
+                        .background(Color.blue50)
+                        .cornerRadius(12)
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Who's Sharing This Item?")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.gray900)
+                        
+                        if participants.isEmpty {
+                            Text("No participants available. Set participants first.")
+                                .foregroundColor(.gray500)
+                        } else {
+                            ForEach(participants) { participant in
+                                Button {
+                                    if selectedSharerIds.contains(participant.membershipId) {
+                                        selectedSharerIds.remove(participant.membershipId)
+                                    } else {
+                                        selectedSharerIds.insert(participant.membershipId)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: selectedSharerIds.contains(participant.membershipId) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedSharerIds.contains(participant.membershipId) ? .blue600 : .gray400)
+                                        
+                                        Text(displayName(for: participant.membershipId))
+                                            .foregroundColor(.gray900)
+                                        
+                                        Spacer()
+                                        
+                                        if !selectedSharerIds.isEmpty && itemTotal > 0 {
+                                            let shareCents = decimalToCents(itemTotal) / selectedSharerIds.count
+                                            Text(formatCurrency(cents: shareCents, currency: "USD"))
+                                                .font(.caption)
+                                                .foregroundColor(.gray500)
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 48)
+                                    .background(selectedSharerIds.contains(participant.membershipId) ? Color.blue50 : Color.white)
+                                    .cornerRadius(10)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(selectedSharerIds.contains(participant.membershipId) ? Color.blue200 : Color.gray200, lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
                 }
+                .padding(16)
             }
-            .navigationTitle("Add Item")
+            .background(Color.gray50)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
-                        dismiss()
+                        if isDirty {
+                            showDiscardAlert = true
+                        } else {
+                            dismiss()
+                        }
                     }
+                    .foregroundColor(.blue600)
                     .disabled(isCreating)
                 }
                 
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        Task { await createItem() }
-                    }
-                    .disabled(!isValid || isCreating)
+                ToolbarItem(placement: .principal) {
+                    Text("Add Item")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.gray900)
                 }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isCreating {
+                        ProgressView()
+                    } else {
+                        Button("Add") {
+                            Task { await createItem() }
+                        }
+                        .foregroundColor(isValid ? .blue600 : .gray400)
+                        .disabled(!isValid)
+                    }
+                }
+            }
+            .alert("Discard Changes?", isPresented: $showDiscardAlert) {
+                Button("Keep Editing", role: .cancel) { }
+                Button("Discard", role: .destructive) {
+                    dismiss()
+                }
+            } message: {
+                Text("Your item will not be saved.")
             }
             .alert("Error", isPresented: $showError) {
                 Button("OK", role: .cancel) { }
@@ -5923,28 +6344,38 @@ struct AddItemSheet: View {
                     Text(message)
                 }
             }
+            .task {
+                if appState.membershipsByGroupId[groupId] == nil {
+                    try? await appState.loadMembers(groupId: groupId)
+                }
+
+                if selectedSharerIds.isEmpty, participants.contains(where: { $0.membershipId == membershipId }) {
+                    selectedSharerIds.insert(membershipId)
+                }
+            }
         }
     }
     
     private func createItem() async {
         let trimmedName = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty,
-              let price = Decimal(string: priceText),
+              let price = Decimal(string: unitPriceText),
               price > 0,
-              let qty = Int(quantity),
-              qty >= 1 else { return }
+              quantity >= 1 else { return }
         
         isCreating = true
         defer { isCreating = false }
         
         do {
-            let totalCents = Int(truncating: (price * Decimal(100)) as NSDecimalNumber)
+            let totalCents = decimalToCents(price * Decimal(quantity))
+            let unitPriceCents = decimalToCents(price)
             let item = try await appState.createShoppingItem(
                 sessionId: sessionId,
                 groupId: groupId,
                 name: trimmedName,
-                quantity: qty,
-                totalCents: totalCents
+                quantity: quantity,
+                totalCents: totalCents,
+                unitPriceCents: unitPriceCents
             )
             
             // Set sharers
@@ -5954,11 +6385,1016 @@ struct AddItemSheet: View {
                 groupId: groupId,
                 membershipIds: Array(selectedSharerIds)
             )
-            
+
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
         } catch {
             errorMessage = "Failed to create item: \(error.localizedDescription)"
             showError = true
+        }
+    }
+    
+    private func decimalToCents(_ decimal: Decimal) -> Int {
+        let number = NSDecimalNumber(decimal: decimal * Decimal(100))
+        return Int(number.doubleValue.rounded())
+    }
+
+    private func displayName(for membershipId: UUID) -> String {
+        if membershipId == self.membershipId {
+            return "You"
+        }
+        if let membership = membershipById[membershipId],
+           let user = membership.user {
+            let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
+            if !fullName.isEmpty {
+                return fullName
+            }
+        }
+        return "Member \(String(membershipId.uuidString.prefix(4)))"
+    }
+}
+
+struct EditItemSheetOld: View {
+    let item: ShoppingItem
+    let sessionId: UUID
+    let groupId: UUID
+    let membershipId: UUID
+    let participants: [ShoppingSessionParticipant]
+    let groupMemberships: [Membership]
+    let onSaved: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var itemName: String
+    @State private var quantity: Int
+    @State private var unitPriceText: String
+    @State private var selectedSharerIds: Set<UUID>
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(
+        item: ShoppingItem,
+        sessionId: UUID,
+        groupId: UUID,
+        membershipId: UUID,
+        participants: [ShoppingSessionParticipant],
+        groupMemberships: [Membership],
+        onSaved: @escaping () -> Void
+    ) {
+        self.item = item
+        self.sessionId = sessionId
+        self.groupId = groupId
+        self.membershipId = membershipId
+        self.participants = participants
+        self.groupMemberships = groupMemberships
+        self.onSaved = onSaved
+
+        _itemName = State(initialValue: item.name)
+        _quantity = State(initialValue: max(1, item.quantity))
+
+        let unitPriceCents = item.unitPriceCents ?? (item.quantity > 0 ? item.totalCents / item.quantity : item.totalCents)
+        _unitPriceText = State(initialValue: String(format: "%.2f", Double(unitPriceCents) / 100.0))
+        _selectedSharerIds = State(initialValue: Set(item.splits.map { $0.membershipId }))
+    }
+
+    private var membershipById: [UUID: Membership] {
+        Dictionary(uniqueKeysWithValues: groupMemberships.map { ($0.id, $0) })
+    }
+
+    private var unitPrice: Decimal {
+        Decimal(string: unitPriceText) ?? 0
+    }
+
+    private var itemTotal: Decimal {
+        unitPrice * Decimal(quantity)
+    }
+
+    private var isValid: Bool {
+        !itemName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        unitPrice > 0 &&
+        quantity >= 1 &&
+        !selectedSharerIds.isEmpty
+    }
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Item Details")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.gray700)
+
+                        TextField("Item name", text: $itemName)
+                            .padding(.horizontal, 14)
+                            .frame(height: 52)
+                            .background(Color.gray100)
+                            .cornerRadius(12)
+                            .disabled(isSaving)
+
+                        Stepper(value: $quantity, in: 1...999) {
+                            HStack {
+                                Text("Quantity")
+                                    .foregroundColor(.gray700)
+                                Spacer()
+                                Text("\(quantity)")
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.gray900)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 52)
+                        .background(Color.gray100)
+                        .cornerRadius(12)
+                        .disabled(isSaving)
+
+                        HStack(spacing: 8) {
+                            Text("$")
+                                .foregroundColor(.gray700)
+                                .padding(.leading, 14)
+                            TextField("Price", text: $unitPriceText)
+                                .keyboardType(.decimalPad)
+                                .disabled(isSaving)
+                        }
+                        .frame(height: 52)
+                        .background(Color.gray100)
+                        .cornerRadius(12)
+
+                        HStack {
+                            Text("Item Total")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.blue900)
+                            Spacer()
+                            Text(formatCurrency(cents: decimalToCents(itemTotal), currency: "USD"))
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.blue900)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 52)
+                        .background(Color.blue50)
+                        .cornerRadius(12)
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Who's Sharing This Item?")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.gray900)
+
+                        if participants.isEmpty {
+                            Text("No participants available. Set participants first.")
+                                .foregroundColor(.gray500)
+                        } else {
+                            ForEach(participants) { participant in
+                                Button {
+                                    if selectedSharerIds.contains(participant.membershipId) {
+                                        selectedSharerIds.remove(participant.membershipId)
+                                    } else {
+                                        selectedSharerIds.insert(participant.membershipId)
+                                    }
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                } label: {
+                                    HStack {
+                                        Image(systemName: selectedSharerIds.contains(participant.membershipId) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedSharerIds.contains(participant.membershipId) ? .blue600 : .gray400)
+
+                                        Text(displayName(for: participant.membershipId))
+                                            .foregroundColor(.gray900)
+
+                                        Spacer()
+
+                                        if !selectedSharerIds.isEmpty && itemTotal > 0 {
+                                            let shareCents = decimalToCents(itemTotal) / selectedSharerIds.count
+                                            Text(formatCurrency(cents: shareCents, currency: "USD"))
+                                                .font(.caption)
+                                                .foregroundColor(.gray500)
+                                        }
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 48)
+                                    .background(selectedSharerIds.contains(participant.membershipId) ? Color.blue50 : Color.white)
+                                    .cornerRadius(10)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .stroke(selectedSharerIds.contains(participant.membershipId) ? Color.blue200 : Color.gray200, lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .background(Color.white)
+                    .cornerRadius(16)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray200, lineWidth: 1)
+                    )
+                }
+                .padding(16)
+            }
+            .background(Color.gray50)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(.blue600)
+                        .disabled(isSaving)
+                }
+
+                ToolbarItem(placement: .principal) {
+                    Text("Edit Item")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task { await saveItem() }
+                        }
+                        .foregroundColor(isValid ? .blue600 : .gray400)
+                        .disabled(!isValid)
+                    }
+                }
+            }
+            .alert("Error", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func saveItem() async {
+        let trimmedName = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            let totalCents = decimalToCents(itemTotal)
+            let unitPriceCents = decimalToCents(unitPrice)
+
+            _ = try await appState.updateShoppingItem(
+                itemId: item.id,
+                sessionId: sessionId,
+                groupId: groupId,
+                name: trimmedName,
+                quantity: quantity,
+                unitPriceCents: unitPriceCents,
+                totalCents: totalCents,
+                membershipIds: Array(selectedSharerIds)
+            )
+
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onSaved()
+            dismiss()
+        } catch {
+            errorMessage = "Failed to update item: \(error.localizedDescription)"
+        }
+    }
+
+    private func decimalToCents(_ decimal: Decimal) -> Int {
+        let number = NSDecimalNumber(decimal: decimal * Decimal(100))
+        return Int(number.doubleValue.rounded())
+    }
+
+    private func displayName(for membershipId: UUID) -> String {
+        if membershipId == self.membershipId {
+            return "You"
+        }
+        if let membership = membershipById[membershipId],
+           let user = membership.user {
+            let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
+            if !fullName.isEmpty {
+                return fullName
+            }
+        }
+        return "Member \(String(membershipId.uuidString.prefix(4)))"
+    }
+}
+
+// MARK: - Modern Receipt Review
+
+private struct ModernExtractedItem: Identifiable, Equatable {
+    enum ConfidenceLevel {
+        case high
+        case medium
+        case low
+
+        var color: Color {
+            switch self {
+            case .high: return Color(red: 0.063, green: 0.725, blue: 0.506)
+            case .medium: return Color(red: 0.961, green: 0.620, blue: 0.043)
+            case .low: return Color(red: 0.976, green: 0.451, blue: 0.086)
+            }
+        }
+
+        var backgroundColor: Color { color.opacity(0.12) }
+
+        var displayText: String {
+            switch self {
+            case .high: return "High confidence"
+            case .medium: return "Medium confidence"
+            case .low: return "Low confidence"
+            }
+        }
+
+        var needsWarning: Bool { self == .low }
+    }
+
+    let id: String
+    var name: String
+    var price: Double
+    var quantity: Int
+    var confidence: ConfidenceLevel
+
+    var totalPrice: Double { price * Double(quantity) }
+}
+
+private func sanitizeReceiptItemName(_ rawName: String) -> String {
+    var cleaned = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    // OCR lines often end with a stray "$"; remove trailing symbols/spaces.
+    while let last = cleaned.last, last == "$" || last.isWhitespace {
+        cleaned.removeLast()
+    }
+
+    return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private struct ModernReceiptReviewFlowView: View {
+    let sessionId: UUID
+    let groupId: UUID
+    let receiptUploadId: UUID
+    let participants: [ShoppingSessionParticipant]
+    let appState: AppState
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var items: [ModernExtractedItem] = []
+    @State private var receiptImageUrl: String?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var isConfirming = false
+
+    var body: some View {
+        NavigationStack {
+            SwiftUI.Group {
+                if isLoading {
+                    ProgressView("Extracting receipt items...")
+                } else if let errorMessage = errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.orange)
+                        Text("Unable to Review Receipt")
+                            .font(.system(size: 20, weight: .semibold))
+                        Text(errorMessage)
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Button("Close") { dismiss() }
+                            .buttonStyle(.bordered)
+                    }
+                } else {
+                    ModernReceiptReviewView(
+                        receiptImageUrl: receiptImageUrl,
+                        initialItems: items,
+                        onConfirm: handleConfirm,
+                        onBack: { dismiss() }
+                    )
+                    .overlay {
+                        if isConfirming {
+                            ZStack {
+                                Color.black.opacity(0.18).ignoresSafeArea()
+                                ProgressView("Adding items to session...")
+                                    .padding(14)
+                                    .background(Color.white)
+                                    .cornerRadius(12)
+                            }
+                        }
+                    }
+                }
+            }
+            .task(id: receiptUploadId) {
+                await loadData()
+            }
+        }
+    }
+
+    private func loadData() async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            async let extracted = appState.extractReceiptItems(receiptUploadId: receiptUploadId)
+            async let imageUrl = appState.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
+
+            let extractedItems = try await extracted
+            items = extractedItems.map { item in
+                let safeQuantity = max(1, item.quantity)
+                let unitPriceCents = (item.unitPriceCents ?? max(1, item.totalCents / safeQuantity))
+                return ModernExtractedItem(
+                    id: item.id.uuidString,
+                    name: sanitizeReceiptItemName(item.name),
+                    price: Double(unitPriceCents) / 100.0,
+                    quantity: safeQuantity,
+                    confidence: mapConfidence(item.confidence)
+                )
+            }
+            receiptImageUrl = try? await imageUrl
+            isLoading = false
+        } catch {
+            errorMessage = "Failed to extract items from this receipt. Please try again."
+            isLoading = false
+        }
+    }
+
+    private func mapConfidence(_ score: Double?) -> ModernExtractedItem.ConfidenceLevel {
+        guard let score else { return .medium }
+        if score >= 0.8 { return .high }
+        if score >= 0.5 { return .medium }
+        return .low
+    }
+
+    private func handleConfirm(_ confirmed: [ModernExtractedItem]) {
+        guard !isConfirming else { return }
+        isConfirming = true
+
+        Task {
+            do {
+                let membershipIds = participants.map { $0.membershipId }
+                for item in confirmed {
+                    let createdItem = try await appState.createShoppingItem(
+                        sessionId: sessionId,
+                        groupId: groupId,
+                        name: sanitizeReceiptItemName(item.name),
+                        quantity: max(1, item.quantity),
+                        totalCents: Int((item.totalPrice * 100).rounded())
+                    )
+
+                    if !membershipIds.isEmpty {
+                        _ = try await appState.setItemSharers(
+                            itemId: createdItem.id,
+                            sessionId: sessionId,
+                            groupId: groupId,
+                            membershipIds: membershipIds
+                        )
+                    }
+                }
+
+                await MainActor.run {
+                    isConfirming = false
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isConfirming = false
+                    errorMessage = "Failed to confirm items. Please try again."
+                }
+            }
+        }
+    }
+}
+
+private struct ModernReceiptReviewView: View {
+    let receiptImageUrl: String?
+    let initialItems: [ModernExtractedItem]
+    let onConfirm: ([ModernExtractedItem]) -> Void
+    let onBack: () -> Void
+
+    @State private var items: [ModernExtractedItem]
+    @State private var editingItemId: String?
+    @State private var showingReceiptPreview = false
+    @State private var showingAddItem = false
+
+    init(
+        receiptImageUrl: String?,
+        initialItems: [ModernExtractedItem],
+        onConfirm: @escaping ([ModernExtractedItem]) -> Void,
+        onBack: @escaping () -> Void
+    ) {
+        self.receiptImageUrl = receiptImageUrl
+        self.initialItems = initialItems
+        self.onConfirm = onConfirm
+        self.onBack = onBack
+        _items = State(initialValue: initialItems)
+    }
+
+    private var totalAmount: Double {
+        items.reduce(0) { $0 + $1.totalPrice }
+    }
+
+    private var totalItemCount: Int {
+        items.reduce(0) { $0 + $1.quantity }
+    }
+
+    private var isEditing: Bool {
+        editingItemId != nil
+    }
+
+    var body: some View {
+        ZStack {
+            Color.gray50.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.231, green: 0.510, blue: 0.965),
+                        Color(red: 0.192, green: 0.431, blue: 0.855)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(height: 180)
+                .overlay(
+                    VStack(spacing: 16) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Total Amount")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.9))
+                                Text("$\(totalAmount, specifier: "%.2f")")
+                                    .font(.system(size: 34, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Text("Items")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white.opacity(0.9))
+                                Text("\(totalItemCount)")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(.white.opacity(0.9))
+                            Text("Review and edit the items extracted from your receipt. Items with lower confidence may need verification.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.9))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(12)
+                        .background(Color.white.opacity(0.15))
+                        .cornerRadius(12)
+                    }
+                    .padding(24)
+                )
+
+                ScrollView {
+                    VStack(spacing: 12) {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            ModernReceiptItemCard(
+                                item: item,
+                                index: index + 1,
+                                isEditing: editingItemId == item.id,
+                                onEdit: { editingItemId = item.id },
+                                onDelete: {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        items.removeAll { $0.id == item.id }
+                                    }
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                },
+                                onSave: { updated in
+                                    if let idx = items.firstIndex(where: { $0.id == updated.id }) {
+                                        items[idx] = updated
+                                        editingItemId = nil
+                                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                    }
+                                },
+                                onCancel: { editingItemId = nil }
+                            )
+                        }
+
+                        Button(action: { showingAddItem = true }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 18, weight: .medium))
+                                Text("Add Item")
+                                    .font(.system(size: 16, weight: .medium))
+                            }
+                            .foregroundColor(.gray)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color.white)
+                            .cornerRadius(16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                                    .foregroundColor(Color.gray.opacity(0.3))
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 100)
+                }
+            }
+
+            if !isEditing {
+                VStack(spacing: 0) {
+                    Spacer()
+                    LinearGradient(
+                        colors: [Color.white.opacity(0), Color.white],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 30)
+
+                    Button(action: {
+                        guard !items.isEmpty else { return }
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        onConfirm(items)
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 16, weight: .semibold))
+                            Text("Confirm \(items.count) \(items.count == 1 ? "Item" : "Items") ($\(totalAmount, specifier: "%.2f"))")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(items.isEmpty ? Color.gray : Color.blue600)
+                        .cornerRadius(16)
+                    }
+                    .disabled(items.isEmpty)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 16)
+                    .background(Color.white)
+                }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: onBack) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .semibold))
+                        Text("Back")
+                    }
+                    .foregroundColor(.blue600)
+                }
+            }
+            ToolbarItem(placement: .principal) {
+                Text("Review Items")
+                    .font(.system(size: 17, weight: .semibold))
+            }
+            if receiptImageUrl != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showingReceiptPreview = true }) {
+                        Image(systemName: "photo")
+                            .foregroundColor(.blue600)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddItem) {
+            ModernReceiptAddItemSheet { newItem in
+                items.append(newItem)
+                showingAddItem = false
+                editingItemId = newItem.id
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+        }
+        .sheet(isPresented: $showingReceiptPreview) {
+            if let imageUrl = receiptImageUrl {
+                ModernReceiptPreviewSheet(imageUrl: imageUrl)
+            }
+        }
+    }
+}
+
+private struct ModernReceiptItemCard: View {
+    let item: ModernExtractedItem
+    let index: Int
+    let isEditing: Bool
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onSave: (ModernExtractedItem) -> Void
+    let onCancel: () -> Void
+
+    @State private var editName = ""
+    @State private var editPrice = ""
+    @State private var editQuantity = ""
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case name
+        case price
+        case quantity
+    }
+
+    private var isValidInput: Bool {
+        !editName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (Double(editPrice) ?? 0) > 0 &&
+        (Int(editQuantity) ?? 0) > 0
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if isEditing {
+                editModeView
+            } else {
+                viewModeView
+            }
+        }
+        .background(Color.white)
+        .cornerRadius(16)
+        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        .onAppear {
+            editName = item.name
+            editPrice = String(format: "%.2f", item.price)
+            editQuantity = "\(item.quantity)"
+        }
+    }
+
+    private var viewModeView: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(Color.blue.opacity(0.1))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Text("\(index)")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.blue600)
+                )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(item.name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.gray900)
+
+                HStack(spacing: 4) {
+                    Text("$\(item.price, specifier: "%.2f") x \(item.quantity)")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray500)
+                    Text("=")
+                        .foregroundColor(.gray400)
+                    Text("$\(item.totalPrice, specifier: "%.2f")")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.gray900)
+                }
+
+                HStack(spacing: 4) {
+                    if item.confidence.needsWarning {
+                        Text("⚠️")
+                            .font(.system(size: 10))
+                    }
+                    Text(item.confidence.displayText)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(item.confidence.color)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(item.confidence.backgroundColor)
+                .cornerRadius(8)
+            }
+
+            Spacer()
+
+            HStack(spacing: 8) {
+                Button {
+                    onEdit()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.blue600)
+                        .frame(width: 32, height: 32)
+                        .background(Color.blue100)
+                        .cornerRadius(8)
+                }
+                Button {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.red600)
+                        .frame(width: 32, height: 32)
+                        .background(Color.red50)
+                        .cornerRadius(8)
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    private var editModeView: some View {
+        VStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Item Name")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.gray500)
+                TextField("Item name", text: $editName)
+                    .padding(12)
+                    .background(Color.gray100)
+                    .cornerRadius(10)
+                    .focused($focusedField, equals: .name)
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Price")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray500)
+                    HStack(spacing: 8) {
+                        Text("$").foregroundColor(.gray500)
+                        TextField("0.00", text: $editPrice)
+                            .keyboardType(.decimalPad)
+                            .focused($focusedField, equals: .price)
+                    }
+                    .padding(12)
+                    .background(Color.gray100)
+                    .cornerRadius(10)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Quantity")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.gray500)
+                    TextField("1", text: $editQuantity)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.center)
+                        .padding(12)
+                        .background(Color.gray100)
+                        .cornerRadius(10)
+                        .focused($focusedField, equals: .quantity)
+                }
+            }
+
+            let previewTotal = (Double(editPrice) ?? 0) * Double(Int(editQuantity) ?? 1)
+            HStack {
+                Text("Total:").foregroundColor(.gray500)
+                Spacer()
+                Text("$\(previewTotal, specifier: "%.2f")")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.gray900)
+            }
+            .padding(12)
+            .background(Color.gray100.opacity(0.6))
+            .cornerRadius(10)
+
+            HStack(spacing: 12) {
+                Button(action: {
+                    focusedField = nil
+                    onCancel()
+                }) {
+                    Text("Cancel")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.gray900)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Color.gray200)
+                        .cornerRadius(12)
+                }
+                Button(action: {
+                    guard isValidInput else { return }
+                    onSave(
+                        ModernExtractedItem(
+                            id: item.id,
+                            name: editName.trimmingCharacters(in: .whitespacesAndNewlines),
+                            price: Double(editPrice) ?? item.price,
+                            quantity: Int(editQuantity) ?? item.quantity,
+                            confidence: item.confidence
+                        )
+                    )
+                }) {
+                    Text("Save")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(isValidInput ? Color.blue600 : Color.gray400)
+                        .cornerRadius(12)
+                }
+                .disabled(!isValidInput)
+            }
+        }
+        .padding(16)
+        .onAppear {
+            focusedField = .name
+        }
+    }
+}
+
+private struct ModernReceiptAddItemSheet: View {
+    let onAdd: (ModernExtractedItem) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var price = ""
+    @State private var quantity = "1"
+
+    private var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        (Double(price) ?? 0) > 0 &&
+        (Int(quantity) ?? 0) > 0
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Item Details") {
+                    TextField("Item name", text: $name)
+                    HStack {
+                        Text("$")
+                        TextField("0.00", text: $price)
+                            .keyboardType(.decimalPad)
+                    }
+                    Stepper(
+                        value: Binding(
+                            get: { Int(quantity) ?? 1 },
+                            set: { quantity = "\($0)" }
+                        ),
+                        in: 1...999
+                    ) {
+                        HStack {
+                            Text("Quantity")
+                            Spacer()
+                            Text(quantity).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Add Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Add") {
+                        onAdd(
+                            ModernExtractedItem(
+                                id: UUID().uuidString,
+                                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                price: Double(price) ?? 0,
+                                quantity: Int(quantity) ?? 1,
+                                confidence: .high
+                            )
+                        )
+                    }
+                    .disabled(!isValid)
+                }
+            }
+        }
+    }
+}
+
+private struct ModernReceiptPreviewSheet: View {
+    let imageUrl: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.white.opacity(0.2))
+                            .clipShape(Circle())
+                    }
+                    .padding()
+                }
+
+                AsyncImage(url: URL(string: imageUrl)) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                } placeholder: {
+                    ProgressView().tint(.white)
+                }
+                .padding(.horizontal, 16)
+
+                Spacer()
+            }
         }
     }
 }
@@ -5972,519 +7408,255 @@ struct ExtractedItemsReviewView: View {
     let receiptUploadId: UUID
     let participants: [ShoppingSessionParticipant]
     let appState: AppState
-
+    
     @Environment(\.dismiss) private var dismiss
-
+    
     @State private var extractedItems: [EditableExtractedItem] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var isConfirming = false
-    @State private var editingId: UUID?
-    @State private var editForm = EditForm(name: "", price: "", quantity: "")
-    @State private var showReceiptPreview = false
-    @State private var receiptPreviewURL: URL?
-    @State private var hasLoadedItems = false
-    @State private var isLoadingItems = false
-    @State private var extractionTask: Task<Void, Never>?
-    @State private var hasLoadedPreviewURL = false
-    @State private var isLoadingPreviewURL = false
-
-    private var totalAmount: Double {
-        extractedItems.reduce(0) { $0 + $1.totalPrice }
-    }
-
-    private var totalItems: Int {
-        extractedItems.reduce(0) { $0 + $1.quantity }
-    }
-
+    @State private var hasLoaded = false
+    
     var body: some View {
-        ZStack(alignment: .bottom) {
-            if isLoading {
-                ProgressView("Extracting items from receipt...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = error, extractedItems.isEmpty {
-                errorView(error)
-            } else {
-                contentView
-            }
-
-            confirmBar
-        }
-        .background(Color.gray50)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .foregroundColor(.gray900)
+        NavigationStack {
+            ZStack {
+                Color.gray50.ignoresSafeArea()
+                
+                if isLoading {
+                    ProgressView("Extracting items from receipt...")
+                        .padding()
+                } else if let error = error {
+                    errorView(error)
+                } else if extractedItems.isEmpty {
+                    emptyView
+                } else {
+                    itemsList
                 }
             }
-            ToolbarItem(placement: .principal) {
-                Text("Review Items")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.gray900)
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showReceiptPreview = true }) {
-                    Image(systemName: "photo")
-                        .foregroundColor(.blue600)
+            .navigationTitle("Review Extracted Items")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
                 }
-                .disabled(receiptPreviewURL == nil)
-            }
-        }
-        .sheet(isPresented: $showReceiptPreview) {
-            if let receiptPreviewURL = receiptPreviewURL {
-                ReceiptImagePreviewSheet(url: receiptPreviewURL)
+                if !extractedItems.isEmpty {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Confirm") {
+                            confirmItems()
+                        }
+                        .disabled(isConfirming || !hasSelectedItems)
+                    }
+                }
             }
         }
         .task(id: receiptUploadId) {
-            startExtractionIfNeeded()
-            await loadReceiptPreviewURL()
+            // SwiftUI manages task lifecycle automatically
+            // Task only runs once per unique receiptUploadId
+            // Cancellation is handled gracefully in loadExtractedItems()
+            print("[ExtractedItemsReviewView] .task starting for receipt: \(receiptUploadId)")
+            await loadExtractedItems()
         }
     }
-
-    private var contentView: some View {
-        VStack(spacing: 0) {
-            summaryCard
-
-            ScrollView {
-                VStack(spacing: 12) {
-                    if extractedItems.isEmpty {
-                        emptyStateView
-                    } else {
-                        ForEach(Array(extractedItems.enumerated()), id: \.element.id) { index, item in
-                            itemCard(item: item, index: index + 1)
-                        }
-                    }
-
-                    addItemButton
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 112)
-            }
-        }
-    }
-
-    private var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Total Amount")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.white.opacity(0.9))
-                    Text(String(format: "$%.2f", totalAmount))
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("Items")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.white.opacity(0.9))
-                    Text("\(totalItems)")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-            }
-
-            Text("Review and edit the items extracted from your receipt. Items with lower confidence may need verification.")
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.9))
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.2))
-                .cornerRadius(12)
-        }
-        .padding(24)
-        .background(
-            LinearGradient(
-                colors: [Color.blue600, Color.blue700],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-    }
-
-    private func itemCard(item: EditableExtractedItem, index: Int) -> some View {
-        VStack(spacing: 0) {
-            if editingId == item.id {
-                editMode(item: item)
-            } else {
-                viewMode(item: item, index: index)
-            }
-        }
-        .background(Color.white)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.04), radius: 2, x: 0, y: 1)
-    }
-
-    private func viewMode(item: EditableExtractedItem, index: Int) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(index)")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.blue600)
-                .frame(width: 32, height: 32)
-                .background(Color.blue200)
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top) {
-                    Text(item.name)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.gray900)
+    
+    private var itemsList: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                HStack {
+                    Text("\(selectedItemsCount) of \(extractedItems.count) items selected")
+                        .font(.subheadline)
+                        .foregroundColor(.gray500)
+                    
                     Spacer()
-                    HStack(spacing: 8) {
-                        Button(action: { beginEdit(item) }) {
-                            Image(systemName: "pencil")
-                                .foregroundColor(.blue600)
+                    
+                    Button(allSelected ? "Clear All" : "Select All") {
+                        toggleAllSelections()
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.blue600)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                
+                VStack(spacing: 0) {
+                    ForEach($extractedItems) { $item in
+                        ExtractedItemRow(item: $item)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 20)
+                        
+                        if item.id != extractedItems.last?.id {
+                            Divider()
+                                .padding(.leading, 76)
+                                .padding(.trailing, 18)
                         }
-                        .accessibilityLabel("Edit item")
-
-                        Button(action: { deleteItem(item.id) }) {
-                            Image(systemName: "trash")
-                                .foregroundColor(.red)
-                        }
-                        .accessibilityLabel("Delete item")
                     }
                 }
-
-                HStack(spacing: 4) {
-                    Text(String(format: "$%.2f × %d", item.price, item.quantity))
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray600)
-                    Text("•")
-                        .foregroundColor(.gray400)
-                    Text(String(format: "$%.2f", item.totalPrice))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.gray900)
-                }
-
-                confidenceBadge(item.confidence)
+                .background(Color.white)
+                .cornerRadius(24)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color.gray200, lineWidth: 1)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
             }
         }
-        .padding(16)
     }
-
-    private func editMode(item: EditableExtractedItem) -> some View {
-        VStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Item Name")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.gray600)
-                TextField("Item name", text: $editForm.name)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Price")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.gray600)
-                    HStack {
-                        Text("$").foregroundColor(.gray500)
-                        TextField("0.00", text: $editForm.price)
-                            .keyboardType(.decimalPad)
-                    }
-                    .padding(8)
-                    .background(Color.gray100)
-                    .cornerRadius(8)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Quantity")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.gray600)
-                    TextField("1", text: $editForm.quantity)
-                        .keyboardType(.numberPad)
-                        .padding(8)
-                        .background(Color.gray100)
-                        .cornerRadius(8)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Button(action: { saveEdit(item.id) }) {
-                    Label("Save", systemImage: "checkmark")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 40)
-                        .foregroundColor(.white)
-                        .background(Color.blue600)
-                        .cornerRadius(8)
-                }
-
-                Button(action: cancelEdit) {
-                    Label("Cancel", systemImage: "xmark")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 40)
-                        .foregroundColor(.gray800)
-                        .background(Color.gray100)
-                        .cornerRadius(8)
-                }
-            }
-        }
-        .padding(16)
-    }
-
-    private func confidenceBadge(_ confidence: Double?) -> some View {
-        let level = ExtractedConfidenceLevel.from(confidence: confidence)
-        return HStack(spacing: 4) {
-            if level == .low {
-                Text("⚠")
-                    .font(.system(size: 10))
-            }
-            Text("\(level.displayName) confidence")
-                .font(.system(size: 12, weight: .medium))
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(level.backgroundColor)
-        .foregroundColor(level.textColor)
-        .cornerRadius(12)
-    }
-
-    private var addItemButton: some View {
-        Button(action: addItem) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .medium))
-                Text("Add Item")
-                    .font(.system(size: 16, weight: .medium))
-            }
-            .foregroundColor(.gray600)
-            .frame(maxWidth: .infinity)
-            .frame(height: 60)
-            .background(Color.white)
-            .cornerRadius(16)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                    .foregroundColor(Color.gray300)
-            )
-        }
-    }
-
-    private var confirmBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            Button(action: confirmItems) {
-                HStack(spacing: 8) {
-                    if isConfirming {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    Text("Confirm \(extractedItems.count) \(extractedItems.count == 1 ? "Item" : "Items") (\(String(format: "$%.2f", totalAmount)))")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(extractedItems.isEmpty || isConfirming ? Color.gray : Color.blue600)
-                .cornerRadius(12)
-            }
-            .disabled(extractedItems.isEmpty || isConfirming)
-            .padding(16)
-            .background(Color.white)
-        }
-    }
-
-    private var emptyStateView: some View {
-        VStack(spacing: 8) {
+    
+    private var emptyView: some View {
+        VStack(spacing: 16) {
             Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 40))
-                .foregroundColor(.gray400)
-            Text("No items found")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.gray700)
-            Text("Add items manually")
-                .font(.system(size: 13))
-                .foregroundColor(.gray500)
+                .font(.system(size: 60))
+                .foregroundColor(.secondary)
+            
+            Text("No Items Found")
+                .font(.headline)
+            
+            Text("The OCR couldn't extract any items from this receipt. You can add items manually.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+            
+            Button("Close") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
         }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .background(Color.white)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
+        .padding()
     }
-
+    
     private func errorView(_ message: String) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 60))
                 .foregroundColor(.red)
+            
             Text("Extraction Failed")
                 .font(.headline)
+            
             Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-            Button("Close") { dismiss() }
-                .buttonStyle(.bordered)
+            
+            Button("Close") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
         }
         .padding()
     }
-
-    private func beginEdit(_ item: EditableExtractedItem) {
-        editingId = item.id
-        editForm = EditForm(
-            name: item.name,
-            price: String(format: "%.2f", item.price),
-            quantity: "\(item.quantity)"
-        )
+    
+    private var hasSelectedItems: Bool {
+        extractedItems.contains { $0.isIncluded }
     }
-
-    private func saveEdit(_ id: UUID) {
-        let trimmedName = editForm.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let price = max(0, Double(editForm.price) ?? 0)
-        let quantity = max(1, Int(editForm.quantity) ?? 1)
-
-        extractedItems = extractedItems.map { item in
-            guard item.id == id else { return item }
-            var updated = item
-            updated.name = trimmedName.isEmpty ? "Unnamed Item" : trimmedName
-            updated.price = price
-            updated.quantity = quantity
-            return updated
-        }
-        cancelEdit()
+    
+    private var selectedItemsCount: Int {
+        extractedItems.filter { $0.isIncluded }.count
     }
-
-    private func cancelEdit() {
-        editingId = nil
-        editForm = EditForm(name: "", price: "", quantity: "")
+    
+    private var allSelected: Bool {
+        !extractedItems.isEmpty && extractedItems.allSatisfy { $0.isIncluded }
     }
-
-    private func deleteItem(_ id: UUID) {
-        extractedItems.removeAll { $0.id == id }
-        if editingId == id {
-            cancelEdit()
+    
+    private func toggleAllSelections() {
+        let shouldSelectAll = !allSelected
+        for index in extractedItems.indices {
+            extractedItems[index].isIncluded = shouldSelectAll
         }
     }
-
-    private func addItem() {
-        let newItem = EditableExtractedItem(
-            id: UUID(),
-            name: "New Item",
-            price: 0,
-            quantity: 1,
-            confidence: 0.95
-        )
-        extractedItems.append(newItem)
-        beginEdit(newItem)
-    }
-
-    private func loadReceiptPreviewURL() async {
-        guard !hasLoadedPreviewURL, !isLoadingPreviewURL else { return }
-        isLoadingPreviewURL = true
-        do {
-            let urlString = try await appState.getReceiptDownloadURL(receiptUploadId: receiptUploadId)
-            await MainActor.run {
-                receiptPreviewURL = URL(string: urlString)
-                hasLoadedPreviewURL = true
-                isLoadingPreviewURL = false
-            }
-        } catch {
-            // Optional feature; keep screen usable even if preview fails.
-            await MainActor.run {
-                isLoadingPreviewURL = false
-            }
+    
+    private func loadExtractedItems() async {
+        print("[ExtractedItemsReviewView] loadExtractedItems() called for receipt: \(receiptUploadId)")
+        
+        // Prevent duplicate extractions ONLY if successfully loaded
+        guard !hasLoaded else {
+            print("[ExtractedItemsReviewView] ⚠️ Already loaded, skipping")
+            return
         }
-    }
-
-    private func startExtractionIfNeeded() {
-        guard !hasLoadedItems, extractionTask == nil else { return }
-
-        isLoadingItems = true
+        
+        print("[ExtractedItemsReviewView] Starting extraction...")
         isLoading = true
         error = nil
-
-        extractionTask = Task {
-            do {
-                let items = try await appState.extractReceiptItems(receiptUploadId: receiptUploadId)
-                let mapped = items.map { item in
-                    let qty = max(1, item.quantity)
-                    let unitPriceCents = item.unitPriceCents ?? (qty > 0 ? item.totalCents / qty : item.totalCents)
-                    return EditableExtractedItem(
-                        id: item.id,
-                        name: item.name,
-                        price: Double(unitPriceCents) / 100.0,
-                        quantity: qty,
-                        confidence: item.confidence
-                    )
-                }
-
-                await MainActor.run {
-                    extractedItems = mapped
-                    hasLoadedItems = true
-                    isLoading = false
-                    isLoadingItems = false
-                    extractionTask = nil
-                }
-            } catch is CancellationError {
-                await MainActor.run {
-                    isLoading = false
-                    isLoadingItems = false
-                    extractionTask = nil
-                }
-            } catch let urlError as URLError where urlError.code == .cancelled {
-                await MainActor.run {
-                    isLoading = false
-                    isLoadingItems = false
-                    extractionTask = nil
-                }
-            } catch let apiError as APIError {
-                await MainActor.run {
-                    switch apiError {
-                    case .serverError(let status, let message) where status == 403:
-                        error = "Only the payer can extract items from receipts. \(message ?? "")"
-                    case .unauthorized:
-                        error = "You are not authorized. Please log in again."
-                    default:
-                        error = "Failed to extract items: \(apiError.localizedDescription)"
-                    }
-                    isLoading = false
-                    isLoadingItems = false
-                    extractionTask = nil
-                }
-            } catch {
-                await MainActor.run {
-                    self.error = "Failed to extract items: \(error.localizedDescription)"
-                    isLoading = false
-                    isLoadingItems = false
-                    extractionTask = nil
-                }
+        
+        do {
+            // Call the extract-items endpoint (idempotent)
+            print("[ExtractedItemsReviewView] Calling appState.extractReceiptItems...")
+            let items = try await appState.extractReceiptItems(receiptUploadId: receiptUploadId)
+            print("[ExtractedItemsReviewView] Got \(items.count) items")
+            
+            // Check for cancellation before updating state
+            try Task.checkCancellation()
+            
+            extractedItems = items.map { item in
+                EditableExtractedItem(
+                    id: item.id,
+                    name: sanitizeReceiptItemName(item.name),
+                    quantity: item.quantity,
+                    unitPriceCents: item.unitPriceCents,
+                    totalCents: item.totalCents,
+                    confidence: item.confidence,
+                    rawLine: item.rawLine,
+                    isIncluded: true  // Include all by default
+                )
             }
+            
+            // ✅ Only mark as loaded AFTER successful completion
+            hasLoaded = true
+            isLoading = false
+            print("[ExtractedItemsReviewView] ✅ Successfully loaded \(items.count) items")
+            
+        } catch is CancellationError {
+            // Task was cancelled - allow retry by keeping hasLoaded = false
+            print("[ExtractedItemsReviewView] ⚠️ Task cancelled, allowing retry")
+            isLoading = false
+            hasLoaded = false  // Allow retry!
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // Network request was cancelled - allow retry
+            print("[ExtractedItemsReviewView] ⚠️ URLError cancelled, allowing retry")
+            isLoading = false
+            hasLoaded = false  // Allow retry!
+            return
+        } catch let apiError as APIError {
+            // Handle specific API errors
+            switch apiError {
+            case .serverError(let status, let message) where status == 403:
+                self.error = "Only the payer can extract items from receipts. \(message ?? "")"
+            case .unauthorized:
+                self.error = "You are not authorized. Please log in again."
+            default:
+                self.error = "Failed to extract items: \(apiError.localizedDescription)"
+            }
+            isLoading = false
+        } catch {
+            self.error = "Failed to extract items: \(error.localizedDescription)"
+            isLoading = false
         }
     }
-
+    
     private func confirmItems() {
         isConfirming = true
-
+        
         Task {
             do {
+                // Get participant membership IDs for auto-setting sharers
                 let participantIds = participants.map { $0.membershipId }
-
-                for item in extractedItems {
-                    let totalCents = Int((item.totalPrice * 100).rounded())
+                
+                // Create shopping items for selected extracted items
+                for item in extractedItems where item.isIncluded {
                     let createdItem = try await appState.createShoppingItem(
                         sessionId: sessionId,
                         groupId: groupId,
-                        name: item.name,
-                        quantity: max(1, item.quantity),
-                        totalCents: totalCents
+                        name: sanitizeReceiptItemName(item.name),
+                        quantity: item.quantity,
+                        totalCents: item.totalCents
                     )
-
+                    
+                    // Auto-set sharers if there are participants
                     if !participantIds.isEmpty {
                         _ = try await appState.setItemSharers(
                             itemId: createdItem.id,
@@ -6494,7 +7666,8 @@ struct ExtractedItemsReviewView: View {
                         )
                     }
                 }
-
+                
+                // Dismiss the view
                 await MainActor.run {
                     isConfirming = false
                     dismiss()
@@ -6509,104 +7682,82 @@ struct ExtractedItemsReviewView: View {
     }
 }
 
-private struct EditForm {
-    var name: String
-    var price: String
-    var quantity: String
-}
+// MARK: - Editable Extracted Item
 
 private struct EditableExtractedItem: Identifiable {
     let id: UUID
     var name: String
-    var price: Double
     var quantity: Int
-    var confidence: Double?
-
-    var totalPrice: Double {
-        price * Double(quantity)
-    }
+    var unitPriceCents: Int?
+    var totalCents: Int
+    let confidence: Double?
+    let rawLine: String?
+    var isIncluded: Bool
 }
 
-private enum ExtractedConfidenceLevel {
-    case high
-    case medium
-    case low
+// MARK: - Extracted Item Row
 
-    static func from(confidence: Double?) -> ExtractedConfidenceLevel {
-        guard let confidence = confidence else { return .medium }
-        if confidence >= 0.8 { return .high }
-        if confidence >= 0.5 { return .medium }
-        return .low
-    }
-
-    var displayName: String {
-        switch self {
-        case .high: return "High"
-        case .medium: return "Medium"
-        case .low: return "Low"
-        }
-    }
-
-    var backgroundColor: Color {
-        switch self {
-        case .high: return .green.opacity(0.15)
-        case .medium: return .yellow.opacity(0.15)
-        case .low: return .orange.opacity(0.15)
-        }
-    }
-
-    var textColor: Color {
-        switch self {
-        case .high: return .green.opacity(0.9)
-        case .medium: return .yellow.opacity(0.9)
-        case .low: return .orange.opacity(0.9)
-        }
-    }
-}
-
-private struct ReceiptImagePreviewSheet: View {
-    let url: URL
-    @Environment(\.dismiss) private var dismiss
-
+private struct ExtractedItemRow: View {
+    @Binding var item: EditableExtractedItem
+    
     var body: some View {
-        NavigationView {
-            ZStack {
-                Color.black.ignoresSafeArea()
-
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView().tint(.white)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .padding()
-                    case .failure:
-                        VStack(spacing: 12) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 28))
-                                .foregroundColor(.gray)
-                            Text("Failed to load receipt image")
-                                .foregroundColor(.gray)
+        Button {
+            item.isIncluded.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: item.isIncluded ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundColor(item.isIncluded ? .blue600 : .gray400)
+                
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(item.name)
+                        .font(.body)
+                        .strikethrough(!item.isIncluded)
+                        .foregroundColor(item.isIncluded ? .gray900 : .gray400)
+                        .lineLimit(1)
+                    
+                    HStack(spacing: 14) {
+                        Text("Qty: \(item.quantity)")
+                            .font(.caption)
+                            .foregroundColor(item.isIncluded ? .gray500 : .gray400)
+                        
+                        if let confidence = item.confidence {
+                            confidenceBadge(confidence)
                         }
-                    @unknown default:
-                        EmptyView()
                     }
                 }
+                
+                Spacer()
+                
+                Text(formatCents(item.totalCents))
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(item.isIncluded ? .gray900 : .gray400)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .foregroundColor(.white)
-                }
-            }
-            .toolbarBackground(Color.black.opacity(0.9), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
+        .buttonStyle(.plain)
+    }
+    
+    private func confidenceBadge(_ confidence: Double) -> some View {
+        let color: Color = {
+            if confidence >= 0.8 { return .green }
+            else if confidence >= 0.5 { return .orange }
+            else { return .red }
+        }()
+        
+        let percentage = Int(confidence * 100)
+        
+        return Text("\(percentage)%")
+            .font(.caption2.weight(.semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color)
+            .cornerRadius(6)
+    }
+    
+    private func formatCents(_ cents: Int) -> String {
+        let dollars = Double(cents) / 100.0
+        return String(format: "$%.2f", dollars)
     }
 }
 

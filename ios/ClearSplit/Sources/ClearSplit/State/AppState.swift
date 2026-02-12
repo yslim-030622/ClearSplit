@@ -65,8 +65,9 @@ final class AppState: ObservableObject {
         let totalCents = Int((priceDouble * Double(quantity) * 100.0).rounded())
         let request = ShoppingItemCreate(
             name: trimmedName,
-            priceCents: totalCents,
-            quantity: quantity
+            quantity: quantity,
+            unitPriceCents: nil,
+            totalCents: totalCents
         )
 
         _ = try await shoppingService.createItem(sessionId: sessionId, request: request)
