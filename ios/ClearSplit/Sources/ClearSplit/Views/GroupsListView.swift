@@ -119,7 +119,7 @@ struct GroupsListView: View {
         .task {
             await viewModel.load()
         }
-        .navigationDestination(for: CSGroup.self) { group in
+        .navigationDestination(for: Group.self) { group in
             GroupDetailView(appState: appState, group: group)
         }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
@@ -132,22 +132,28 @@ struct GroupsListView: View {
 }
 
 struct GroupCard: View {
-    let group: CSGroup
+    let group: Group
     let appState: AppState
     @State private var isPressed = false
-    
-    // TODO: These should come from the API or be calculated
-    // For now, using placeholder values
+
     private var memberCount: Int {
-        // This should be fetched from the API or calculated
-        // For now, return a placeholder
-        return 4 // Placeholder
+        appState.membershipsByGroupId[group.id]?.count ?? 0
     }
     
     private var userBalance: Decimal {
-        // This should come from the API or be calculated from settlements
-        // For now, return 0 (settled)
-        return 0 // Placeholder - will need to fetch from balance/settlement API
+        guard let myMembershipId = appState.getUserMembership(in: group.id)?.id else {
+            return 0
+        }
+
+        let settlements = appState.settlements(for: group.id)
+        return settlements.reduce(into: Decimal.zero) { total, settlement in
+            let amount = Decimal(settlement.amountCents) / 100
+            if settlement.fromMembership == myMembershipId {
+                total -= amount
+            } else if settlement.toMembership == myMembershipId {
+                total += amount
+            }
+        }
     }
     
     private var isSettled: Bool {
@@ -167,11 +173,11 @@ struct GroupCard: View {
                     
                     HStack(spacing: 4) {
                         Image(systemName: "person.2")
+                            .renderingMode(.template)
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(Color(hex: "6B7280"))
-                            .renderingMode(.template)
                         
-                        Text("\(memberCount) \(memberCount == 1 ? "member" : "members")")
+                        Text(memberLabel)
                             .font(.system(size: 14, weight: .regular))
                             .foregroundColor(Color(hex: "4B5563"))
                     }
@@ -242,6 +248,13 @@ struct GroupCard: View {
     private var balanceColor: Color {
         userBalance > 0 ? Color(hex: "16A34A") : Color(hex: "DC2626")
     }
+
+    private var memberLabel: String {
+        if memberCount == 0 {
+            return "members"
+        }
+        return "\(memberCount) \(memberCount == 1 ? "member" : "members")"
+    }
 }
 
 struct GroupCardSkeleton: View {
@@ -279,4 +292,3 @@ struct GroupCardSkeleton: View {
         .cornerRadius(12)
     }
 }
-

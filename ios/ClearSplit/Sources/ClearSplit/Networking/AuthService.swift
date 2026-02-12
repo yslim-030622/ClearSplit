@@ -4,7 +4,13 @@ protocol AuthServicing {
     func login(identifier: String, password: String) async throws -> (AuthTokens, User)
     func refresh() async throws -> AuthTokens
     func me() async throws -> User
-    func signup(email: String, password: String) async throws -> AuthTokens
+    func signup(
+        username: String,
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String
+    ) async throws -> (AuthTokens, User)
 }
 
 final class AuthService: AuthServicing {
@@ -24,37 +30,62 @@ final class AuthService: AuthServicing {
         let response: TokenResponse = try await client.request(request)
         let tokens = AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken, tokenType: response.tokenType)
         await client.store(tokens: tokens)
-        return (tokens, response.user)
+        // Support both response shapes:
+        // 1) login returns tokens + user
+        // 2) login returns tokens only, then fetch user via /auth/me
+        if let user = response.user {
+            return (tokens, user)
+        }
+        let user = try await me()
+        return (tokens, user)
     }
 
     func refresh() async throws -> AuthTokens {
         guard let tokens = await client.currentTokens() else { throw APIError.unauthorized }
-        let newTokens: TokenResponse = try await client.request(
-            APIRequest<TokenResponse>(
+        let newTokens: RefreshTokenResponse = try await client.request(
+            APIRequest<RefreshTokenResponse>(
                 path: "auth/refresh",
                 method: "POST",
                 body: RefreshRequest(refreshToken: tokens.refreshToken),
                 requiresAuth: false
             )
         )
-        let refreshed = AuthTokens(accessToken: newTokens.accessToken, refreshToken: newTokens.refreshToken, tokenType: newTokens.tokenType)
+        let refreshed = AuthTokens(
+            accessToken: newTokens.accessToken,
+            refreshToken: newTokens.refreshToken ?? tokens.refreshToken,
+            tokenType: newTokens.tokenType
+        )
         await client.store(tokens: refreshed)
         return refreshed
     }
 
-    func signup(email: String, password: String) async throws -> AuthTokens {
-        // Create account
+    func signup(
+        username: String,
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String
+    ) async throws -> (AuthTokens, User) {
         let signupRequest = APIRequest<TokenResponse>(
             path: "auth/signup",
             method: "POST",
-            body: LoginRequest(identifier: email, password: password),
+            body: SignupRequest(
+                username: username,
+                email: email,
+                password: password,
+                firstName: firstName,
+                lastName: lastName
+            ),
             requiresAuth: false
         )
-        let _: TokenResponse = try await client.request(signupRequest)
-
-        // Auto-login after signup
-        let tokens = try await login(identifier: email, password: password).0
-        return tokens
+        let response: TokenResponse = try await client.request(signupRequest)
+        let tokens = AuthTokens(accessToken: response.accessToken, refreshToken: response.refreshToken, tokenType: response.tokenType)
+        await client.store(tokens: tokens)
+        if let user = response.user {
+            return (tokens, user)
+        }
+        let user = try await me()
+        return (tokens, user)
     }
 
     func me() async throws -> User {
