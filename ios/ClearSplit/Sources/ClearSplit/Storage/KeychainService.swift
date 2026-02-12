@@ -1,11 +1,6 @@
 import Foundation
 import Security
 
-public struct AuthTokens: Codable, Equatable {
-    public let accessToken: String
-    public let refreshToken: String
-}
-
 public protocol TokenStoring {
     func loadTokens() -> AuthTokens?
     func save(tokens: AuthTokens) throws

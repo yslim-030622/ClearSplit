@@ -1,14 +1,5 @@
 import SwiftUI
 
-// Custom button style for press feedback
-struct ScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
-            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
-    }
-}
-
 struct ShoppingSessionsListView: View {
     @StateObject private var viewModel: ShoppingSessionsViewModel
     @State private var showingCreateSession = false
@@ -113,7 +104,7 @@ struct ShoppingSessionsListView: View {
         .task {
             await viewModel.load()
         }
-        .onChange(of: viewModel.errorMessage) { oldValue, newValue in
+        .onChange(of: viewModel.errorMessage) { newValue in
             showingError = newValue != nil
         }
         .sheet(isPresented: $showingCreateSession) {
@@ -208,7 +199,7 @@ struct ShoppingSessionCard: View {
                             Image(systemName: "calendar")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundColor(Color(hex: "6B7280"))
-                            Text(date, style: .date)
+                            Text(date)
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(Color(hex: "6B7280"))
                         }
