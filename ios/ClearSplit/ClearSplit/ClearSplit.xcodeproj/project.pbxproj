@@ -23,6 +23,10 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXBuildFile section */
+		C0449FCAEEE94379BB8484D0 /* ClearSplit in Frameworks */ = {isa = PBXBuildFile; productRef = B4C8BEE66EDD47089CA4C0B6 /* ClearSplit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		BCD729672EF4A86E008BFD5E /* ClearSplit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClearSplit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BCD729742EF4A86F008BFD5E /* ClearSplitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClearSplitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0449FCAEEE94379BB8484D0 /* ClearSplit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = ClearSplit;
 			packageProductDependencies = (
+				B4C8BEE66EDD47089CA4C0B6 /* ClearSplitCore */,
 			);
 			productName = ClearSplit;
 			productReference = BCD729672EF4A86E008BFD5E /* ClearSplit.app */;
@@ -204,6 +210,9 @@
 				BCD729732EF4A86F008BFD5E /* ClearSplitTests */,
 				BCD7297D2EF4A86F008BFD5E /* ClearSplitUITests */,
 			);
+			packageReferences = (
+				B102210EE6E34AACAF35D1FF /* ClearSplitCore */,
+			);
 		};
 /* End PBXProject section */
 
@@ -267,6 +276,21 @@
 			targetProxy = BCD7297F2EF4A86F008BFD5E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B102210EE6E34AACAF35D1FF /* ClearSplitCore */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B4C8BEE66EDD47089CA4C0B6 /* ClearSplitCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B102210EE6E34AACAF35D1FF /* ClearSplitCore */;
+			productName = ClearSplitCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		BCD729862EF4A86F008BFD5E /* Debug */ = {

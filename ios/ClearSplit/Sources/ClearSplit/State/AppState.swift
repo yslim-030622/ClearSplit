@@ -7,7 +7,7 @@ enum AppStateError: Error {
 }
 
 @MainActor
-final class AppState: ObservableObject {
+public final class AppState: ObservableObject {
     // MARK: - Published state
     @Published var user: User?
     @Published var isLoading = false
@@ -40,6 +40,11 @@ final class AppState: ObservableObject {
         self.shoppingService = shoppingService ?? ShoppingService(client: apiClient)
     }
 
+    // Public convenience initializer for app target; keeps designated initializer internal.
+    public convenience init() {
+        self.init(apiClient: APIClient())
+    }
+
     // MARK: - Session lifecycle
     func bootstrap() async {
         guard await apiClient.currentTokens() != nil else {
@@ -50,11 +55,20 @@ final class AppState: ObservableObject {
         defer { isLoading = false }
         do {
             user = try await authService.me()
-            try await loadGroups()
         } catch {
             authError = "Session expired"
             user = nil
             await apiClient.clearTokens()
+            return
+        }
+
+        do {
+            try await loadGroups()
+        } catch {
+            // Keep authenticated session even if groups endpoint is temporarily unavailable.
+            groups = []
+            authError = "Logged in, but failed to load groups."
+            print("⚠️ Failed to load groups during bootstrap: \(error)")
         }
     }
 
@@ -68,16 +82,41 @@ final class AppState: ObservableObject {
         let (tokens, me) = try await authService.login(identifier: identifier, password: password)
         await apiClient.store(tokens: tokens)
         user = me
-        try await loadGroups()
+        do {
+            try await loadGroups()
+        } catch {
+            // Authentication succeeded; do not fail login for secondary data fetches.
+            groups = []
+            authError = "Logged in, but failed to load groups."
+            print("⚠️ Failed to load groups after login: \(error)")
+        }
     }
 
-    func signup(email: String, password: String) async throws {
+    func signup(
+        username: String,
+        email: String,
+        password: String,
+        firstName: String,
+        lastName: String
+    ) async throws {
         isLoading = true
         defer { isLoading = false }
-        let tokens = try await authService.signup(email: email, password: password)
+        let (tokens, me) = try await authService.signup(
+            username: username,
+            email: email,
+            password: password,
+            firstName: firstName,
+            lastName: lastName
+        )
         await apiClient.store(tokens: tokens)
-        user = try await authService.me()
-        try await loadGroups()
+        user = me
+        do {
+            try await loadGroups()
+        } catch {
+            groups = []
+            authError = "Account created, but failed to load groups."
+            print("⚠️ Failed to load groups after signup: \(error)")
+        }
     }
 
     func logout() async {

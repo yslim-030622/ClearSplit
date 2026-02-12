@@ -118,7 +118,15 @@ struct ShoppingSessionDetailView: View {
                     }
                 }
             } else {
-                ContentUnavailableView("Session Not Found", systemImage: "exclamationmark.triangle")
+                VStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.orange)
+                    Text("Session Not Found")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationBarTitleDisplayMode(.inline)

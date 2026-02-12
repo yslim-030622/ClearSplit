@@ -2,6 +2,9 @@ import Foundation
 
 @MainActor
 final class SignUpViewModel: ObservableObject {
+    @Published var firstName: String = ""
+    @Published var lastName: String = ""
+    @Published var username: String = ""
     @Published var email: String = ""
     @Published var password: String = ""
     @Published var confirmPassword: String = ""
@@ -15,22 +18,49 @@ final class SignUpViewModel: ObservableObject {
         self.appState = appState
     }
 
-    func signup() async {
-        guard validate() else { return }
+    func signup() async -> Bool {
+        guard validate() else { return false }
         isLoading = true
         do {
-            let _ = try await appState.authService.signup(email: email, password: password)
-            // Fetch user info after signup/login
-            let user = try await appState.authService.me()
-            appState.user = user
+            try await appState.signup(
+                username: username,
+                email: email,
+                password: password,
+                firstName: firstName,
+                lastName: lastName
+            )
             isLoading = false
+            return true
         } catch {
             isLoading = false
             handle(error)
+            return false
         }
     }
 
     private func validate() -> Bool {
+        guard !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            present("First name is required")
+            return false
+        }
+        guard !lastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            present("Last name is required")
+            return false
+        }
+        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedUsername.isEmpty else {
+            present("Username is required")
+            return false
+        }
+        guard trimmedUsername.count >= 3 else {
+            present("Username must be at least 3 characters")
+            return false
+        }
+        let usernameRegex = "^[a-zA-Z0-9_-]+$"
+        guard trimmedUsername.range(of: usernameRegex, options: .regularExpression) != nil else {
+            present("Username can only include letters, numbers, _ and -")
+            return false
+        }
         guard !email.isEmpty else { present("Email is required"); return false }
         guard password.count >= 8 else { present("Password must be at least 8 characters"); return false }
         guard password == confirmPassword else { present("Passwords do not match"); return false }
@@ -42,20 +72,37 @@ final class SignUpViewModel: ObservableObject {
         switch error {
         case APIError.unauthorized:
             present("Signup failed. Please check your information.")
-        case APIError.network, URLError.notConnectedToInternet:
-            present(connectionMessage())
+        case APIError.network(let underlying as URLError):
+            present(connectionMessage(for: underlying))
+        case APIError.network(let underlying):
+            present("Network error: \(underlying.localizedDescription)")
+        case let urlError as URLError:
+            present(connectionMessage(for: urlError))
         case APIError.server(_, let message):
             present(message ?? "Server error.")
         default:
-            present("Cannot connect to server.")
+            present("Sign up failed: \(error.localizedDescription)")
         }
     }
 
-    private func connectionMessage() -> String {
-        if APIConfig.baseURL.host == "localhost" {
-            return "Backend not reachable. If using a real device, use your Mac LAN IP instead of localhost."
+    private func connectionMessage(for urlError: URLError? = nil) -> String {
+        let host = APIConfig.baseURL.host?.lowercased()
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+            return "Cannot connect to server. If using a real device, set API_BASE_URL to your Mac LAN IP (e.g. http://192.168.x.x:8000)."
         }
-        return "Cannot connect to server."
+
+        guard let urlError else {
+            return "Cannot connect to server."
+        }
+
+        switch urlError.code {
+        case .notConnectedToInternet:
+            return "No internet connection."
+        case .cannotFindHost, .cannotConnectToHost, .networkConnectionLost, .timedOut:
+            return "Cannot reach server at \(APIConfig.baseURL.absoluteString)."
+        default:
+            return "Cannot connect to server."
+        }
     }
 
     private func present(_ message: String) {
@@ -63,4 +110,3 @@ final class SignUpViewModel: ObservableObject {
         showAlert = true
     }
 }
-

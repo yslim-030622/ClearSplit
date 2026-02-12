@@ -9,17 +9,19 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "ClearSplit",
-            targets: ["ClearSplit"]
+            name: "ClearSplitCore",
+            targets: ["ClearSplitCore"]
         )
     ],
     targets: [
         .target(
-            name: "ClearSplit"
+            name: "ClearSplitCore",
+            path: "Sources/ClearSplit"
         ),
         .testTarget(
             name: "ClearSplitTests",
-            dependencies: ["ClearSplit"]
+            dependencies: ["ClearSplitCore"],
+            path: "Tests/ClearSplitTests"
         )
     ]
 )

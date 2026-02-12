@@ -1,7 +1,7 @@
 import Foundation
 
 protocol GroupsServicing {
-    func listGroups() async throws -> [CSGroup]
+    func listGroups() async throws -> [Group]
 }
 
 final class GroupsService: GroupsServicing {
@@ -11,7 +11,7 @@ final class GroupsService: GroupsServicing {
         self.client = client
     }
 
-    func listGroups() async throws -> [CSGroup] {
-        try await client.request(APIRequest<[CSGroup]>(path: "groups"))
+    func listGroups() async throws -> [Group] {
+        try await client.request(APIRequest<[Group]>(path: "groups"))
     }
 }

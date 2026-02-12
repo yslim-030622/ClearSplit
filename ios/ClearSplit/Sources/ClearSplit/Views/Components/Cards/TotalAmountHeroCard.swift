@@ -6,6 +6,18 @@ struct TotalAmountHeroCard: View {
     let groupMemberships: [Membership]
     let currentUserId: UUID?
 
+    init(
+        totalCents: Int,
+        paidByMembershipId: UUID,
+        groupMemberships: [Membership] = [],
+        currentUserId: UUID? = nil
+    ) {
+        self.totalCents = totalCents
+        self.paidByMembershipId = paidByMembershipId
+        self.groupMemberships = groupMemberships
+        self.currentUserId = currentUserId
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Label
