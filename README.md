@@ -78,7 +78,19 @@ Backend:
 
 ```bash
 cd backend
-pytest
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-dev.txt
+alembic upgrade head
+
+# PR-equivalent checks
+make ci-pr
+
+# Main-equivalent checks (includes e2e)
+make ci-main
+
+# Full backend suite directly
+pytest -v
 ```
 
 iOS (Fastlane + scripts):
@@ -104,6 +116,20 @@ cd ios/ClearSplit
 ./scripts/ios_test.sh ui
 ./scripts/ios_archive.sh
 ```
+
+## Backend CI/CD Design
+
+Pipeline architecture (GitHub Actions):
+- Stage 1 (PR): lint (`ruff` fatal rules), migration validation, non-e2e tests with coverage and JUnit artifacts.
+- Stage 2 (main): full backend suite (includes `e2e` smoke), then Docker archive build validation.
+
+Why these stages exist:
+- PR checks stay fast and focused on actionable failures.
+- Main checks validate full backend behavior and deployability.
+
+Artifacts and debugging outputs:
+- Backend workflows upload `pytest.log`, `junit.xml`, `coverage.xml`, and `.coverage`.
+- Main build uploads Docker image inspection metadata for traceability.
 
 ## iOS CI/CD Design
 
