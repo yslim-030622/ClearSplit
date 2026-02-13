@@ -1,0 +1,86 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Run iOS lint checks"
+  lane :lint do
+    sh("./scripts/ios_lint.sh")
+  end
+
+  desc "Build the app for simulator"
+  lane :build do
+    sh("./scripts/ios_build.sh")
+  end
+
+  desc "Run unit tests"
+  lane :test_unit do
+    sh("./scripts/ios_test.sh unit")
+  end
+
+  desc "Run UI smoke tests"
+  lane :test_ui do
+    sh("./scripts/ios_test.sh ui")
+  end
+
+  desc "Run full test suite"
+  lane :test_all do
+    sh("./scripts/ios_test.sh all")
+  end
+
+  desc "Validate unsigned release archive generation"
+  lane :archive do
+    sh("./scripts/ios_archive.sh")
+  end
+
+  desc "Run PR-grade checks (lint + build + unit tests)"
+  lane :ci_pr do
+    lint
+    build
+    test_unit
+  end
+
+  desc "Run main-branch checks (lint + build + full tests + archive)"
+  lane :ci_main do
+    lint
+    build
+    test_all
+    archive
+  end
+
+  desc "Bump build number using CI metadata"
+  lane :bump_build_number_ci do
+    build_number = ENV["CI_BUILD_NUMBER"] || ENV["GITHUB_RUN_NUMBER"]
+    UI.user_error!("Set CI_BUILD_NUMBER or GITHUB_RUN_NUMBER") if build_number.to_s.strip.empty?
+
+    increment_build_number(
+      xcodeproj: "ClearSplit/ClearSplit.xcodeproj",
+      build_number: build_number
+    )
+  end
+
+  desc "Optional: Build and upload to TestFlight (requires ASC + signing secrets)"
+  lane :testflight do
+    required_env = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT]
+    missing = required_env.select { |k| ENV[k].to_s.strip.empty? }
+    UI.user_error!("Missing required env vars: #{missing.join(', ')}") unless missing.empty?
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["ASC_KEY_ID"],
+      issuer_id: ENV["ASC_ISSUER_ID"],
+      key_content: ENV["ASC_KEY_CONTENT"],
+      is_key_content_base64: true
+    )
+
+    # Signing materials (cert/profile or match) must already be configured in CI.
+    build_app(
+      project: "ClearSplit/ClearSplit.xcodeproj",
+      scheme: "ClearSplit",
+      clean: true,
+      export_method: "app-store"
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
