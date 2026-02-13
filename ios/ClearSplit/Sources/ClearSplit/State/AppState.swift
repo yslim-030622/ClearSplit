@@ -148,7 +148,19 @@ public final class AppState: ObservableObject {
             method: "POST",
             body: CreateGroupRequest(name: name, currency: currency)
         ))
-        try await loadGroups()
+
+        if let existingIndex = groups.firstIndex(where: { $0.id == group.id }) {
+            groups[existingIndex] = group
+        } else {
+            groups.insert(group, at: 0)
+        }
+
+        // Keep create flow snappy; reconcile canonical ordering/fields in background.
+        Task { [weak self] in
+            guard let self else { return }
+            try? await self.loadGroups()
+        }
+
         return group
     }
 
