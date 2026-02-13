@@ -81,12 +81,47 @@ cd backend
 pytest
 ```
 
-iOS SwiftPM tests:
+iOS (Fastlane + scripts):
 
 ```bash
 cd ios/ClearSplit
-swift test
+bundle install
+
+# PR-equivalent checks
+bundle exec fastlane ios ci_pr
+
+# Full validation (main-equivalent)
+bundle exec fastlane ios ci_main
 ```
+
+You can also run the underlying scripts directly:
+
+```bash
+cd ios/ClearSplit
+./scripts/ios_lint.sh
+./scripts/ios_build.sh
+./scripts/ios_test.sh unit
+./scripts/ios_test.sh ui
+./scripts/ios_archive.sh
+```
+
+## iOS CI/CD Design
+
+Pipeline architecture (GitHub Actions + Fastlane):
+- Stage 1: PR quality gates (`.github/workflows/ios-pr-checks.yml`) run lint, simulator build, and unit tests to keep feedback fast.
+- Stage 2: Main branch validation (`.github/workflows/ios-main-checks.yml`) runs lint, build, unit tests, UI smoke tests, and unsigned archive validation.
+- Stage 3: Optional release delivery (`workflow_dispatch` + `deploy_testflight=true`) runs the TestFlight lane when App Store Connect and signing secrets are configured.
+
+Why these stages exist:
+- PR checks are optimized for speed and signal-to-noise during code review.
+- Main checks add slower release-safety gates (UI tests + archive).
+- TestFlight is separated so release credentials are only used intentionally.
+
+Artifacts and debugging outputs:
+- iOS workflows upload `.xcresult` bundles and build logs from `ios/ClearSplit/.build`.
+- Unit test coverage summary is attached to GitHub job summaries.
+
+See `ios/README.md` for detailed local workflow, branch/PR rules, secrets, and troubleshooting.
 
 ## Documentation
 
