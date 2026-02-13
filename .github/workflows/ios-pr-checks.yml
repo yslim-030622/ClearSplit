@@ -1,0 +1,78 @@
+name: iOS PR Checks
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-pr-checks.yml"
+      - ".github/workflows/ios-main-checks.yml"
+      - ".github/workflows/ci.yml"
+
+concurrency:
+  group: ios-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUNDLE_GEMFILE: ios/ClearSplit/Gemfile
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+
+jobs:
+  lint:
+    name: iOS Lint
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios/ClearSplit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run lint lane
+        run: bundle exec fastlane ios lint
+
+  build-and-unit:
+    name: iOS Build + Unit Tests
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios/ClearSplit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Build lane
+        run: bundle exec fastlane ios build
+
+      - name: Unit test lane
+        run: bundle exec fastlane ios test_unit
