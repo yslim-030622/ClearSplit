@@ -18,9 +18,7 @@ final class GroupsViewModel: ObservableObject {
         defer { isLoading = false }
         do {
             groups = try await appState.groupsService.listGroups()
-            for group in groups {
-                try? await appState.loadBalances(groupId: group.id)
-            }
+            errorMessage = nil
         } catch {
             errorMessage = "Failed to load groups."
         }
