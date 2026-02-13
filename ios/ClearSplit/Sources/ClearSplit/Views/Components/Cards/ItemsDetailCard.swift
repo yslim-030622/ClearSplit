@@ -80,6 +80,7 @@ struct ItemsDetailCard: View {
                 addItemButton
             }
         }
+        .padding(16)
         .sectionStyle()
     }
 

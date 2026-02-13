@@ -124,6 +124,99 @@ async def test_set_session_participants(client: AsyncClient, session: AsyncSessi
 
 
 @pytest.mark.asyncio
+async def test_set_session_participants_resplits_items_and_allows_item_customization(
+    client: AsyncClient, session: AsyncSession
+):
+    """Changing participants re-splits existing items across all participants."""
+    user1 = create_test_user(email="resplit1@example.com", username="resplit1")
+    user2 = create_test_user(email="resplit2@example.com", username="resplit2")
+    user3 = create_test_user(email="resplit3@example.com", username="resplit3")
+    session.add_all([user1, user2, user3])
+    await session.flush()
+
+    group = Group(name="Resplit Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    membership3 = Membership(group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2, membership3])
+    await session.flush()
+
+    access_token = create_access_token(user1.id, user1.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    assert create_session_response.status_code == 201
+    shopping_session_id = create_session_response.json()["id"]
+
+    initial_participants_response = await client.put(
+        f"/shopping-sessions/{shopping_session_id}/participants",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"participant_membership_ids": [str(membership1.id), str(membership2.id)]},
+    )
+    assert initial_participants_response.status_code == 200
+
+    create_item_response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/items",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"name": "Eggs", "total_cents": 1000},
+    )
+    assert create_item_response.status_code == 201
+    item_id = create_item_response.json()["id"]
+
+    custom_sharers_response = await client.put(
+        f"/items/{item_id}/sharers",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"membership_ids": [str(membership1.id)]},
+    )
+    assert custom_sharers_response.status_code == 200
+    assert [row["share_cents"] for row in custom_sharers_response.json()["splits"]] == [1000]
+
+    resplit_response = await client.put(
+        f"/shopping-sessions/{shopping_session_id}/participants",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "participant_membership_ids": [
+                str(membership1.id),
+                str(membership2.id),
+                str(membership3.id),
+            ]
+        },
+    )
+    assert resplit_response.status_code == 200, resplit_response.text
+    resplit_data = resplit_response.json()
+    assert len(resplit_data["participants"]) == 3
+
+    updated_item = next(item for item in resplit_data["items"] if item["id"] == item_id)
+    assert len(updated_item["splits"]) == 3
+    shares = sorted([row["share_cents"] for row in updated_item["splits"]], reverse=True)
+    assert shares == [334, 333, 333]
+    share_members = {row["membership_id"] for row in updated_item["splits"]}
+    assert share_members == {str(membership1.id), str(membership2.id), str(membership3.id)}
+    assert sum(shares) == 1000
+
+    # Users can still customize item sharers later from the item section.
+    customize_again_response = await client.put(
+        f"/items/{item_id}/sharers",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"membership_ids": [str(membership2.id), str(membership3.id)]},
+    )
+    assert customize_again_response.status_code == 200, customize_again_response.text
+    customized_splits = customize_again_response.json()["splits"]
+    assert len(customized_splits) == 2
+    assert sorted([row["share_cents"] for row in customized_splits]) == [500, 500]
+    assert {row["membership_id"] for row in customized_splits} == {
+        str(membership2.id),
+        str(membership3.id),
+    }
+
+
+@pytest.mark.asyncio
 async def test_non_payer_cannot_set_participants(
     client: AsyncClient, session: AsyncSession
 ):
@@ -1062,16 +1155,17 @@ async def test_upload_receipt(client: AsyncClient, session: AsyncSession):
     assert "id" in data
     assert "session_id" in data
     assert data["session_id"] == str(shopping_session_id)
+    assert data["uploaded_by_membership_id"] == str(membership.id)
     assert "storage_key" in data
     assert "content_type" in data
     assert data["content_type"] == "image/jpeg"
 
 
 @pytest.mark.asyncio
-async def test_non_payer_cannot_upload_receipt(
+async def test_non_participant_cannot_upload_receipt(
     client: AsyncClient, session: AsyncSession
 ):
-    """Test that only the payer can upload receipts."""
+    """Test that only session participants can upload receipts."""
     # Create users
     user1 = create_test_user(email="user1@example.com", username="user1")
     user2 = create_test_user(email="user2@example.com", username="user2")
@@ -1106,7 +1200,7 @@ async def test_non_payer_cannot_upload_receipt(
     )
     shopping_session_id = response.json()["id"]
 
-    # User2 tries to upload receipt (should fail)
+    # User2 is a group member but not a session participant; upload should fail.
     access_token2 = create_access_token(user2.id, user2.email)
     receipt_content = b"fake receipt image data"
     receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
@@ -1116,6 +1210,120 @@ async def test_non_payer_cannot_upload_receipt(
         files={"file": receipt_file},
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_participant_can_upload_receipt_and_only_one_receipt_allowed(
+    client: AsyncClient, session: AsyncSession
+):
+    """A participant can upload the first receipt, but second upload is rejected."""
+    user1 = create_test_user(email="payer-upload@example.com", username="payerupload")
+    user2 = create_test_user(email="participant-upload@example.com", username="participantupload")
+    session.add_all([user1, user2])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2])
+    await session.flush()
+
+    payer_token = create_access_token(user1.id, user1.email)
+    participant_token = create_access_token(user2.id, user2.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    assert create_session_response.status_code == 201
+    shopping_session_id = create_session_response.json()["id"]
+
+    set_participants_response = await client.put(
+        f"/shopping-sessions/{shopping_session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"participant_membership_ids": [str(membership1.id), str(membership2.id)]},
+    )
+    assert set_participants_response.status_code == 200
+
+    first_upload = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {participant_token}"},
+        files={"file": ("receipt.jpg", io.BytesIO(b"fake receipt bytes"), "image/jpeg")},
+    )
+    assert first_upload.status_code == 201
+    assert first_upload.json()["uploaded_by_membership_id"] == str(membership2.id)
+
+    second_upload = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        files={"file": ("receipt-2.jpg", io.BytesIO(b"another fake receipt"), "image/jpeg")},
+    )
+    assert second_upload.status_code == 409
+    assert "Only one receipt is allowed" in second_upload.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_only_receipt_uploader_can_delete_receipt(
+    client: AsyncClient, session: AsyncSession
+):
+    """Only the uploader can delete a receipt."""
+    user1 = create_test_user(email="payer-delete@example.com", username="payerdelete")
+    user2 = create_test_user(email="uploader-delete@example.com", username="uploaderdelete")
+    session.add_all([user1, user2])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2])
+    await session.flush()
+
+    payer_token = create_access_token(user1.id, user1.email)
+    uploader_token = create_access_token(user2.id, user2.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    assert create_session_response.status_code == 201
+    shopping_session_id = create_session_response.json()["id"]
+
+    set_participants_response = await client.put(
+        f"/shopping-sessions/{shopping_session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"participant_membership_ids": [str(membership1.id), str(membership2.id)]},
+    )
+    assert set_participants_response.status_code == 200
+
+    upload_response = await client.post(
+        f"/shopping-sessions/{shopping_session_id}/receipt",
+        headers={"Authorization": f"Bearer {uploader_token}"},
+        files={"file": ("receipt.jpg", io.BytesIO(b"fake receipt bytes"), "image/jpeg")},
+    )
+    assert upload_response.status_code == 201
+    receipt_id = upload_response.json()["id"]
+
+    delete_by_non_uploader = await client.delete(
+        f"/receipts/{receipt_id}",
+        headers={"Authorization": f"Bearer {payer_token}"},
+    )
+    assert delete_by_non_uploader.status_code == 403
+    assert "uploader" in delete_by_non_uploader.json()["detail"].lower()
+
+    delete_by_uploader = await client.delete(
+        f"/receipts/{receipt_id}",
+        headers={"Authorization": f"Bearer {uploader_token}"},
+    )
+    assert delete_by_uploader.status_code == 200
+    assert delete_by_uploader.json()["deleted"] is True
 
 
 # ============================================================================
@@ -1225,10 +1433,10 @@ async def test_extract_items_from_receipt_success(
 
 
 @pytest.mark.asyncio
-async def test_extract_items_non_payer_forbidden(
+async def test_extract_items_non_uploader_forbidden(
     client: AsyncClient, session: AsyncSession
 ):
-    """Test that non-payer cannot extract items from receipt."""
+    """Test that non-uploader cannot extract items from receipt."""
     # Create users
     user1 = create_test_user(email="payer@example.com", username="payer")
     user2 = create_test_user(email="member@example.com", username="member")
@@ -1274,15 +1482,15 @@ async def test_extract_items_non_payer_forbidden(
     assert response.status_code == 201
     receipt_id = response.json()["id"]
     
-    # User2 (non-payer) tries to extract items (should fail)
+    # User2 (non-uploader) tries to extract items (should fail)
     access_token2 = create_access_token(user2.id, user2.email)
     response = await client.post(
         f"/receipts/{receipt_id}/extract-items",
         headers={"Authorization": f"Bearer {access_token2}"},
     )
-    
+
     assert response.status_code == 403
-    assert "payer" in response.json()["detail"].lower()
+    assert "uploader" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

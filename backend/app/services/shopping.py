@@ -442,6 +442,10 @@ async def set_session_participants(
 ) -> ShoppingSession:
     """Set/replace participants for a shopping session.
 
+    Any time participants are changed, existing item splits are re-generated
+    equally across the full participant set. Item-level sharers can be edited
+    afterward via the item sharers endpoint.
+
     Args:
         db: Database session
         shopping_session: Shopping session to update
@@ -467,36 +471,12 @@ async def set_session_participants(
             detail="Payer must remain a participant in the session",
         )
 
-    # Validate all participants are members of the group
-    await validate_memberships_in_group(
+    # Validate all participants are members of the group.
+    participants = await validate_memberships_in_group(
         db, shopping_session.group_id, participant_membership_ids
     )
-    
-    # BUSINESS RULE: If session has items with sharers, validate that new participants
-    # include all current sharers (otherwise sharers would be orphaned)
-    if shopping_session.items:
-        from app.models.shopping_item_split import ShoppingItemSplit
-        # Get all unique sharer membership IDs from existing items
-        current_sharers = set()
-        for item in shopping_session.items:
-            result = await db.execute(
-                select(ShoppingItemSplit.membership_id).where(
-                    ShoppingItemSplit.item_id == item.id
-                )
-            )
-            sharers = result.scalars().all()
-            current_sharers.update(sharers)
-        
-        # Check if new participants include all current sharers
-        new_participants_set = set(participant_membership_ids)
-        missing_sharers = current_sharers - new_participants_set
-        
-        if missing_sharers:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot remove participants who are sharers in existing items. "
-                       f"Remove or update item sharers first. Missing: {missing_sharers}",
-            )
+
+    participant_ids = [membership.id for membership in participants]
 
     # Remove existing participants
     result = await db.execute(
@@ -509,13 +489,36 @@ async def set_session_participants(
         await db.delete(participant)
     await db.flush()
 
-    # Add new participants
-    for membership_id in participant_membership_ids:
+    # Add new participants.
+    for membership_id in participant_ids:
         participant = ShoppingSessionParticipant(
             session_id=shopping_session.id,
             membership_id=membership_id,
         )
         db.add(participant)
+
+    # Re-split existing items equally across updated participants.
+    # Flush deletions first to satisfy unique(item_id, membership_id).
+    for item in shopping_session.items:
+        for split in item.splits:
+            await db.delete(split)
+    await db.flush()
+
+    for item in shopping_session.items:
+        share_map = calculate_equal_splits_for_sharers(
+            int(item.total_cents),
+            sharer_membership_ids=participant_ids,
+            payer_membership_id=shopping_session.paid_by_membership_id,
+        )
+
+        for membership_id in participant_ids:
+            db.add(
+                ShoppingItemSplit(
+                    item_id=item.id,
+                    membership_id=membership_id,
+                    share_cents=share_map[membership_id],
+                )
+            )
 
     _touch_session_after_financial_mutation(shopping_session)
     await db.flush()
@@ -567,19 +570,30 @@ async def upload_receipt(
         db: Database session
         shopping_session: Shopping session to add receipt to
         file: Uploaded file
-        requester_membership_id: Membership ID of requester (must be payer)
+        requester_membership_id: Membership ID of requester (must be participant)
 
     Returns:
         Created receipt upload
 
     Raises:
-        HTTPException: If requester is not payer or upload fails
+        HTTPException: If requester is not participant, session already has a receipt, or upload fails
     """
-    # Verify requester is the payer
-    if requester_membership_id != shopping_session.paid_by_membership_id:
+    participant_ids = {participant.membership_id for participant in shopping_session.participants}
+    if not participant_ids:
+        # Legacy sessions created before participant auto-seeding.
+        participant_ids.add(shopping_session.paid_by_membership_id)
+
+    if requester_membership_id not in participant_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can upload receipts",
+            detail="Only session participants can upload receipts",
+        )
+
+    # Enforce one receipt per shopping session.
+    if shopping_session.receipts:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only one receipt is allowed per shopping session. Delete the existing receipt to upload a new one.",
         )
 
     # Save file to storage
@@ -590,6 +604,7 @@ async def upload_receipt(
     # Create receipt record
     receipt = ReceiptUpload(
         session_id=shopping_session.id,
+        uploaded_by_membership_id=requester_membership_id,
         storage_key=storage_key,
         content_type=content_type,
     )
@@ -636,12 +651,12 @@ async def delete_receipt_upload(
 ) -> None:
     """Delete a receipt upload (S3 object + DB record).
 
-    Only the payer can delete receipts.
+    Only the receipt uploader can delete receipts.
     """
-    if requester_membership_id != shopping_session.paid_by_membership_id:
+    if requester_membership_id != receipt.uploaded_by_membership_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can delete receipts",
+            detail="Only the receipt uploader can edit or delete this receipt",
         )
 
     # Delete from S3 first
@@ -872,6 +887,8 @@ async def set_item_sharers(
     # Remove existing splits
     for split in item.splits:
         await db.delete(split)
+    # Flush deletes before inserts to satisfy unique(item_id, membership_id).
+    await db.flush()
 
     # Calculate equal splits with payer-preferred remainder distribution.
     sharer_ids_in_order = [membership.id for membership in sharers]

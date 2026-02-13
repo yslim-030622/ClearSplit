@@ -118,7 +118,7 @@ struct DetailedItemCard: View {
             }
         }
         .padding(16)
-        .cardStyle(isHovered: isHovered)
+        .itemCardStyle(isHovered: isHovered)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -127,24 +127,21 @@ struct DetailedItemCard: View {
     }
 
     private var topSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(displayItemName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.gray900)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        HStack(alignment: .top, spacing: 8) {
+            Text(displayItemName)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.gray900)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
+            VStack(alignment: .trailing, spacing: 6) {
                 Text(formatCurrency(cents: item.totalCents, currency: "USD"))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.gray900)
                     .fixedSize(horizontal: true, vertical: false)
-            }
 
-            HStack(spacing: 0) {
-                Spacer()
                 actionButtons
             }
         }
