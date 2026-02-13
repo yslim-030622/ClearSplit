@@ -48,6 +48,17 @@ jobs:
       - name: Run lint lane
         run: bundle exec fastlane ios lint
 
+      - name: Upload lint artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pr-lint-artifacts
+          path: |
+            ios/ClearSplit/.build/ci-results
+            ios/ClearSplit/.build/logs
+          if-no-files-found: ignore
+          retention-days: 14
+
   build-and-unit:
     name: iOS Build + Unit Tests
     runs-on: macos-15
@@ -76,3 +87,27 @@ jobs:
 
       - name: Unit test lane
         run: bundle exec fastlane ios test_unit
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          coverage_report="$(ls -t .build/ci-results/coverage-summary-*.txt 2>/dev/null | head -n1 || true)"
+          if [[ -n "$coverage_report" ]]; then
+            echo "### iOS Unit Test Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            head -n 80 "$coverage_report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Coverage summary not found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload build/test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-pr-build-unit-artifacts
+          path: |
+            ios/ClearSplit/.build/ci-results
+            ios/ClearSplit/.build/logs
+          if-no-files-found: ignore
+          retention-days: 14

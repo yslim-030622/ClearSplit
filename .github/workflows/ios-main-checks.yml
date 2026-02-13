@@ -55,6 +55,30 @@ jobs:
       - name: Run main validation lane
         run: bundle exec fastlane ios ci_main
 
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          coverage_report="$(ls -t .build/ci-results/coverage-summary-*.txt 2>/dev/null | head -n1 || true)"
+          if [[ -n "$coverage_report" ]]; then
+            echo "### iOS Unit Test Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            head -n 80 "$coverage_report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Coverage summary not found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-main-validation-artifacts
+          path: |
+            ios/ClearSplit/.build/ci-results
+            ios/ClearSplit/.build/logs
+          if-no-files-found: ignore
+          retention-days: 21
+
   testflight:
     name: iOS TestFlight Upload
     needs: [full-validation]
@@ -89,3 +113,14 @@ jobs:
 
       - name: Run TestFlight lane
         run: bundle exec fastlane ios testflight
+
+      - name: Upload TestFlight lane artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-artifacts
+          path: |
+            ios/ClearSplit/.build/ci-results
+            ios/ClearSplit/.build/logs
+          if-no-files-found: ignore
+          retention-days: 21

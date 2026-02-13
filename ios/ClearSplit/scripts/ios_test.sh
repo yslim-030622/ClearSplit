@@ -27,6 +27,21 @@ run_tests() {
     "$@"
 
   echo "Test result bundle: $result_bundle"
+
+  if [[ "$suite" == "unit-tests" ]]; then
+    local coverage_json_file="$RESULTS_DIR/coverage-summary-$(timestamp).json"
+    local coverage_text_file="$RESULTS_DIR/coverage-summary-$(timestamp).txt"
+    if xcrun xccov view --report --json "$result_bundle" > "$coverage_json_file"; then
+      echo "Coverage JSON summary: $coverage_json_file"
+    else
+      echo "warning: unable to produce coverage JSON summary from $result_bundle"
+    fi
+    if xcrun xccov view --report "$result_bundle" > "$coverage_text_file"; then
+      echo "Coverage text summary: $coverage_text_file"
+    else
+      echo "warning: unable to produce coverage text summary from $result_bundle"
+    fi
+  fi
 }
 
 case "$mode" in
