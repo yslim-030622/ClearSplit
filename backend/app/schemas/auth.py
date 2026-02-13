@@ -57,5 +57,8 @@ class RefreshTokenResponse(BaseSchema):
     """Refresh token response schema."""
 
     access_token: str = Field(..., description="New JWT access token")
+    refresh_token: str | None = Field(
+        None,
+        description="Rotated refresh token. Always present for current backend versions.",
+    )
     token_type: str = Field(default="bearer", description="Token type")
-

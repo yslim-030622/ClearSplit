@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import os
+import logging
 import uuid
+import warnings
 from datetime import date, datetime, timezone
+from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import boto3
 from dotenv import load_dotenv
 from fastapi import HTTPException, UploadFile, status
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +30,8 @@ from app.models.shopping_session_participant import ShoppingSessionParticipant
 
 if TYPE_CHECKING:
     from app.models.receipt_extracted_item import ReceiptExtractedItem
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -179,7 +184,15 @@ class ReceiptStorage:
     def __init__(self):
         """Initialize S3 storage client."""
         self.settings = get_settings()
+        # Pillow checks this global while decoding image headers.
+        Image.MAX_IMAGE_PIXELS = self.settings.max_receipt_pixels
         self.s3_client = boto3.client("s3", region_name=self.settings.aws_region)
+        self._allowed_formats: dict[str, tuple[str, str]] = {
+            "JPEG": (".jpg", "image/jpeg"),
+            "PNG": (".png", "image/png"),
+            "WEBP": (".webp", "image/webp"),
+            "GIF": (".gif", "image/gif"),
+        }
 
     async def save_receipt(self, file: UploadFile, session_id: UUID) -> tuple[str, str]:
         """Save receipt file to S3.
@@ -194,15 +207,20 @@ class ReceiptStorage:
         Raises:
             HTTPException: If file type is invalid, too large, or upload fails
         """
-        # Validate content type
+        # Validate declared content type.
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid file type. Expected image/*, got {file.content_type}",
+                detail="Invalid file type. Expected image upload.",
             )
 
         # Read file content
         content = await file.read()
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
 
         # Validate file size
         if len(content) > self.settings.max_receipt_bytes:
@@ -211,8 +229,20 @@ class ReceiptStorage:
                 detail=f"File too large. Maximum size is {self.settings.max_receipt_bytes} bytes",
             )
 
+        detected_format, width, height = self._detect_image_metadata(content)
+        total_pixels = width * height
+        if total_pixels > self.settings.max_receipt_pixels:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Image dimensions are too large. "
+                    f"Maximum allowed pixels: {self.settings.max_receipt_pixels}"
+                ),
+            )
+
+        file_ext, content_type = self._allowed_formats[detected_format]
+
         # Generate unique storage key: {prefix}/{session_id}/{uuid}.{ext}
-        file_ext = self._get_file_extension(file.filename or "receipt.jpg")
         storage_key = f"{self.settings.s3_prefix}/{session_id}/{uuid.uuid4()}{file_ext}"
 
         # Upload to S3
@@ -221,15 +251,16 @@ class ReceiptStorage:
                 Bucket=self.settings.s3_bucket_name,
                 Key=storage_key,
                 Body=content,
-                ContentType=file.content_type,
+                ContentType=content_type,
             )
-        except Exception as e:
+        except Exception:
+            logger.exception("Failed uploading receipt to S3 for session %s", session_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to upload receipt to S3: {str(e)}",
+                detail="Failed to upload receipt to storage",
             )
 
-        return storage_key, file.content_type
+        return storage_key, content_type
 
     def get_receipt_bytes(self, storage_key: str) -> bytes:
         """Download receipt image bytes from S3.
@@ -249,10 +280,11 @@ class ReceiptStorage:
                 Key=storage_key,
             )
             return response["Body"].read()
-        except Exception as e:
+        except Exception:
+            logger.exception("Failed downloading receipt from S3: key=%s", storage_key)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to download receipt from S3: {str(e)}",
+                detail="Failed to download receipt from storage",
             )
 
     def create_presigned_get_url(self, storage_key: str) -> str:
@@ -277,7 +309,8 @@ class ReceiptStorage:
                 ExpiresIn=self.settings.s3_presigned_get_expire_seconds,
             )
             return url
-        except Exception as e:
+        except Exception:
+            logger.exception("Failed generating presigned URL for key=%s", storage_key)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to generate download URL",
@@ -290,17 +323,37 @@ class ReceiptStorage:
                 Bucket=self.settings.s3_bucket_name,
                 Key=storage_key,
             )
-        except Exception as e:
+        except Exception:
+            logger.exception("Failed deleting receipt from S3: key=%s", storage_key)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to delete receipt from S3",
             )
 
-    def _get_file_extension(self, filename: str) -> str:
-        """Extract file extension from filename."""
-        if "." in filename:
-            return "." + filename.rsplit(".", 1)[1].lower()
-        return ".jpg"
+    def _detect_image_metadata(self, content: bytes) -> tuple[str, int, int]:
+        """Verify uploaded image format and decode dimensions safely."""
+        try:
+            with warnings.catch_warnings():
+                # Turn bomb warnings into hard failures for safer uploads.
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(BytesIO(content)) as image:
+                    image_format = (image.format or "").upper()
+                    width, height = image.size
+        except (
+            UnidentifiedImageError,
+            OSError,
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+        ):
+            image_format = ""
+            width, height = 0, 0
+
+        if image_format not in self._allowed_formats:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported image format. Allowed: JPEG, PNG, WEBP, GIF",
+            )
+        return image_format, width, height
 
 
 # Global storage instance
@@ -739,6 +792,12 @@ async def extract_items_from_receipt_upload(
             status_code=http_status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Receipt extraction took too long. Please try with a clearer or smaller image."
         )
+    except ValueError as exc:
+        # Keep client-facing error explicit for oversized or malformed images.
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=f"Receipt image validation failed: {exc}",
+        ) from exc
     
     # Save extracted items to database
     db_items: list[ReceiptExtractedItem] = []
@@ -954,7 +1013,11 @@ async def get_shopping_item(db: AsyncSession, item_id: UUID) -> ShoppingItem:
 
 
 async def verify_user_is_group_member(
-    db: AsyncSession, user_id: UUID, group_id: UUID
+    db: AsyncSession,
+    user_id: UUID,
+    group_id: UUID,
+    *,
+    allow_viewer: bool = True,
 ) -> Membership:
     """Verify user is a member of the group.
 
@@ -967,7 +1030,7 @@ async def verify_user_is_group_member(
         User's membership in the group
 
     Raises:
-        HTTPException: If user is not a member
+        HTTPException: If user is not a member or lacks required role
     """
     result = await db.execute(
         select(Membership).where(
@@ -979,6 +1042,11 @@ async def verify_user_is_group_member(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not a member of this group",
+        )
+    if not allow_viewer and membership.role == MembershipRole.VIEWER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Viewers have read-only access in this group",
         )
 
     return membership

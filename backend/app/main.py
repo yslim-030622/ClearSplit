@@ -25,34 +25,45 @@ app = FastAPI(title="ClearSplit API", version="1.0.0")
 
 # CORS middleware for iOS app
 settings = get_settings()
-cors_origins = [
-    "http://localhost:3000",  # iOS simulator
+env_name = settings.env.lower()
+local_origins = [
+    "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-if settings.env == "production":
-    cors_origins.append("https://yourdomain.com")  # Update with actual domain
+if env_name in {"local", "test"}:
+    cors_origins = sorted(set(local_origins + settings.get_cors_origins()))
+    allow_credentials = False
 else:
-    # Allow all origins in development
-    cors_origins = ["*"]
+    cors_origins = settings.get_cors_origins()
+    if not cors_origins:
+        raise RuntimeError(
+            "CORS_ORIGINS must be configured in non-local environments. "
+            "Use a comma-separated list of trusted https origins."
+        )
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True if settings.env != "local" else False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
 )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors with detailed logging."""
-    body = await request.body()
-    logger.error(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
-    logger.error(f"Request body: {body.decode('utf-8') if body else 'Empty'}")
+    """Handle validation errors without logging or returning sensitive request payloads."""
+    error_paths = ["/".join(str(part) for part in err.get("loc", [])) for err in exc.errors()]
+    logger.warning(
+        "Validation error on %s %s for fields=%s",
+        request.method,
+        request.url.path,
+        error_paths,
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors(), "body": body.decode('utf-8') if body else None},
+        content={"detail": exc.errors()},
     )
 
 # Include routers
@@ -98,7 +109,8 @@ async def health(db: AsyncSession = Depends(get_session)) -> dict[str, str | boo
     Returns:
         dict with status, database connectivity, and S3 availability
     """
-    response = {
+    detailed = env_name in {"local", "test"}
+    response: dict[str, str | bool] = {
         "status": "ok",
         "database": False,
         "s3": False,
@@ -112,12 +124,9 @@ async def health(db: AsyncSession = Depends(get_session)) -> dict[str, str | boo
         logger.error(f"Database health check failed: {e}")
         response["status"] = "degraded"
     
-    # Check S3 (basic check - we can't easily test without actually calling S3)
-    # For now, just check if settings are configured
-    try:
-        if settings.s3_bucket_name:
-            response["s3"] = True
-    except Exception:
-        pass
-    
-    return response
+    # Check S3 configuration (lightweight availability signal)
+    response["s3"] = bool(settings.s3_bucket_name)
+
+    if detailed:
+        return response
+    return {"status": str(response["status"])}

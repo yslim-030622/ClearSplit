@@ -30,6 +30,7 @@ class ShoppingItemSplit(Base):
     )
     membership_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("memberships.id", ondelete="RESTRICT"),
         nullable=False,
     )
     share_cents: Mapped[int] = mapped_column(BigInteger(), nullable=False)
@@ -46,4 +47,3 @@ class ShoppingItemSplit(Base):
 
     # Relationships
     item: Mapped["ShoppingItem"] = relationship(back_populates="splits")
-

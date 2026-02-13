@@ -30,6 +30,7 @@ class ShoppingSessionParticipant(Base):
     )
     membership_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("memberships.id", ondelete="RESTRICT"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -44,4 +45,3 @@ class ShoppingSessionParticipant(Base):
 
     # Relationships
     session: Mapped["ShoppingSession"] = relationship(back_populates="participants")
-

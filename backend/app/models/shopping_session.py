@@ -3,7 +3,17 @@ import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, Enum as SQLEnum, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Date,
+    Enum as SQLEnum,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -78,6 +88,13 @@ class ShoppingSession(Base):
 
     __table_args__ = (
         UniqueConstraint("id", "group_id", name="uq_shopping_sessions_group_id"),
+        ForeignKeyConstraint(
+            ["group_id", "paid_by_membership_id"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
     )
 
     # Relationships

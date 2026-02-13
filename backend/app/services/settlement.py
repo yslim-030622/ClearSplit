@@ -382,15 +382,29 @@ def _authorize_payment_action(
     acting_membership: Membership,
     *,
     from_membership: UUID,
+) -> None:
+    if acting_membership.role == MembershipRole.OWNER:
+        return
+    if acting_membership.id == from_membership:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only the payment sender or a group owner can create this settlement payment",
+    )
+
+
+def _authorize_payment_confirmation(
+    acting_membership: Membership,
+    *,
     to_membership: UUID,
 ) -> None:
     if acting_membership.role == MembershipRole.OWNER:
         return
-    if acting_membership.id in {from_membership, to_membership}:
+    if acting_membership.id == to_membership:
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Not authorized to manage this settlement payment",
+        detail="Only the payment receiver or a group owner can confirm payment",
     )
 
 
@@ -489,8 +503,15 @@ async def create_settlement_payment(
     _authorize_payment_action(
         acting_membership,
         from_membership=from_membership,
-        to_membership=to_membership,
     )
+    if auto_confirm and (
+        acting_membership.role != MembershipRole.OWNER
+        and acting_membership.id != from_membership
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the payment sender or a group owner can auto-confirm settlement payments",
+        )
 
     covered_sessions = await _resolve_covered_sessions(
         session,
@@ -562,9 +583,8 @@ async def confirm_settlement_payment(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not a group member",
         )
-    _authorize_payment_action(
+    _authorize_payment_confirmation(
         acting_membership,
-        from_membership=payment.from_membership,
         to_membership=payment.to_membership,
     )
 
@@ -628,10 +648,13 @@ async def update_settlement_status_to_paid(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not a group member",
         )
-    if settlement.from_membership != acting_user_membership.id:
+    if (
+        acting_user_membership.role != MembershipRole.OWNER
+        and acting_user_membership.id != settlement.from_membership
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the debtor can mark a settlement as paid",
+            detail="Only the debtor or a group owner can mark a settlement as paid",
         )
 
     if settlement.status == SettlementStatus.PAID:
