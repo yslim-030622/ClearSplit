@@ -12,10 +12,46 @@ This directory contains GitHub Actions workflows for ClearSplit.
 - `backend-type-check` - Type checking with mypy
 - `backend-test` - Tests with pytest (Python 3.11, 3.12)
 - `backend-migrations` - Database migration validation
-- `ios-build` - iOS app compilation
-- `ios-test` - iOS unit tests
+- `ci-summary` - Aggregated backend status summary
 
-**Status:** ✅ Required for PRs
+**Status:** ✅ Active (backend required checks)
+
+---
+
+### `ios-pr-checks.yml` - iOS PR Quality Gates
+**Triggers:** Pull requests targeting `main`, `develop` with iOS/workflow changes
+
+**Jobs:**
+- `lint` - SwiftLint checks through `bundle exec fastlane ios lint`
+- `build-and-unit` - Simulator build + unit tests through Fastlane
+
+**Outputs:**
+- Uploads iOS logs and `.xcresult` artifacts from `ios/ClearSplit/.build`
+- Publishes unit-test coverage summary in GitHub Step Summary
+
+**Status:** ✅ Active (recommended required check for iOS-affecting PRs)
+
+---
+
+### `ios-main-checks.yml` - iOS Main Validation + Optional TestFlight
+**Triggers:** Push to `main` with iOS/workflow changes, manual dispatch
+
+**Jobs:**
+- `full-validation` - lint + build + unit tests + UI smoke tests + unsigned archive (`bundle exec fastlane ios ci_main`)
+- `testflight` - optional manual TestFlight upload (`bundle exec fastlane ios testflight`)
+
+**Outputs:**
+- Uploads iOS logs, `.xcresult`, coverage summaries, and archive outputs
+
+**Required secrets for TestFlight job:**
+- `ASC_KEY_ID`
+- `ASC_ISSUER_ID`
+- `ASC_KEY_CONTENT`
+- `IOS_APP_IDENTIFIER`
+- `APP_STORE_CONNECT_TEAM_ID` (optional)
+- `APPLE_DEVELOPER_TEAM_ID` (optional)
+
+**Status:** ✅ Active (main branch iOS release-safety checks)
 
 ---
 
@@ -62,7 +98,9 @@ This directory contains GitHub Actions workflows for ClearSplit.
 
 | Workflow | Status | Required for PR |
 |----------|--------|----------------|
-| `ci.yml` | ✅ Active | Yes |
+| `ci.yml` | ✅ Active | Yes (backend) |
+| `ios-pr-checks.yml` | ✅ Active | Configure as required for iOS PRs |
+| `ios-main-checks.yml` | ✅ Active | N/A (push/manual) |
 | `docker.yml` | ✅ Active | No |
 | `security-scan.yml` | ✅ Active | No |
 | `deploy-staging.yml` | 🔧 Template | No |
@@ -90,11 +128,15 @@ pytest --cov=app
 ```bash
 cd ios/ClearSplit
 
-# Build
-xcodebuild -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 15' build
+# Install tools
+bundle install
+brew install swiftlint
 
-# Tests
-xcodebuild test -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPhone 15'
+# PR checks
+bundle exec fastlane ios ci_pr
+
+# Main checks
+bundle exec fastlane ios ci_main
 ```
 
 ---
@@ -115,6 +157,7 @@ xcodebuild test -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPh
 2. Run commands locally to reproduce
 3. Check for dependency updates
 4. Verify environment variables
+5. Download uploaded iOS artifacts (`.xcresult` + logs) for root-cause details
 
 ### Docker Build Failing
 1. Test Dockerfile locally: `docker build -t test ./backend`
@@ -128,4 +171,4 @@ xcodebuild test -scheme ClearSplit -destination 'platform=iOS Simulator,name=iPh
 
 ---
 
-*Last updated: January 2025*
+*Last updated: February 2026*
