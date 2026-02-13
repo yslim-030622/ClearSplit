@@ -158,6 +158,7 @@ public final class AppState: ObservableObject {
         // Keep create flow snappy; reconcile canonical ordering/fields in background.
         Task { [weak self] in
             guard let self else { return }
+            try? await self.loadMembers(groupId: group.id)
             try? await self.loadGroups()
         }
 

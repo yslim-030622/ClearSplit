@@ -61,6 +61,7 @@ public struct ParticipantSetRequest: Codable {
 public struct ReceiptUpload: Codable, Equatable, Identifiable {
     public let id: UUID
     public let sessionId: UUID
+    public let uploadedByMembershipId: UUID?
     public let storageKey: String
     public let contentType: String
     public let createdAt: Date

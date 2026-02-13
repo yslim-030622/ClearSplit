@@ -44,38 +44,47 @@ struct ShoppingSessionsListView: View {
                     await viewModel.load()
                 }
             } else if viewModel.sessions.isEmpty {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        Image(systemName: "cart.badge.plus")
-                            .font(.system(size: 64, weight: .light))
-                            .foregroundColor(Color(hex: "9CA3AF"))
+                GeometryReader { geometry in
+                    ScrollView {
+                        VStack {
+                            Spacer(minLength: 0)
 
-                        Text("No Shopping Sessions Yet")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(Color(hex: "111827"))
+                            VStack(spacing: 16) {
+                                Image(systemName: "cart.badge.plus")
+                                    .font(.system(size: 64, weight: .light))
+                                    .foregroundColor(Color(hex: "9CA3AF"))
 
-                        Text("Create your first shopping session to start tracking expenses with your group.")
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
+                                Text("No Shopping Sessions Yet")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(Color(hex: "111827"))
 
-                        Button(action: { showingCreateSession = true }) {
-                            Text("Create Session")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: 200)
-                                .padding(.vertical, 12)
-                                .background(Color(hex: "2563EB"))
-                                .cornerRadius(8)
+                                Text("Create your first shopping session to start tracking expenses with your group.")
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundColor(Color(hex: "6B7280"))
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 32)
+
+                                Button(action: { showingCreateSession = true }) {
+                                    Text("Create Session")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundColor(.white)
+                                        .frame(maxWidth: 200)
+                                        .padding(.vertical, 12)
+                                        .background(Color(hex: "2563EB"))
+                                        .cornerRadius(8)
+                                }
+                                .padding(.top, 8)
+                            }
+                            .frame(maxWidth: .infinity)
+
+                            Spacer(minLength: 0)
                         }
-                        .padding(.top, 8)
+                        .frame(minHeight: geometry.size.height)
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 100)
-                }
-                .refreshable {
-                    await viewModel.load()
+                    .refreshable {
+                        await viewModel.load()
+                    }
                 }
             } else {
                 List {
@@ -131,28 +140,17 @@ struct ShoppingSessionsListView: View {
             .padding(.trailing, 20)
             .padding(.bottom, 54)
         }
+        .navigationTitle("Shopping Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Shopping Sessions")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color(hex: "111827"))
-            }
-
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showingCreateSession = true }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(hex: "2563EB"))
-                            .frame(width: 48, height: 48)
-                            .shadow(color: Color(hex: "2563EB").opacity(0.3), radius: 8, x: 0, y: 2)
-
-                        Image(systemName: "plus")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundColor(Color(hex: "2563EB"))
                 }
-                .buttonStyle(ScaleButtonStyle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Create Session")
             }
         }
         .task {

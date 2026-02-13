@@ -6,11 +6,31 @@ struct GroupsListView: View {
     let onLogout: () -> Void
     @State private var showCreateGroup = false
     @State private var showLogoutAlert = false
+    @State private var groupPendingDelete: Group?
 
     init(appState: AppState, onLogout: @escaping () -> Void) {
         _appState = ObservedObject(wrappedValue: appState)
         _viewModel = StateObject(wrappedValue: GroupsViewModel(appState: appState))
         self.onLogout = onLogout
+    }
+
+    private var headerRow: some View {
+        HStack {
+            Text("My Groups")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(Color(hex: "111827"))
+                .tracking(-0.5)
+
+            Spacer()
+
+            Button(action: { showLogoutAlert = true }) {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(Color(hex: "2563EB"))
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Log out")
+        }
     }
 
     var body: some View {
@@ -21,50 +41,42 @@ struct GroupsListView: View {
                     .ignoresSafeArea()
                 
                 // Content
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Header
-                        HStack {
-                            Text("My Groups")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundColor(Color(hex: "111827"))
-                                .tracking(-0.5)
-                            
-                            Spacer()
-                            
-                            // Logout button (top right)
-                            Button(action: { showLogoutAlert = true }) {
-                                Image(systemName: "rectangle.portrait.and.arrow.right")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundColor(Color(hex: "2563EB"))
-                                    .frame(width: 44, height: 44)
-                            }
-                            .accessibilityLabel("Log out")
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 47 + 8) // Safe area + spacing
-                        
-                        // Group Cards
-                        if viewModel.isLoading && viewModel.groups.isEmpty {
-                            // Loading skeleton
+                if viewModel.isLoading && viewModel.groups.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            headerRow
+                                .padding(.horizontal, 16)
+                                .padding(.top, 47 + 8) // Safe area + spacing
+
                             VStack(spacing: 12) {
-                                ForEach(0..<3) { _ in
+                                ForEach(0..<3, id: \.self) { _ in
                                     GroupCardSkeleton()
                                 }
                             }
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
-                        } else if viewModel.groups.isEmpty {
-                            // Empty state
+                            .padding(.bottom, 100)
+                        }
+                    }
+                    .refreshable {
+                        await viewModel.load()
+                    }
+                } else if viewModel.groups.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            headerRow
+                                .padding(.horizontal, 16)
+                                .padding(.top, 47 + 8) // Safe area + spacing
+
                             VStack(spacing: 16) {
                                 Image(systemName: "person.3")
                                     .font(.system(size: 64))
                                     .foregroundColor(Color(hex: "D1D5DB"))
-                                
+
                                 Text("No groups yet")
                                     .font(.system(size: 20, weight: .semibold))
                                     .foregroundColor(Color(hex: "4B5563"))
-                                
+
                                 Text("Create a group to start splitting expenses")
                                     .font(.system(size: 16, weight: .regular))
                                     .foregroundColor(Color(hex: "6B7280"))
@@ -72,20 +84,42 @@ struct GroupsListView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(.top, 100)
-                        } else {
-                            VStack(spacing: 12) {
-                                ForEach(viewModel.groups) { group in
-                                    GroupCard(group: group, appState: appState)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 100) // Space for button
+                            .padding(.bottom, 100)
                         }
                     }
-                }
-                .refreshable {
-                    await viewModel.load()
+                    .refreshable {
+                        await viewModel.load()
+                    }
+                } else {
+                    List {
+                        headerRow
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 47 + 8, leading: 16, bottom: 8, trailing: 16))
+                            .listRowBackground(Color.clear)
+
+                        ForEach(viewModel.groups) { group in
+                            GroupCard(group: group, appState: appState)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                                .listRowBackground(Color.clear)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) {
+                                        groupPendingDelete = group
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.clear)
+                    .refreshable {
+                        await viewModel.load()
+                    }
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: 100)
+                    }
                 }
                 
                 // Bottom Button
@@ -118,13 +152,36 @@ struct GroupsListView: View {
         } message: {
             Text("Are you sure you want to log out?")
         }
+        .alert(
+            "Delete Group",
+            isPresented: Binding(
+                get: { groupPendingDelete != nil },
+                set: { if !$0 { groupPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                groupPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                let target = groupPendingDelete
+                groupPendingDelete = nil
+                if let target {
+                    Task { await viewModel.delete(group: target) }
+                }
+            }
+        } message: {
+            Text("Are you sure you want to delete \"\(groupPendingDelete?.name ?? "")\"?")
+        }
         .task {
             await viewModel.load()
         }
         .navigationDestination(for: Group.self) { group in
             GroupDetailView(appState: appState, group: group)
         }
-        .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Error", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        )) {
             Button("Retry") { Task { await viewModel.load() } }
             Button("Cancel", role: .cancel) { viewModel.errorMessage = nil }
         } message: {
@@ -135,12 +192,15 @@ struct GroupsListView: View {
 
 struct GroupCard: View {
     let group: Group
-    let appState: AppState
-    @State private var isPressed = false
+    @ObservedObject var appState: AppState
     @State private var isHovered = false
+    @State private var hasRequestedMembers = false
 
     private var memberCount: Int {
-        appState.membershipsByGroupId[group.id]?.count ?? 0
+        if let loadedCount = appState.membershipsByGroupId[group.id]?.count {
+            return loadedCount
+        }
+        return group.userMembershipId == nil ? 0 : 1
     }
     
     private var userBalance: Decimal {
@@ -208,19 +268,21 @@ struct GroupCard: View {
             }
             .padding(16)
             .frame(height: 72)
-            .itemCardStyle(isHovered: isHovered || isPressed)
-            .scaleEffect(isPressed ? 0.99 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: isPressed)
+            .itemCardStyle(isHovered: isHovered)
         }
         .buttonStyle(PlainButtonStyle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in isPressed = true }
-                .onEnded { _ in isPressed = false }
-        )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
+            }
+        }
+        .onAppear {
+            guard appState.membershipsByGroupId[group.id] == nil else { return }
+            guard !hasRequestedMembers else { return }
+
+            hasRequestedMembers = true
+            Task {
+                try? await appState.loadMembers(groupId: group.id)
             }
         }
     }
@@ -244,9 +306,6 @@ struct GroupCard: View {
     }
 
     private var memberLabel: String {
-        if memberCount == 0 {
-            return "members"
-        }
         return "\(memberCount) \(memberCount == 1 ? "member" : "members")"
     }
 }

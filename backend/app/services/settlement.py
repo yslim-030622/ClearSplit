@@ -245,11 +245,21 @@ async def compute_settlement_batch(
     """Compute settlements for a group and persist a new batch + settlements."""
 
     _, _, transfers = await compute_group_balances(session, group_id)
+    latest_version_result = await session.execute(
+        select(func.coalesce(func.max(SettlementBatch.version), 0)).where(
+            SettlementBatch.group_id == group_id
+        )
+    )
+    latest_version = int(latest_version_result.scalar_one() or 0)
+    now = datetime.now(tz=timezone.utc)
 
     batch = SettlementBatch(
         group_id=group_id,
         total_settlements=len(transfers),
         status=SettlementStatus.SUGGESTED,
+        version=latest_version + 1,
+        created_at=now,
+        updated_at=now,
     )
     session.add(batch)
     await session.flush()
@@ -287,7 +297,7 @@ async def get_latest_batch_with_settlements(
         select(SettlementBatch)
         .options(selectinload(SettlementBatch.settlements))
         .where(SettlementBatch.group_id == group_id)
-        .order_by(SettlementBatch.created_at.desc())
+        .order_by(SettlementBatch.version.desc(), SettlementBatch.created_at.desc())
         .limit(1)
     )
     batch = result.scalar_one_or_none()
@@ -501,6 +511,7 @@ async def create_settlement_payment(
         note=note,
         sent_at=now,
         confirmed_at=now if auto_confirm else None,
+        created_at=now,
     )
     session.add(payment)
     await session.flush()
@@ -590,7 +601,7 @@ async def list_settlement_payments(
         select(SettlementPayment)
         .options(selectinload(SettlementPayment.session_links))
         .where(SettlementPayment.group_id == group_id)
-        .order_by(SettlementPayment.created_at.desc())
+        .order_by(SettlementPayment.created_at.desc(), SettlementPayment.sent_at.desc())
     )
     return list(result.scalars().all())
 

@@ -4,6 +4,8 @@ struct ParticipantsDetailCard: View {
     let participants: [ShoppingSessionParticipant]
     let groupMemberships: [Membership]
     let currentUserId: UUID?
+    let canEdit: Bool
+    let onEditTapped: (() -> Void)?
 
     private var participantGridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: 72), spacing: 12, alignment: .leading)]
@@ -12,11 +14,15 @@ struct ParticipantsDetailCard: View {
     init(
         participants: [ShoppingSessionParticipant],
         groupMemberships: [Membership] = [],
-        currentUserId: UUID? = nil
+        currentUserId: UUID? = nil,
+        canEdit: Bool = false,
+        onEditTapped: (() -> Void)? = nil
     ) {
         self.participants = participants
         self.groupMemberships = groupMemberships
         self.currentUserId = currentUserId
+        self.canEdit = canEdit
+        self.onEditTapped = onEditTapped
     }
 
     var body: some View {
@@ -41,6 +47,19 @@ struct ParticipantsDetailCard: View {
                     .frame(width: 24, height: 24)
                     .background(Color.blue50)
                     .clipShape(Circle())
+
+                if canEdit, let onEditTapped {
+                    Button(action: onEditTapped) {
+                        Text(participants.isEmpty ? "Set" : "Edit")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.blue600)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.blue50)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
             }
 
             if participants.isEmpty {

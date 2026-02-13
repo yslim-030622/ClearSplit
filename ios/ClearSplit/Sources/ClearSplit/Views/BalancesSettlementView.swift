@@ -5,8 +5,14 @@ struct BalancesSettlementView: View {
     @ObservedObject private var appState: AppState
     let group: Group
 
-    @State private var errorMessage: String?
-    @State private var inFlightActionIds: Set<String> = []
+    @State private var individualBalances: [IndividualBalance] = []
+    @State private var settlements: [SettlementPlan] = []
+    @State private var isLoading = false
+    @State private var isRefreshing = false
+    @State private var pendingSettlementIds: Set<String> = []
+    @State private var showError = false
+    @State private var showSuccessToast = false
+    @State private var errorMessage = ""
 
     init(appState: AppState, group: Group) {
         _appState = ObservedObject(wrappedValue: appState)
@@ -17,408 +23,586 @@ struct BalancesSettlementView: View {
         appState.getUserMembership(in: group.id)
     }
 
-    private var balances: GroupBalances? {
-        appState.balances(for: group.id)
+    private var activeSettlements: [SettlementPlan] {
+        settlements.filter { !$0.isSettled }
     }
 
-    private var suggestions: [SettlementSuggestion] {
-        balances?.suggestions ?? []
-    }
-
-    private var currentNetCents: Int {
-        guard let membershipId = currentMembership?.id else { return 0 }
-        return appState.netBalanceCents(groupId: group.id, membershipId: membershipId)
-    }
-
-    private var directSuggestions: [SettlementSuggestion] {
-        guard let membershipId = currentMembership?.id else { return [] }
-        return suggestions.filter { suggestion in
-            suggestion.fromMembership == membershipId || suggestion.toMembership == membershipId
-        }
-    }
-
-    private var paymentHistory: [SettlementPayment] {
-        appState.settlementPayments(for: group.id)
-    }
-
-    private var youOweCents: Int {
-        max(-currentNetCents, 0)
-    }
-
-    private var youAreOwedCents: Int {
-        max(currentNetCents, 0)
-    }
-
-    private var isSettled: Bool {
-        currentNetCents == 0
+    private var showAllSettledState: Bool {
+        !individualBalances.isEmpty &&
+        activeSettlements.isEmpty &&
+        individualBalances.allSatisfy { abs($0.balanceCents) <= 1 }
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                summarySection
-                directDebtsSection
-                suggestionsSection
-                historySection
+                individualBalancesSection
+
+                if !settlements.isEmpty {
+                    suggestedPaymentsSection
+                }
+
+                if showAllSettledState {
+                    AllSettledCard()
+                }
+
+                InfoCard()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 32)
+            .padding(16)
         }
-        .background(Color.gray50.ignoresSafeArea())
+        .background(Color.pageBackground.ignoresSafeArea())
         .navigationTitle("Balances & Settlement")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await refreshData()
-        }
         .refreshable {
-            await refreshData()
+            await refreshBalances()
         }
-        .alert("Error", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .overlay {
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(1.35)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.opacity(0.22))
+            }
+        }
+        .overlay(alignment: .top) {
+            if showSuccessToast {
+                SuccessToast(message: "Settlement updated")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) { }
         } message: {
-            Text(errorMessage ?? "")
+            Text(errorMessage)
+        }
+        .task {
+            await loadBalances()
         }
     }
 
-    private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Summary")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.gray900)
+    // MARK: - Sections
 
-            HStack(spacing: 10) {
-                SummaryPill(
-                    title: "You owe",
-                    value: formatCurrency(cents: youOweCents, currency: group.currency),
-                    tint: .red600,
-                    background: .red50
-                )
-                SummaryPill(
-                    title: "You are owed",
-                    value: formatCurrency(cents: youAreOwedCents, currency: group.currency),
-                    tint: .green600,
-                    background: .green.opacity(0.08)
-                )
-                SummaryPill(
-                    title: "Settled",
-                    value: isSettled ? "Yes" : "No",
-                    tint: isSettled ? .green600 : .gray600,
-                    background: .gray100
-                )
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .cornerRadius(14)
-    }
+    private var individualBalancesSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Individual Balances")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
 
-    private var directDebtsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Individual")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.gray900)
-
-            if directSuggestions.isEmpty {
-                emptyCard(text: "No direct debts involving you.")
+            if individualBalances.isEmpty {
+                Text("No balances yet.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "6B7280"))
             } else {
-                VStack(spacing: 10) {
-                    ForEach(directSuggestions) { suggestion in
-                        debtRow(suggestion: suggestion, showAction: true)
+                VStack(spacing: 12) {
+                    ForEach(individualBalances) { balance in
+                        IndividualBalanceRow(balance: balance)
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .cardStyle()
     }
 
-    private var suggestionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Suggested Transfers")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.gray900)
+    private var suggestedPaymentsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Suggested Payments")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
 
-            if suggestions.isEmpty {
-                emptyCard(text: "No transfer suggestions right now.")
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(suggestions) { suggestion in
-                        debtRow(suggestion: suggestion, showAction: false)
-                    }
+            VStack(spacing: 12) {
+                ForEach(settlements) { settlement in
+                    SettlementCard(
+                        settlement: settlement,
+                        canMarkAsPaid: canMarkSettlementAsPaid(settlement) && !isRefreshing,
+                        isActionLoading: pendingSettlementIds.contains(settlement.id),
+                        onMarkAsPaid: {
+                            markSettlementAsPaid(settlement: settlement)
+                        }
+                    )
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .cardStyle()
     }
 
-    private var historySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Settlement History")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.gray900)
+    // MARK: - Loading
 
-            if paymentHistory.isEmpty {
-                emptyCard(text: "No settlement payments yet.")
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(paymentHistory) { payment in
-                        paymentRow(payment: payment)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func loadBalances() async {
+        isLoading = true
+        await reloadData()
+        isLoading = false
     }
 
-    private func debtRow(suggestion: SettlementSuggestion, showAction: Bool) -> some View {
-        let fromName = membershipDisplayName(id: suggestion.fromMembership)
-        let toName = membershipDisplayName(id: suggestion.toMembership)
-        let amountText = formatCurrency(cents: suggestion.amountCents, currency: group.currency)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(fromName) -> \(toName)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.gray900)
-                    Text(amountText)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray600)
-                }
-                Spacer()
-            }
-
-            if showAction, let membershipId = currentMembership?.id {
-                if suggestion.fromMembership == membershipId {
-                    actionButton(
-                        title: "Mark as Paid",
-                        style: .filled,
-                        actionId: suggestion.id
-                    ) {
-                        await markAsPaid(suggestion: suggestion)
-                    }
-                } else if suggestion.toMembership == membershipId {
-                    actionButton(
-                        title: "Request Payment",
-                        style: .outline,
-                        actionId: suggestion.id
-                    ) {
-                        await requestPayment(suggestion: suggestion)
-                    }
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .cornerRadius(12)
+    private func refreshBalances() async {
+        isRefreshing = true
+        await reloadData()
+        isRefreshing = false
     }
 
-    private func paymentRow(payment: SettlementPayment) -> some View {
-        let fromName = membershipDisplayName(id: payment.fromMembership)
-        let toName = membershipDisplayName(id: payment.toMembership)
-        let amountText = formatCurrency(cents: payment.amountCents, currency: group.currency)
-        let isPending = payment.status.lowercased() == "pending"
-        let canConfirm = isPending && payment.toMembership == currentMembership?.id
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(fromName) -> \(toName)")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.gray900)
-                    Text(amountText)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray600)
-                }
-                Spacer()
-                Text(payment.status.capitalized)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(isPending ? .blue700 : .green600)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(isPending ? Color.blue50 : Color.green.opacity(0.12))
-                    .cornerRadius(999)
-            }
-
-            if canConfirm {
-                actionButton(
-                    title: "Confirm Payment",
-                    style: .outline,
-                    actionId: payment.id.uuidString
-                ) {
-                    await confirmPayment(paymentId: payment.id)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .cornerRadius(12)
-    }
-
-    private func emptyCard(text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14, weight: .regular))
-            .foregroundColor(.gray600)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray200, lineWidth: 1)
-            )
-            .cornerRadius(12)
-    }
-
-    private enum ActionStyle {
-        case filled
-        case outline
-    }
-
-    private func actionButton(
-        title: String,
-        style: ActionStyle,
-        actionId: String,
-        action: @escaping () async -> Void
-    ) -> some View {
-        Button {
-            Task { await action() }
-        } label: {
-            HStack(spacing: 8) {
-                if inFlightActionIds.contains(actionId) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(style == .filled ? .white : .blue700)
-                        .scaleEffect(0.8)
-                }
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .foregroundColor(style == .filled ? .white : .blue700)
-            .background(style == .filled ? Color.blue600 : Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 9)
-                    .stroke(style == .filled ? Color.clear : Color.blue200, lineWidth: 1)
-            )
-            .cornerRadius(9)
-        }
-        .buttonStyle(.plain)
-        .disabled(inFlightActionIds.contains(actionId))
-    }
-
-    private func membershipDisplayName(id: UUID) -> String {
-        guard let membership = appState.membershipsByGroupId[group.id]?.first(where: { $0.id == id }) else {
-            return String(id.uuidString.prefix(8))
-        }
-
-        if let user = membership.user {
-            let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
-            if !fullName.isEmpty {
-                return fullName
-            }
-            return user.email
-        }
-        return membership.displayName
-    }
-
-    private func refreshData() async {
+    private func reloadData() async {
         do {
             async let membersTask: Void = appState.loadMembers(groupId: group.id)
-            async let balancesTask: Void = appState.loadBalances(groupId: group.id)
+            async let sessionsTask: Void = appState.loadShoppingSessions(groupId: group.id)
             async let paymentsTask: Void = appState.loadSettlementPayments(groupId: group.id)
-            _ = try await (membersTask, balancesTask, paymentsTask)
+            async let balancesTask: Void = appState.loadBalances(groupId: group.id)
+            _ = try await (membersTask, sessionsTask, paymentsTask, balancesTask)
+
+            rebuildViewModels()
         } catch {
-            errorMessage = "Failed to load balances and settlement data."
+            errorMessage = "Failed to refresh balances."
+            showError = true
         }
     }
 
-    private func markAsPaid(suggestion: SettlementSuggestion) async {
-        let actionId = suggestion.id
-        inFlightActionIds.insert(actionId)
-        defer { inFlightActionIds.remove(actionId) }
-        do {
-            let request = SettlementPaymentCreateRequest(
-                fromMembership: suggestion.fromMembership,
-                toMembership: suggestion.toMembership,
-                amountCents: suggestion.amountCents,
-                autoConfirm: true
+    private func rebuildViewModels() {
+        let memberships = appState.membershipsByGroupId[group.id] ?? []
+        let membershipsById = Dictionary(uniqueKeysWithValues: memberships.map { ($0.id, $0) })
+        let sessions = appState.shoppingSessionsByGroupId[group.id] ?? []
+        let payments = appState.settlementPayments(for: group.id)
+
+        var userNames: [UUID: String] = [:]
+        for membership in memberships {
+            userNames[membership.id] = membershipDisplayName(membership)
+        }
+
+        var balancesByMembership = BalanceCalculator.calculateIndividualBalances(
+            from: sessions,
+            confirmedPayments: payments
+        )
+
+        for membership in memberships where balancesByMembership[membership.id] == nil {
+            balancesByMembership[membership.id] = 0
+        }
+
+        var balanceRows = balancesByMembership.map { membershipId, balanceCents in
+            IndividualBalance(
+                userId: membershipId,
+                name: userNames[membershipId] ?? "Unknown",
+                balanceCents: balanceCents,
+                isSettled: abs(balanceCents) <= 1
             )
-            _ = try await appState.createSettlementPayment(groupId: group.id, request: request)
-        } catch {
-            errorMessage = "Failed to mark payment as paid."
+        }
+        balanceRows.sort {
+            if $0.name == "You" { return true }
+            if $1.name == "You" { return false }
+            if $0.balanceCents == $1.balanceCents {
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            return $0.balanceCents > $1.balanceCents
+        }
+
+        let optimized = SettlementOptimizer.optimizeSettlements(
+            balances: balancesByMembership,
+            userNames: userNames
+        )
+
+        let settledHistory = payments
+            .filter { $0.status.lowercased() == "confirmed" }
+            .map { payment in
+                SettlementPlan(
+                    id: "payment-\(payment.id.uuidString)",
+                    fromUserId: payment.fromMembership,
+                    fromUserName: userNames[payment.fromMembership] ?? memberFallbackName(id: payment.fromMembership, map: membershipsById),
+                    toUserId: payment.toMembership,
+                    toUserName: userNames[payment.toMembership] ?? memberFallbackName(id: payment.toMembership, map: membershipsById),
+                    amountCents: payment.amountCents,
+                    isSettled: true,
+                    settledAt: payment.confirmedAt ?? payment.sentAt ?? payment.createdAt
+                )
+            }
+
+        var allSettlements = optimized + settledHistory
+        allSettlements.sort {
+            if $0.isSettled != $1.isSettled {
+                return !$0.isSettled && $1.isSettled
+            }
+            if $0.amountCents == $1.amountCents {
+                return $0.fromUserName.localizedCaseInsensitiveCompare($1.fromUserName) == .orderedAscending
+            }
+            return $0.amountCents > $1.amountCents
+        }
+
+        individualBalances = balanceRows
+        settlements = allSettlements
+    }
+
+    // MARK: - Interactions
+
+    private func canMarkSettlementAsPaid(_ settlement: SettlementPlan) -> Bool {
+        guard let membership = currentMembership else { return false }
+        if membership.role.lowercased() == "owner" {
+            return true
+        }
+        return membership.id == settlement.fromUserId || membership.id == settlement.toUserId
+    }
+
+    private func markSettlementAsPaid(settlement: SettlementPlan) {
+        guard !settlement.isSettled else { return }
+        guard !isRefreshing else { return }
+        guard !pendingSettlementIds.contains(settlement.id) else { return }
+        guard canMarkSettlementAsPaid(settlement) else { return }
+
+        pendingSettlementIds.insert(settlement.id)
+
+        if let index = settlements.firstIndex(where: { $0.id == settlement.id }) {
+            settlements[index].isSettled = true
+            settlements[index].settledAt = Date()
+        }
+
+        Task {
+            do {
+                let request = SettlementPaymentCreateRequest(
+                    fromMembership: settlement.fromUserId,
+                    toMembership: settlement.toUserId,
+                    amountCents: settlement.amountCents,
+                    autoConfirm: true
+                )
+                _ = try await appState.createSettlementPayment(groupId: group.id, request: request)
+                rebuildViewModels()
+                await showSuccess()
+            } catch {
+                if let index = settlements.firstIndex(where: { $0.id == settlement.id }) {
+                    settlements[index].isSettled = false
+                    settlements[index].settledAt = nil
+                }
+                errorMessage = "Failed to mark as settled. Please try again."
+                showError = true
+            }
+
+            pendingSettlementIds.remove(settlement.id)
         }
     }
 
-    private func requestPayment(suggestion: SettlementSuggestion) async {
-        let actionId = suggestion.id
-        inFlightActionIds.insert(actionId)
-        defer { inFlightActionIds.remove(actionId) }
-        do {
-            let request = SettlementPaymentCreateRequest(
-                fromMembership: suggestion.fromMembership,
-                toMembership: suggestion.toMembership,
-                amountCents: suggestion.amountCents,
-                note: "Requested from iOS",
-                autoConfirm: false
-            )
-            _ = try await appState.createSettlementPayment(groupId: group.id, request: request)
-        } catch {
-            errorMessage = "Failed to request payment."
+    private func showSuccess() async {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            showSuccessToast = true
+        }
+        try? await Task.sleep(nanoseconds: 1_800_000_000)
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            showSuccessToast = false
         }
     }
 
-    private func confirmPayment(paymentId: UUID) async {
-        let actionId = paymentId.uuidString
-        inFlightActionIds.insert(actionId)
-        defer { inFlightActionIds.remove(actionId) }
-        do {
-            _ = try await appState.confirmSettlementPayment(groupId: group.id, paymentId: paymentId)
-        } catch {
-            errorMessage = "Failed to confirm payment."
+    // MARK: - Name Helpers
+
+    private func membershipDisplayName(_ membership: Membership) -> String {
+        if membership.id == currentMembership?.id {
+            return "You"
+        }
+
+        guard let user = membership.user else {
+            return membership.displayName
+        }
+
+        let fullName = "\(user.firstName) \(user.lastName)"
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fullName.isEmpty {
+            return fullName
+        }
+        return user.email
+    }
+
+    private func memberFallbackName(id: UUID, map: [UUID: Membership]) -> String {
+        if let membership = map[id] {
+            return membershipDisplayName(membership)
+        }
+        return "Member \(id.uuidString.prefix(4).uppercased())"
+    }
+}
+
+private struct IndividualBalanceRow: View {
+    let balance: IndividualBalance
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "60A5FA"), Color(hex: "3B82F6")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Text(balance.name.prefix(1).uppercased())
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white)
+                )
+
+            Text(balance.name)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Color(hex: "111827"))
+
+            Spacer()
+
+            balanceDisplay
+        }
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var balanceDisplay: some View {
+        switch balance.balanceStatus {
+        case .settled:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "059669"))
+                Text("Settled")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(hex: "059669"))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color(hex: "D1FAE5"))
+            .cornerRadius(8)
+
+        case .owed:
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("gets back")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "6B7280"))
+                Text("+$\(balance.balance, specifier: "%.2f")")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(Color(hex: "10B981"))
+            }
+
+        case .owes:
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("owes")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "6B7280"))
+                Text("$\(abs(balance.balance), specifier: "%.2f")")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(Color(hex: "EF4444"))
+            }
+
+        case .even:
+            Text("Even")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color(hex: "6B7280"))
         }
     }
 }
 
-private struct SummaryPill: View {
-    let title: String
-    let value: String
-    let tint: Color
-    let background: Color
+private struct SettlementCard: View {
+    let settlement: SettlementPlan
+    let canMarkAsPaid: Bool
+    let isActionLoading: Bool
+    let onMarkAsPaid: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.gray600)
-            Text(value)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(tint)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    avatarView(for: settlement.fromUserName, color: "3B82F6")
+                    Text(settlement.fromUserName)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color(hex: "111827"))
+                }
+
+                Spacer()
+
+                Image(systemName: settlement.isSettled ? "arrow.right.circle.fill" : "arrow.right")
+                    .font(.system(size: 18))
+                    .foregroundColor(settlement.isSettled ? Color(hex: "10B981") : Color(hex: "9CA3AF"))
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Text(settlement.toUserName)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(Color(hex: "111827"))
+                    avatarView(for: settlement.toUserName, color: "A855F7")
+                }
+            }
+
+            Divider()
+                .background(Color(hex: "E5E7EB"))
+
+            HStack {
+                Text("$\(settlement.amount, specifier: "%.2f")")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(Color(hex: "111827"))
+
+                Spacer()
+
+                if settlement.isSettled {
+                    settledBadge
+                } else {
+                    markAsPaidButton
+                }
+            }
         }
+        .padding(16)
+        .background(settlement.isSettled ? Color(hex: "F0FDF4") : Color.cardBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(
+                    settlement.isSettled ? Color(hex: "86EFAC") : Color.borderMedium,
+                    lineWidth: 1.5
+                )
+        )
+        .cornerRadius(12)
+    }
+
+    private func avatarView(for name: String, color: String) -> some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [Color(hex: color).opacity(0.8), Color(hex: color)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 32, height: 32)
+            .overlay(
+                Text(name.prefix(1).uppercased())
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white)
+            )
+    }
+
+    private var settledBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 14))
+            Text("Settled")
+                .font(.system(size: 14, weight: .medium))
+        }
+        .foregroundColor(Color(hex: "059669"))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(hex: "D1FAE5"))
+        .cornerRadius(8)
+    }
+
+    private var markAsPaidButton: some View {
+        Button(action: onMarkAsPaid) {
+            HStack(spacing: 6) {
+                if isActionLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                }
+                Text("Mark as Paid")
+                    .font(.system(size: 14, weight: .medium))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color(hex: "2563EB"))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+        .disabled(!canMarkAsPaid || isActionLoading)
+        .opacity(canMarkAsPaid ? 1 : 0.45)
+    }
+}
+
+private struct AllSettledCard: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Circle()
+                .fill(Color(hex: "D1FAE5"))
+                .frame(width: 64, height: 64)
+                .overlay(
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(Color(hex: "10B981"))
+                )
+
+            Text("All Settled Up!")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
+
+            Text("Everyone in this group is even")
+                .font(.system(size: 15))
+                .foregroundColor(Color(hex: "6B7280"))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .padding(.horizontal, 20)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: "F0FDF4"), Color(hex: "D1FAE5")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color(hex: "86EFAC"), lineWidth: 2)
+        )
+        .cornerRadius(16)
+    }
+}
+
+private struct InfoCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("How settlements work")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(Color(hex: "1E3A8A"))
+
+            VStack(alignment: .leading, spacing: 4) {
+                InfoRow(text: "Balances are calculated from all shopping sessions")
+                InfoRow(text: "Each person pays their share of items they selected")
+                InfoRow(text: "Mark payments as settled when complete")
+            }
+        }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: "DBEAFE"))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(hex: "BFDBFE"), lineWidth: 1)
+        )
+        .cornerRadius(12)
+    }
+}
+
+private struct InfoRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("•")
+                .font(.system(size: 14))
+                .foregroundColor(Color(hex: "1E40AF"))
+            Text(text)
+                .font(.system(size: 14))
+                .foregroundColor(Color(hex: "1E40AF"))
+        }
+    }
+}
+
+private struct SuccessToast: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(Color(hex: "059669"))
+            Text(message)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(Color(hex: "064E3B"))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .padding(.horizontal, 10)
-        .background(background)
+        .background(Color(hex: "D1FAE5"))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(hex: "86EFAC"), lineWidth: 1)
+        )
         .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 2)
     }
 }

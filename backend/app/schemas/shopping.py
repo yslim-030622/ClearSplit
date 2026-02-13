@@ -38,6 +38,7 @@ class ReceiptUploadRead(BaseSchema):
 
     id: UUID
     session_id: UUID
+    uploaded_by_membership_id: UUID
     storage_key: str
     content_type: str
     created_at: datetime
