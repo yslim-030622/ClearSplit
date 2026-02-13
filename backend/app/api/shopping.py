@@ -92,8 +92,9 @@ async def create_session(
 
     await db.commit()
 
-    # Convert to read schema
-    return ShoppingSessionRead.model_validate(shopping_session)
+    # Re-fetch with eager-loaded relationships to avoid async lazy-load during serialization.
+    hydrated = await get_shopping_session(db, shopping_session.id)
+    return ShoppingSessionRead.model_validate(hydrated)
 
 
 @router.get(
@@ -221,9 +222,10 @@ async def update_shopping_session(
             shopping_session.settled_at = None
 
     await db.commit()
-    await db.refresh(shopping_session)
-    
-    return ShoppingSessionRead.model_validate(shopping_session)
+
+    # Re-fetch with eager-loaded relationships to avoid async lazy-load during serialization.
+    hydrated = await get_shopping_session(db, shopping_session.id)
+    return ShoppingSessionRead.model_validate(hydrated)
 
 
 @router.post(
@@ -247,7 +249,10 @@ async def finalize_session(
         requester_membership_id=user_membership.id,
     )
     await db.commit()
-    return ShoppingSessionRead.model_validate(updated)
+
+    # Re-fetch with eager-loaded relationships to avoid async lazy-load during serialization.
+    hydrated = await get_shopping_session(db, updated.id)
+    return ShoppingSessionRead.model_validate(hydrated)
 
 
 @router.delete(
@@ -374,7 +379,9 @@ async def set_participants(
 
     await db.commit()
 
-    return ShoppingSessionRead.model_validate(shopping_session)
+    # Re-fetch with eager-loaded relationships to avoid async lazy-load during serialization.
+    hydrated = await get_shopping_session(db, shopping_session.id)
+    return ShoppingSessionRead.model_validate(hydrated)
 
 
 # ============================================================================
@@ -395,7 +402,8 @@ async def upload_session_receipt(
 ) -> ReceiptUploadRead:
     """Upload a receipt for a shopping session.
 
-    Only the payer can upload receipts.
+    Only session participants can upload receipts.
+    Exactly one receipt is allowed per shopping session.
 
     Args:
         session_id: Session UUID
@@ -407,7 +415,7 @@ async def upload_session_receipt(
         Created receipt upload
 
     Raises:
-        HTTPException: If not authorized or upload fails
+        HTTPException: If not authorized, session already has a receipt, or upload fails
     """
     # Get session
     shopping_session = await get_shopping_session(db, session_id)
@@ -417,7 +425,7 @@ async def upload_session_receipt(
         db, current_user.id, shopping_session.group_id
     )
 
-    # Upload receipt (service will verify payer authorization)
+    # Upload receipt (service verifies participant authorization + one-receipt rule)
     receipt = await upload_receipt(
         db,
         shopping_session,
@@ -486,7 +494,7 @@ async def delete_receipt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ) -> ReceiptDeleteResponse:
-    """Delete a receipt upload (payer only)."""
+    """Delete a receipt upload (uploader only)."""
     receipt = await get_receipt_upload(db, receipt_upload_id)
     shopping_session = await get_shopping_session(db, receipt.session_id)
 
@@ -774,7 +782,7 @@ async def extract_items_from_receipt_endpoint(
 ) -> list[ReceiptExtractedItemRead]:
     """Extract items from a receipt image using OCR.
     
-    Only the payer can trigger extraction. This endpoint is idempotent:
+    Only the receipt uploader can trigger extraction. This endpoint is idempotent:
     if items have already been extracted, it returns the existing items
     instead of re-running OCR.
     
@@ -804,11 +812,11 @@ async def extract_items_from_receipt_endpoint(
         db, current_user.id, shopping_session.group_id
     )
     
-    # Verify requester is the payer
-    if user_membership.id != shopping_session.paid_by_membership_id:
+    # Verify requester is the receipt uploader.
+    if user_membership.id != receipt.uploaded_by_membership_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can extract items from receipts",
+            detail="Only the receipt uploader can extract items",
         )
     
     # Check if items already extracted (idempotency)

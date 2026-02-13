@@ -337,7 +337,7 @@ public struct ExtractedItemsReviewView: View {
             if let apiError = error as? APIError {
                 switch apiError {
                 case .server(let status, let message) where status == 403:
-                    self.error = "Only the payer can extract items from receipts. \(message ?? "")"
+                    self.error = "Only the receipt uploader can extract items. \(message ?? "")"
                 case .unauthorized:
                     self.error = "You are not authorized. Please log in again."
                 default:

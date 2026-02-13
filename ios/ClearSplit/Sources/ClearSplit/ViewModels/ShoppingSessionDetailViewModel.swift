@@ -53,13 +53,20 @@ final class ShoppingSessionDetailViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            let request = ParticipantSetRequest(participantMembershipIds: membershipIds)
-            let updated = try await appState.shoppingService.setParticipants(
+            let updated = try await appState.setParticipants(
                 sessionId: session.id,
-                request: request
+                groupId: session.groupId,
+                membershipIds: membershipIds
             )
             self.session = updated
             return true
+        } catch let APIError.server(_, message) {
+            if let message, !message.isEmpty {
+                errorMessage = message
+            } else {
+                errorMessage = "Failed to set participants."
+            }
+            return false
         } catch {
             errorMessage = "Failed to set participants."
             return false
@@ -88,4 +95,3 @@ final class ShoppingSessionDetailViewModel: ObservableObject {
         }
     }
 }
-

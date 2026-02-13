@@ -109,7 +109,18 @@ struct ReceiptUploadView: View {
             } catch {
                 await MainActor.run {
                     isUploading = false
-                    errorMessage = "Failed to upload receipt: \(error.localizedDescription)"
+                    if let apiError = error as? APIError {
+                        switch apiError {
+                        case .server(_, let message):
+                            errorMessage = message ?? "Failed to upload receipt."
+                        case .unauthorized:
+                            errorMessage = "You are not authorized to upload a receipt for this session."
+                        default:
+                            errorMessage = "Failed to upload receipt."
+                        }
+                    } else {
+                        errorMessage = "Failed to upload receipt: \(error.localizedDescription)"
+                    }
                     showError = true
                 }
             }

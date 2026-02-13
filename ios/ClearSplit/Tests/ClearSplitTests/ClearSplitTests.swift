@@ -59,4 +59,116 @@ final class ClearSplitTests: XCTestCase {
         XCTAssertEqual(decoded.status, "pending")
         XCTAssertEqual(decoded.sessionIds.count, 1)
     }
+
+    func testBalanceCalculatorComputesNetBalancesFromSplitsAndPayments() {
+        let groupId = UUID()
+        let sessionId = UUID()
+        let payer = UUID()
+        let memberA = UUID()
+        let memberB = UUID()
+        let now = Date(timeIntervalSince1970: 0)
+
+        let itemId = UUID()
+        let session = ShoppingSession(
+            id: sessionId,
+            groupId: groupId,
+            title: "Weekly Grocery",
+            shoppingDate: "2026-02-13",
+            totalAmount: nil,
+            currency: "USD",
+            paidByMembershipId: payer,
+            status: .finalized,
+            finalizedAt: now,
+            settledAt: nil,
+            createdAt: now,
+            participants: [
+                ShoppingSessionParticipant(id: UUID(), sessionId: sessionId, membershipId: payer, createdAt: now),
+                ShoppingSessionParticipant(id: UUID(), sessionId: sessionId, membershipId: memberA, createdAt: now),
+                ShoppingSessionParticipant(id: UUID(), sessionId: sessionId, membershipId: memberB, createdAt: now)
+            ],
+            receipts: [],
+            items: [
+                ShoppingItem(
+                    id: itemId,
+                    sessionId: sessionId,
+                    name: "Groceries",
+                    quantity: 1,
+                    unitPriceCents: nil,
+                    totalCents: 3000,
+                    createdByMembershipId: payer,
+                    createdAt: now,
+                    splits: [
+                        ShoppingItemSplit(id: UUID(), itemId: itemId, membershipId: payer, shareCents: 1000),
+                        ShoppingItemSplit(id: UUID(), itemId: itemId, membershipId: memberA, shareCents: 1000),
+                        ShoppingItemSplit(id: UUID(), itemId: itemId, membershipId: memberB, shareCents: 1000)
+                    ]
+                )
+            ]
+        )
+
+        let baseBalances = BalanceCalculator.calculateIndividualBalances(from: [session])
+        XCTAssertEqual(baseBalances[payer], 2000)
+        XCTAssertEqual(baseBalances[memberA], -1000)
+        XCTAssertEqual(baseBalances[memberB], -1000)
+        XCTAssertEqual(baseBalances.values.reduce(0, +), 0)
+
+        let confirmedPayment = SettlementPayment(
+            id: UUID(),
+            groupId: groupId,
+            fromMembership: memberA,
+            toMembership: payer,
+            amountCents: 1000,
+            status: "confirmed",
+            note: nil,
+            sentAt: now,
+            confirmedAt: now,
+            createdAt: now,
+            sessionIds: [sessionId]
+        )
+
+        let adjustedBalances = BalanceCalculator.calculateIndividualBalances(
+            from: [session],
+            confirmedPayments: [confirmedPayment]
+        )
+        XCTAssertEqual(adjustedBalances[payer], 1000)
+        XCTAssertEqual(adjustedBalances[memberA], 0)
+        XCTAssertEqual(adjustedBalances[memberB], -1000)
+        XCTAssertEqual(adjustedBalances.values.reduce(0, +), 0)
+    }
+
+    func testSettlementOptimizerMinimizesTransfers() {
+        let creditor = UUID()
+        let debtorA = UUID()
+        let debtorB = UUID()
+
+        let settlements = SettlementOptimizer.optimizeSettlements(
+            balances: [
+                creditor: 2500,
+                debtorA: -1000,
+                debtorB: -1500
+            ],
+            userNames: [
+                creditor: "You",
+                debtorA: "Sarah",
+                debtorB: "Mike"
+            ]
+        )
+
+        XCTAssertEqual(settlements.count, 2)
+        XCTAssertTrue(
+            settlements.contains(where: {
+                $0.fromUserId == debtorB &&
+                $0.toUserId == creditor &&
+                $0.amountCents == 1500
+            })
+        )
+        XCTAssertTrue(
+            settlements.contains(where: {
+                $0.fromUserId == debtorA &&
+                $0.toUserId == creditor &&
+                $0.amountCents == 1000
+            })
+        )
+        XCTAssertEqual(settlements.reduce(0) { $0 + $1.amountCents }, 2500)
+    }
 }

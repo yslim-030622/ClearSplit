@@ -119,6 +119,28 @@ async def get_group(
     return GroupRead.model_validate(group)
 
 
+@router.delete("/{group_id}", response_model=GroupRead)
+async def delete_group(
+    group_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> GroupRead:
+    """Delete a group.
+
+    Only group owners can delete a group.
+    Deleting a group also deletes related memberships, expenses, settlements,
+    and shopping sessions via cascading rules.
+    """
+    group = await get_group_by_id(session, group_id, current_user.id)
+    await require_owner_role(session, group_id, current_user.id)
+
+    deleted_group = GroupRead.model_validate(group)
+    await session.delete(group)
+    await session.commit()
+
+    return deleted_group
+
+
 @router.post("/{group_id}/members/preview", response_model=MemberPreviewResponse)
 async def preview_member_invite(
     group_id: UUID,
@@ -264,4 +286,3 @@ async def list_members(
     # Get members
     memberships = await get_group_members(session, group_id)
     return [MembershipRead.model_validate(m) for m in memberships]
-

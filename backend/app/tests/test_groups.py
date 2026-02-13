@@ -650,3 +650,73 @@ async def test_preview_member_invite_not_owner(client: AsyncClient, session: Asy
 
     assert response.status_code == 403
 
+
+@pytest.mark.asyncio
+async def test_delete_group_owner(client: AsyncClient, session: AsyncSession):
+    """Test that a group owner can delete a group."""
+    from sqlalchemy import select
+
+    owner = create_test_user(email="owner_delete@example.com", username="owner_delete")
+    session.add(owner)
+    await session.flush()
+
+    group = Group(name="Delete Me", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    session.add(owner_membership)
+    await session.flush()
+
+    access_token = create_access_token(owner.id, owner.email)
+
+    response = await client.delete(
+        f"/groups/{group.id}",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == str(group.id)
+    assert payload["name"] == "Delete Me"
+
+    group_result = await session.execute(select(Group).where(Group.id == group.id))
+    assert group_result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_group_not_owner(client: AsyncClient, session: AsyncSession):
+    """Test that non-owners cannot delete a group."""
+    from sqlalchemy import select
+
+    owner = create_test_user(email="owner_keep@example.com", username="owner_keep")
+    member = create_test_user(email="member_keep@example.com", username="member_keep")
+    session.add_all([owner, member])
+    await session.flush()
+
+    group = Group(name="Cannot Delete", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    member_membership = Membership(
+        group_id=group.id, user_id=member.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([owner_membership, member_membership])
+    await session.flush()
+
+    member_token = create_access_token(member.id, member.email)
+
+    response = await client.delete(
+        f"/groups/{group.id}",
+        headers={"Authorization": f"Bearer {member_token}"},
+    )
+
+    assert response.status_code == 403
+
+    group_result = await session.execute(select(Group).where(Group.id == group.id))
+    assert group_result.scalar_one_or_none() is not None

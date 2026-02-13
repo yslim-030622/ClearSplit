@@ -3,7 +3,8 @@ import SwiftUI
 struct ReceiptsDetailCard: View {
     let receipts: [ReceiptUpload]
     let appState: AppState
-    let canDelete: Bool
+    let canUpload: Bool
+    let editableReceiptIds: Set<UUID>
     let onDeleteTap: (ReceiptUpload) -> Void
     let onUploadTap: () -> Void
 
@@ -23,41 +24,61 @@ struct ReceiptsDetailCard: View {
 
                 Spacer()
 
-                // Camera Button in card (backup to toolbar button)
-                Button(action: onUploadTap) {
-                    Image(systemName: "camera.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundColor(.blue600)
-                        .frame(width: 44, height: 44)
-                        .background(Color.blue50)
-                        .clipShape(Circle())
+                if canUpload {
+                    Button(action: onUploadTap) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.blue600)
+                            .frame(width: 44, height: 44)
+                            .background(Color.blue50)
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
 
             // Receipt Content
             if receipts.isEmpty {
                 // Empty State
-                Button(action: {
-                    onUploadTap()
-                }) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.cardInset)
-                            .frame(width: 80, height: 80)
-                            .overlay(
+                SwiftUI.Group {
+                    if canUpload {
+                        Button(action: {
+                            onUploadTap()
+                        }) {
+                            ZStack {
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                                    .foregroundColor(.borderMedium)
-                            )
+                                    .fill(Color.cardInset)
+                                    .frame(width: 80, height: 80)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
+                                            .foregroundColor(.borderMedium)
+                                    )
 
-                        Image(systemName: "doc.text.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.gray400)
+                                Image(systemName: "doc.text.fill")
+                                    .font(.system(size: 32))
+                                    .foregroundColor(.gray400)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.cardInset)
+                                .frame(width: 80, height: 80)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
+                                        .foregroundColor(.borderMedium)
+                                )
+
+                            Image(systemName: "doc.text.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(.gray400)
+                        }
                     }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(PlainButtonStyle())
             } else {
                 // Receipt Thumbnails
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -66,7 +87,7 @@ struct ReceiptsDetailCard: View {
                             ReceiptThumbnailView(
                                 receipt: receipt,
                                 appState: appState,
-                                canDelete: canDelete,
+                                canDelete: editableReceiptIds.contains(receipt.id),
                                 onDeleteTap: onDeleteTap
                             )
                         }
