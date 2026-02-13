@@ -1,0 +1,13 @@
+included:
+  - Sources
+  - ClearSplit/ClearSplit
+  - ClearSplit/ClearSplitTests
+  - ClearSplit/ClearSplitUITests
+
+excluded:
+  - .build
+  - fastlane
+
+only_rules:
+  - force_cast
+  - force_try
