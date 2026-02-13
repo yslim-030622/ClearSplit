@@ -2,13 +2,18 @@ import SwiftUI
 
 @MainActor
 struct GroupDetailView: View {
-    let appState: AppState
+    @ObservedObject private var appState: AppState
     let group: Group
     
     @State private var isShowingHelp = false
     @State private var isAddMemberDialogOpen = false
     @State private var memberToRemove: Membership?
     @State private var isRemoveDialogOpen = false
+
+    init(appState: AppState, group: Group) {
+        _appState = ObservedObject(wrappedValue: appState)
+        self.group = group
+    }
     
     // MARK: - Derived Data
     
@@ -34,7 +39,7 @@ struct GroupDetailView: View {
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color.gray50
+            Color.pageBackground
                 .ignoresSafeArea()
             
             ScrollView {
@@ -90,13 +95,8 @@ struct GroupDetailView: View {
                         }
                         
                         NavigationLink {
-                            // TODO: Replace placeholder with full balances & settlement screen
-                            Text("Balances & Settlement")
-                                .font(.title2)
-                                    .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Color.gray50)
-                    } label: {
+                            BalancesSettlementView(appState: appState, group: group)
+                        } label: {
                             NavigationCardContent(
                                 iconName: "dollarsign.circle",
                                 iconBackground: Color.green.opacity(0.1),
@@ -292,13 +292,7 @@ struct GroupDetailView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
-            )
-            .cornerRadius(16)
-            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+            .sectionStyle()
         }
     }
     
@@ -490,10 +484,10 @@ struct GroupDetailView: View {
                                         .foregroundColor(Color(hex: "111827"))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
-                                        .background(Color.white)
+                                        .background(isInputFocused ? Color.cardBackground : Color.cardInset)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .stroke(isInputFocused ? Color(hex: "2563EB") : Color(hex: "D1D5DB"), lineWidth: isInputFocused ? 2 : 1)
+                                                .stroke(isInputFocused ? Color(hex: "2563EB") : Color.borderLight, lineWidth: isInputFocused ? 2 : 1)
                                         )
                                         .disabled(searchState == .searching)
                                         .focused($isInputFocused)
@@ -879,9 +873,7 @@ struct GroupDetailView: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-            .background(Color.white)
-            .cornerRadius(16)
-            .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+            .sectionStyle()
         }
     }
     

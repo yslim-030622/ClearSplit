@@ -5,6 +5,10 @@ struct ParticipantsDetailCard: View {
     let groupMemberships: [Membership]
     let currentUserId: UUID?
 
+    private var participantGridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 72), spacing: 12, alignment: .leading)]
+    }
+
     init(
         participants: [ShoppingSessionParticipant],
         groupMemberships: [Membership] = [],
@@ -17,7 +21,6 @@ struct ParticipantsDetailCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "person.2.fill")
@@ -40,24 +43,38 @@ struct ParticipantsDetailCard: View {
                     .clipShape(Circle())
             }
 
-            // Participants List
-            HStack(spacing: 16) {
-                ForEach(participants) { participant in
-                    ParticipantAvatarView(
-                        participant: participant,
-                        membership: groupMemberships.first(where: { $0.id == participant.membershipId }),
-                        currentUserId: currentUserId
-                    )
+            if participants.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No participants yet")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray700)
+
+                    Text("Add members to this session to start splitting items.")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.gray500)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.cardInset)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.borderLight, lineWidth: 1)
+                )
+            } else {
+                LazyVGrid(columns: participantGridColumns, alignment: .leading, spacing: 12) {
+                    ForEach(participants) { participant in
+                        ParticipantAvatarView(
+                            participant: participant,
+                            membership: groupMemberships.first(where: { $0.id == participant.membershipId }),
+                            currentUserId: currentUserId
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(20)
-        .background(Color.white)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+        .sectionStyle()
     }
 }

@@ -9,6 +9,8 @@ ClearSplit has been refactored to support a **roommates grocery shopping app** w
 3. Manually add line items with prices
 4. Select which participants share each item
 5. Automatically compute **equal splits** (1/n only) with deterministic remainder distribution
+6. Include shopping item splits directly in group balances and settlement suggestions
+7. Record actual settlement payments (pending/confirmed) and track session settlement progress
 
 The original expense-tracking functionality remains intact. This shopping model runs alongside it.
 
@@ -25,11 +27,15 @@ The original expense-tracking functionality remains intact. This shopping model 
   - Adds items and assigns sharers
 - Belongs to a **Group** (household)
 - Currency is **fixed to USD** for MVP
+- Lifecycle state:
+  - `active`: currently editable and included in balances
+  - `finalized`: closed for shopping, still included in balances
+  - `settled`: fully paid out; excluded from future balance calculations
 
 ### Participants
 - A shopping session selects which group members participated in that trip
 - Only participants can be selected as sharers for items
-- The payer must be a participant
+- The payer is automatically seeded as a participant and must remain a participant
 
 ### Shopping Items
 - Line items from the receipt (e.g., "Milk 2 gallons", "Tax")
@@ -43,10 +49,10 @@ The original expense-tracking functionality remains intact. This shopping model 
 
 ### Equal Split Logic
 - Total is divided equally among selected sharers
-- Remainder cents are distributed deterministically:
-  - Sharers sorted by UUID string
-  - First `remainder` sharers get `base_share + 1` cent
-  - Rest get `base_share`
+- Remainder cents are distributed deterministically with payer preference:
+  - If payer is among sharers, payer receives remainder cents first
+  - Remaining remainder (if any) follows sharers sorted by UUID string
+  - If payer is not a sharer, pure UUID-string order is used
 - Example: $10.00 (1000 cents) split 3 ways → [334, 333, 333]
 
 ### Taxes and Fees
@@ -68,6 +74,9 @@ title                   TEXT NOT NULL
 shopping_date           DATE (nullable)
 currency                VARCHAR(3) DEFAULT 'USD'
 paid_by_membership_id   UUID (payer, must be group member)
+status                  ENUM('active','finalized','settled') DEFAULT 'active'
+finalized_at            TIMESTAMP NULL
+settled_at              TIMESTAMP NULL
 created_at              TIMESTAMP
 ```
 
@@ -97,6 +106,7 @@ name                TEXT NOT NULL
 quantity            INTEGER DEFAULT 1, ≥ 1
 unit_price_cents    BIGINT (nullable, ≥ 0)
 total_cents         BIGINT NOT NULL, > 0
+created_by_membership_id UUID → memberships.id
 created_at          TIMESTAMP
 CHECK: quantity >= 1
 CHECK: unit_price_cents IS NULL OR unit_price_cents >= 0
@@ -115,6 +125,27 @@ CHECK: share_cents >= 0
 INVARIANT: SUM(share_cents) = shopping_items.total_cents
 ```
 
+#### `settlement_payments` table
+```sql
+id               UUID PRIMARY KEY
+group_id         UUID → groups.id
+from_membership  UUID (composite FK with group to memberships)
+to_membership    UUID (composite FK with group to memberships)
+amount_cents     BIGINT > 0
+status           ENUM('pending','confirmed','voided')
+sent_at          TIMESTAMP NULL
+confirmed_at     TIMESTAMP NULL
+note             TEXT NULL
+created_at       TIMESTAMP
+```
+
+#### `settlement_payment_sessions` table
+```sql
+payment_id    UUID → settlement_payments.id
+session_id    UUID → shopping_sessions.id
+PRIMARY KEY (payment_id, session_id)
+```
+
 ### iOS (Swift Models)
 
 Key models defined in `ShoppingModels.swift`:
@@ -128,7 +159,7 @@ Key models defined in `ShoppingModels.swift`:
 
 ## API Endpoints
 
-All endpoints require authentication. Only group members can view; only the payer can mutate.
+All endpoints require authentication. Group membership is required for access.
 
 ### Shopping Sessions
 
@@ -176,6 +207,13 @@ Set/replace participants (payer only).
 
 ---
 
+#### `POST /shopping-sessions/{session_id}/finalize`
+Finalize a session (payer only).
+
+**Response:** `200 OK` + updated `ShoppingSessionRead`
+
+---
+
 ### Receipts
 
 #### `POST /shopping-sessions/{session_id}/receipt`
@@ -190,7 +228,7 @@ Upload a receipt image (payer only).
 ### Shopping Items
 
 #### `POST /shopping-sessions/{session_id}/items`
-Create a shopping item (payer only).
+Create a shopping item (**any session participant**).
 
 **Request:**
 ```json
@@ -215,7 +253,7 @@ Or for tax/fee:
 ---
 
 #### `PUT /items/{item_id}/sharers`
-Set/replace sharers for an item (payer only). System computes equal splits.
+Set/replace sharers for an item (**item creator, payer, or group owner**). System computes equal splits.
 
 **Request:**
 ```json
@@ -239,6 +277,26 @@ Set/replace sharers for an item (payer only). System computes equal splits.
 
 ---
 
+### Balances / Settlement Payments
+
+#### `GET /groups/{group_id}/balances`
+Returns live balances + current transfer suggestions, computed from:
+- expenses (`expenses` + `expense_splits`)
+- shopping sessions in `active` / `finalized` status
+- confirmed settlement payments
+
+#### `POST /groups/{group_id}/settlement-payments`
+Create payment (`pending` or auto-`confirmed`) with optional covered `session_ids`.
+
+#### `POST /settlement-payments/{payment_id}/confirm`
+Confirm a pending payment.
+
+#### `GET /groups/{group_id}/settlement-payments`
+List payment history.
+
+#### Legacy compatibility
+`PATCH /settlements/{settlement_id}` remains supported. Marking `status=paid` now persists a confirmed `settlement_payments` record and updates future balances.
+
 ## Authorization Rules
 
 | Action | Who Can Do It |
@@ -247,10 +305,9 @@ Set/replace sharers for an item (payer only). System computes equal splits.
 | Create shopping session | Any group member (becomes payer) |
 | Set participants | Payer only |
 | Upload receipt | Payer only |
-| Add item | Payer only |
-| Set sharers | Payer only |
-
-Non-payer group members can **view** everything but cannot edit.
+| Add item | Any session participant |
+| Edit/Delete item | Item creator, payer, or group owner |
+| Set sharers | Item creator, payer, or group owner |
 
 ---
 
@@ -394,4 +451,3 @@ The shopping model provides a **roommates grocery receipt splitting** experience
 - **Production-grade** backend with tests, migrations, and authorization
 
 This refactor maintains the existing expense system while introducing a new, focused workflow for grocery shopping among roommates.
-

@@ -3,8 +3,9 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, model_validator
 
+from app.models.shopping_session import ShoppingSessionStatus
 from app.schemas.base import BaseSchema
 
 
@@ -103,6 +104,7 @@ class ShoppingItemRead(BaseSchema):
     quantity: int
     unit_price_cents: int | None
     total_cents: int
+    created_by_membership_id: UUID
     created_at: datetime
     splits: list[ShoppingItemSplitRead] = Field(default_factory=list)
 
@@ -155,10 +157,22 @@ class ShoppingSessionRead(BaseSchema):
     total_amount: float | None
     currency: str
     paid_by_membership_id: UUID
+    status: ShoppingSessionStatus
+    finalized_at: datetime | None = None
+    settled_at: datetime | None = None
     created_at: datetime
     participants: list[ShoppingSessionParticipantRead] = Field(default_factory=list)
     receipts: list[ReceiptUploadRead] = Field(default_factory=list)
     items: list[ShoppingItemRead] = Field(default_factory=list)
+
+
+class ShoppingSessionUpdate(BaseSchema):
+    """Shopping session update schema."""
+
+    title: str | None = Field(None, min_length=1, max_length=500)
+    shopping_date: date | None = None
+    total_amount: float | None = Field(None, ge=0)
+    status: ShoppingSessionStatus | None = None
 
 
 # ============================================================================

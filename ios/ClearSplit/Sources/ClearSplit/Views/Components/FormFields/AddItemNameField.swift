@@ -29,15 +29,6 @@ struct AddItemNameField: View {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(inputBorder, lineWidth: inputBorderWidth)
                 )
-                .overlay(
-                    SwiftUI.Group {
-                        if focusedField == .name && formErrors["name"] == nil {
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.blue500.opacity(0.1), lineWidth: 4)
-                                .padding(-2)
-                        }
-                    }
-                )
                 .focused($focusedField, equals: .name)
                 .onChange(of: itemName) { newValue in
                     if formErrors["name"] != nil {
@@ -61,18 +52,27 @@ struct AddItemNameField: View {
         if formErrors["name"] != nil {
             return Color.red50
         }
-        return Color.white
+        if focusedField == .name {
+            return Color.cardBackground
+        }
+        return Color.cardInset
     }
 
     private var inputBorder: Color {
         if formErrors["name"] != nil {
             return Color.red300
         }
-        return Color.gray200
+        if focusedField == .name {
+            return Color.blue500
+        }
+        return Color.borderLight
     }
 
     private var inputBorderWidth: CGFloat {
         if formErrors["name"] != nil {
+            return 2
+        }
+        if focusedField == .name {
             return 2
         }
         return 1

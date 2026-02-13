@@ -1,5 +1,11 @@
 import Foundation
 
+public enum ShoppingSessionStatus: String, Codable {
+    case active
+    case finalized
+    case settled
+}
+
 // MARK: - Shopping Session
 
 public struct ShoppingSession: Codable, Equatable, Identifiable {
@@ -10,6 +16,9 @@ public struct ShoppingSession: Codable, Equatable, Identifiable {
     public let totalAmount: Double?
     public let currency: String
     public let paidByMembershipId: UUID
+    public let status: ShoppingSessionStatus
+    public let finalizedAt: Date?
+    public let settledAt: Date?
     public let createdAt: Date
     public let participants: [ShoppingSessionParticipant]
     public let receipts: [ReceiptUpload]
@@ -91,6 +100,7 @@ public struct ShoppingItem: Codable, Equatable, Identifiable {
     public let quantity: Int
     public let unitPriceCents: Int?
     public let totalCents: Int
+    public let createdByMembershipId: UUID
     public let createdAt: Date
     public let splits: [ShoppingItemSplit]
 }

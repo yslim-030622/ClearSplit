@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -100,19 +100,15 @@ async def create_expense(
     )
 
     # Load splits for response
-    await session.refresh(expense)
+    await session.refresh(expense, attribute_names=["splits"])
     expense_response = ExpenseRead.model_validate(expense)
     expense_response.splits = [
         ExpenseSplitRead.model_validate(split) for split in expense.splits
     ]
 
-    # Auto-compute settlements after expense creation
-    # This ensures balances are always up-to-date
-    try:
-        await compute_settlement_batch(session, group_id)
-    except Exception as e:
-        # Log error but don't fail expense creation
-        print(f"[Expenses] Warning: Failed to auto-compute settlements: {e}")
+    # Auto-compute settlements after expense creation.
+    # This runs in the same unit-of-work and is committed once at the end.
+    await compute_settlement_batch(session, group_id)
 
     # Store idempotency key if provided
     if idempotency_key_header:
@@ -125,6 +121,7 @@ async def create_expense(
             status_code=201,
         )
 
+    await session.commit()
     return expense_response
 
 
@@ -172,6 +169,3 @@ async def list_group_expenses(
         expense_responses.append(expense_response)
 
     return expense_responses
-
-
-

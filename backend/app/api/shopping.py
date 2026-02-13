@@ -24,10 +24,13 @@ from app.schemas.shopping import (
     ShoppingItemSplitRead,
     ShoppingSessionCreate,
     ShoppingSessionRead,
+    ShoppingSessionUpdate,
 )
 from app.services.shopping import (
+    can_manage_item,
     create_shopping_item,
     create_shopping_session,
+    finalize_shopping_session,
     get_receipt_upload,
     get_shopping_item,
     get_shopping_session,
@@ -39,6 +42,7 @@ from app.services.shopping import (
     upload_receipt,
     verify_user_is_group_member,
 )
+from app.models.shopping_session import ShoppingSessionStatus
 
 router = APIRouter(tags=["shopping"])
 
@@ -160,7 +164,7 @@ async def get_shopping_session_endpoint(
 )
 async def update_shopping_session(
     session_id: UUID,
-    request: ShoppingSessionCreate,  # Reuse same schema for update
+    request: ShoppingSessionUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
 ) -> ShoppingSessionRead:
@@ -195,15 +199,55 @@ async def update_shopping_session(
             detail="Only the payer can update the shopping session",
         )
     
-    # Update fields
-    shopping_session.title = request.title
-    shopping_session.shopping_date = request.shopping_date
-    shopping_session.total_amount = request.total_amount
-    
+    if request.title is not None:
+        shopping_session.title = request.title
+    if request.shopping_date is not None:
+        shopping_session.shopping_date = request.shopping_date
+    if request.total_amount is not None:
+        shopping_session.total_amount = request.total_amount
+    if request.status is not None:
+        if request.status == ShoppingSessionStatus.SETTLED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Session status 'settled' is managed automatically by payments",
+            )
+        if request.status == ShoppingSessionStatus.FINALIZED:
+            shopping_session.status = ShoppingSessionStatus.FINALIZED
+            if shopping_session.finalized_at is None:
+                from datetime import datetime, timezone
+                shopping_session.finalized_at = datetime.now(tz=timezone.utc)
+        if request.status == ShoppingSessionStatus.ACTIVE:
+            shopping_session.status = ShoppingSessionStatus.ACTIVE
+            shopping_session.settled_at = None
+
     await db.commit()
     await db.refresh(shopping_session)
     
     return ShoppingSessionRead.model_validate(shopping_session)
+
+
+@router.post(
+    "/shopping-sessions/{session_id}/finalize",
+    response_model=ShoppingSessionRead,
+)
+async def finalize_session(
+    session_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> ShoppingSessionRead:
+    """Finalize a shopping session so only settlement progress remains."""
+
+    shopping_session = await get_shopping_session(db, session_id)
+    user_membership = await verify_user_is_group_member(
+        db, current_user.id, shopping_session.group_id
+    )
+    updated = await finalize_shopping_session(
+        db,
+        shopping_session,
+        requester_membership_id=user_membership.id,
+    )
+    await db.commit()
+    return ShoppingSessionRead.model_validate(updated)
 
 
 @router.delete(
@@ -477,7 +521,7 @@ async def create_item(
 ) -> ShoppingItemRead:
     """Create a shopping item.
 
-    Only the payer can create items.
+    Any session participant can create items.
 
     Args:
         session_id: Session UUID
@@ -499,7 +543,7 @@ async def create_item(
         db, current_user.id, shopping_session.group_id
     )
 
-    # Create item (service will verify payer authorization)
+    # Create item (service will verify participant authorization)
     item = await create_shopping_item(
         db,
         shopping_session,
@@ -527,7 +571,7 @@ async def update_item(
 ) -> ShoppingItemRead:
     """Update a shopping item (name, quantity, price).
     
-    Only the payer can update items.
+    Only the item creator, payer, or group owner can update items.
     If total_cents changes, existing splits are invalidated and must be reset.
     
     Args:
@@ -556,12 +600,21 @@ async def update_item(
         db, current_user.id, shopping_session.group_id
     )
     
-    # Verify requester is the payer
-    if user_membership.id != shopping_session.paid_by_membership_id:
+    # Verify requester can manage this item
+    if not await can_manage_item(
+        db,
+        shopping_session,
+        item,
+        requester_membership_id=user_membership.id,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can update items",
+            detail="Only the item creator, payer, or group owner can update items",
         )
+
+    if shopping_session.status == ShoppingSessionStatus.SETTLED:
+        shopping_session.status = ShoppingSessionStatus.ACTIVE
+        shopping_session.settled_at = None
     
     # If total_cents changed, delete existing splits (they're now invalid)
     if item.total_cents != request.total_cents:
@@ -595,7 +648,7 @@ async def delete_item(
 ) -> None:
     """Delete a shopping item and its splits.
     
-    Only the payer can delete items.
+    Only the item creator, payer, or group owner can delete items.
     
     Args:
         item_id: Item UUID
@@ -619,12 +672,21 @@ async def delete_item(
         db, current_user.id, shopping_session.group_id
     )
     
-    # Verify requester is the payer
-    if user_membership.id != shopping_session.paid_by_membership_id:
+    # Verify requester can manage this item
+    if not await can_manage_item(
+        db,
+        shopping_session,
+        item,
+        requester_membership_id=user_membership.id,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can delete items",
+            detail="Only the item creator, payer, or group owner can delete items",
         )
+
+    if shopping_session.status == ShoppingSessionStatus.SETTLED:
+        shopping_session.status = ShoppingSessionStatus.ACTIVE
+        shopping_session.settled_at = None
     
     # Delete splits
     result = await db.execute(
@@ -651,7 +713,7 @@ async def set_sharers(
 ) -> SharersSetResponse:
     """Set/replace sharers for a shopping item.
 
-    Only the payer can set sharers. The system computes equal splits
+    Only the item creator, payer, or group owner can set sharers. The system computes equal splits
     automatically with deterministic remainder distribution.
 
     Args:
@@ -677,7 +739,7 @@ async def set_sharers(
         db, current_user.id, shopping_session.group_id
     )
 
-    # Set sharers (service will verify payer authorization and compute splits)
+    # Set sharers (service verifies item-management permissions and computes splits)
     splits = await set_item_sharers(
         db,
         item,

@@ -1,8 +1,9 @@
 import uuid
+import enum
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import Date, Enum as SQLEnum, ForeignKey, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +16,14 @@ if TYPE_CHECKING:
     from app.models.shopping_session_participant import ShoppingSessionParticipant
     from app.models.receipt_upload import ReceiptUpload
     from app.models.shopping_item import ShoppingItem
+
+
+class ShoppingSessionStatus(str, enum.Enum):
+    """Shopping session lifecycle state."""
+
+    ACTIVE = "active"
+    FINALIZED = "finalized"
+    SETTLED = "settled"
 
 
 class ShoppingSession(Base):
@@ -44,10 +53,31 @@ class ShoppingSession(Base):
         UUID(as_uuid=True),
         nullable=False,
     )
+    status: Mapped[ShoppingSessionStatus] = mapped_column(
+        SQLEnum(
+            ShoppingSessionStatus,
+            name="shopping_session_status",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        server_default="'active'",
+        nullable=False,
+    )
+    finalized_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", "group_id", name="uq_shopping_sessions_group_id"),
     )
 
     # Relationships
@@ -67,4 +97,3 @@ class ShoppingSession(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-

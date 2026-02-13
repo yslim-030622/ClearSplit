@@ -188,7 +188,7 @@ async def create_expense_with_equal_splits(
         splits.append(split)
         session.add(split)
 
-    await session.commit()
+    await session.flush()
     await session.refresh(expense, attribute_names=["splits"])
 
     return expense

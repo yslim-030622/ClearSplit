@@ -56,19 +56,25 @@ Behavior:
 - equal split creation
 - deterministic remainder distribution
 - optional idempotency replay using stored response payload
-- settlement recomputation trigger after expense creation
+- settlement recomputation trigger after expense creation (committed in same unit-of-work)
 
 ### Settlements
 
+- `GET /groups/{group_id}/balances`
 - `POST /groups/{group_id}/settlements/compute`
 - `GET /groups/{group_id}/settlements/latest`
 - `PATCH /settlements/{settlement_id}`
+- `POST /groups/{group_id}/settlement-payments`
+- `POST /settlement-payments/{payment_id}/confirm`
+- `GET /groups/{group_id}/settlement-payments`
 
 Behavior:
 
-- compute creates immutable batches
-- only `status=paid` update supported via API
-- only debtor membership can mark a settlement paid
+- balances aggregate expenses + shopping sessions (`active`/`finalized`) and exclude `settled` sessions
+- confirmed `settlement_payments` reduce future outstanding balances/suggestions
+- compute creates immutable suggestion snapshots (`settlement_batches` + `settlements`)
+- `PATCH /settlements/{id}` remains backward-compatible and now persists confirmed payment records
+- net-balance verification enforces zero-sum and raises explicit diagnostics when data is inconsistent
 
 ### Shopping Sessions and Receipts
 
@@ -76,6 +82,7 @@ Behavior:
 - `GET /groups/{group_id}/shopping-sessions`
 - `GET /shopping-sessions/{session_id}`
 - `PATCH /shopping-sessions/{session_id}`
+- `POST /shopping-sessions/{session_id}/finalize`
 - `DELETE /shopping-sessions/{session_id}`
 - `PUT /shopping-sessions/{session_id}/participants`
 - `POST /shopping-sessions/{session_id}/receipt`
@@ -90,7 +97,10 @@ Behavior:
 
 Key rules:
 
-- payer-only operations for write actions affecting shopping, receipts, and sharers
+- session lifecycle status: `active`, `finalized`, `settled`
+- payer-only for participants/finalize/receipts
+- any participant can add items
+- item creator, session payer, or group owner can edit/delete items and manage sharers
 - participants must remain compatible with existing item sharers
 - OCR extraction endpoint is idempotent if extracted rows already exist
 
@@ -116,6 +126,8 @@ Primary entities:
 - `expense_splits`
 - `settlement_batches`
 - `settlements`
+- `settlement_payments`
+- `settlement_payment_sessions`
 - `shopping_sessions`
 - `shopping_session_participants`
 - `shopping_items`
@@ -141,6 +153,7 @@ Money representation:
 | `20260127_0004` | Add `users.first_name` and `users.last_name`. |
 | `20260128_0005` | Add `users.username` (CITEXT + index). |
 | `20260209_0006` | Add `receipt_extracted_items` table. |
+| `20260213_0007` | Add shopping session lifecycle status, item creator column, settlement payment persistence tables. |
 
 Canonical schema source is Alembic versions, not `backend/db/schema.sql`.
 

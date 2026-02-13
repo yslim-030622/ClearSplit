@@ -32,15 +32,6 @@ struct AddItemPriceQuantitySection: View {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(inputBorder(field: "unitPrice"), lineWidth: inputBorderWidth(field: "unitPrice"))
                 )
-                .overlay(
-                    SwiftUI.Group {
-                        if focusedField == .price && formErrors["unitPrice"] == nil {
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.blue500.opacity(0.1), lineWidth: 4)
-                                .padding(-2)
-                        }
-                    }
-                )
                 .focused($focusedField, equals: .price)
                 .onChange(of: unitPriceText) { newValue in
                     if formErrors["unitPrice"] != nil {
@@ -90,11 +81,11 @@ struct AddItemPriceQuantitySection: View {
                 }
             }
             .frame(height: 48)
-            .background(Color.white)
+            .background(Color.cardInset)
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray200, lineWidth: 1)
+                    .stroke(Color.borderLight, lineWidth: 1)
             )
         }
 
@@ -111,26 +102,39 @@ struct AddItemPriceQuantitySection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(Color.gray50)
+        .background(Color.cardInset)
         .cornerRadius(12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.borderLight, lineWidth: 1)
+        )
     }
 
     private func inputBackground(field: String) -> Color {
         if formErrors[field] != nil {
             return Color.red50
         }
-        return Color.white
+        if field == "unitPrice" && focusedField == .price {
+            return Color.cardBackground
+        }
+        return Color.cardInset
     }
 
     private func inputBorder(field: String) -> Color {
         if formErrors[field] != nil {
             return Color.red300
         }
-        return Color.gray200
+        if field == "unitPrice" && focusedField == .price {
+            return Color.blue500
+        }
+        return Color.borderLight
     }
 
     private func inputBorderWidth(field: String) -> CGFloat {
         if formErrors[field] != nil {
+            return 2
+        }
+        if field == "unitPrice" && focusedField == .price {
             return 2
         }
         return 1

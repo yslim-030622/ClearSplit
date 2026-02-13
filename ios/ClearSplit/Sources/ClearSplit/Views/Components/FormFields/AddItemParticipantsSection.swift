@@ -26,28 +26,43 @@ struct AddItemParticipantsSection: View {
                     .foregroundColor(.gray500)
             }
 
-            VStack(spacing: 8) {
-                ForEach(participants) { participant in
-                    AddItemParticipantRow(
-                        participant: participant,
-                        isSelected: selectedParticipants.contains(participant.membershipId),
-                        onToggle: {
-                            if selectedParticipants.contains(participant.membershipId) {
-                                selectedParticipants.remove(participant.membershipId)
-                            } else {
-                                selectedParticipants.insert(participant.membershipId)
-                            }
-                        }
+            if participants.isEmpty {
+                Text("No participants available for this session.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.gray500)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color.cardInset)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color.borderLight, lineWidth: 1)
                     )
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(participants) { participant in
+                        AddItemParticipantRow(
+                            participant: participant,
+                            isSelected: selectedParticipants.contains(participant.membershipId),
+                            onToggle: {
+                                if selectedParticipants.contains(participant.membershipId) {
+                                    selectedParticipants.remove(participant.membershipId)
+                                } else {
+                                    selectedParticipants.insert(participant.membershipId)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
         .padding(20)
-        .background(Color.white)
+        .background(Color.sectionBackground)
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(formErrors["participants"] != nil ? Color.red300 : Color.gray200, lineWidth: 1)
+                .stroke(formErrors["participants"] != nil ? Color.red300 : Color.borderMedium, lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 }

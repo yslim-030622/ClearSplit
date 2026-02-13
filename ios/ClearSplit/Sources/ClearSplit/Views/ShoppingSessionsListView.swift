@@ -6,12 +6,12 @@ struct ShoppingSessionsListView: View {
     @State private var isShowingHelp = false
     @State private var sessionPendingDelete: ShoppingSession?
 
-    let appState: AppState
+    @ObservedObject private var appState: AppState
     let groupId: UUID
     let paidByMembershipId: UUID
 
     init(appState: AppState, groupId: UUID, paidByMembershipId: UUID) {
-        self.appState = appState
+        _appState = ObservedObject(wrappedValue: appState)
         self.groupId = groupId
         self.paidByMembershipId = paidByMembershipId
         _viewModel = StateObject(wrappedValue: ShoppingSessionsViewModel(appState: appState, groupId: groupId))

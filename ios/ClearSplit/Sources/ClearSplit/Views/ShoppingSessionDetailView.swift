@@ -7,14 +7,19 @@ struct ShoppingSessionDetailView: View {
     @State private var showingReceiptUpload = false
     @State private var showingExtractedItems = false
     @State private var uploadedReceiptId: UUID?
+    @State private var pendingDeleteItem: ShoppingItem?
     @State private var pendingDeleteReceipt: ReceiptUpload?
     @State private var showDeleteConfirm = false
     @Environment(\.dismiss) private var dismiss
 
-    let appState: AppState
+    @ObservedObject private var appState: AppState
+
+    private var currentUserId: UUID? {
+        appState.user?.id
+    }
 
     init(appState: AppState, sessionId: UUID) {
-        self.appState = appState
+        _appState = ObservedObject(wrappedValue: appState)
         _viewModel = StateObject(wrappedValue: ShoppingSessionDetailViewModel(appState: appState, sessionId: sessionId))
     }
 
@@ -24,59 +29,76 @@ struct ShoppingSessionDetailView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let session = viewModel.session {
-                ZStack(alignment: .bottom) {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            // Blue Gradient Hero Card
-                            TotalAmountHeroCard(
-                                totalCents: session.totalCents,
-                                paidByMembershipId: session.paidByMembershipId
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Blue Gradient Hero Card
+                        TotalAmountHeroCard(
+                            totalCents: session.totalCents,
+                            paidByMembershipId: session.paidByMembershipId
+                        )
+
+                        // Content Area
+                        VStack(spacing: 16) {
+                            // Participants Card
+                            ParticipantsDetailCard(
+                                participants: session.participants,
+                                groupMemberships: appState.membershipsByGroupId[session.groupId] ?? [],
+                                currentUserId: currentUserId
                             )
 
-                            // Content Area
-                            VStack(spacing: 16) {
-                                // Participants Card
-                                ParticipantsDetailCard(
-                                    participants: session.participants
-                                )
+                            // Receipts Card
+                            ReceiptsDetailCard(
+                                receipts: session.receipts,
+                                appState: appState,
+                                canDelete: canDeleteReceipts(session: session),
+                                onDeleteTap: { receipt in
+                                    pendingDeleteReceipt = receipt
+                                    showDeleteConfirm = true
+                                },
+                                onUploadTap: {
+                                    showingReceiptUpload = true
+                                }
+                            )
 
-                                // Receipts Card
-                                ReceiptsDetailCard(
-                                    receipts: session.receipts,
-                                    appState: appState,
-                                    canDelete: canDeleteReceipts(session: session),
-                                    onDeleteTap: { receipt in
-                                        pendingDeleteReceipt = receipt
-                                        showDeleteConfirm = true
-                                    },
-                                    onUploadTap: {
-                                        showingReceiptUpload = true
+                            // Items Section
+                            ItemsDetailCard(
+                                items: session.items,
+                                participants: session.participants,
+                                groupMemberships: appState.membershipsByGroupId[session.groupId] ?? [],
+                                currentUserId: currentUserId,
+                                displayMode: .detailed,
+                                onAddItem: {
+                                    showingAddItem = true
+                                },
+                                onSaveItem: { item, request, membershipIds in
+                                    do {
+                                        _ = try await appState.updateShoppingItem(
+                                            itemId: item.id,
+                                            sessionId: session.id,
+                                            groupId: session.groupId,
+                                            request: request,
+                                            membershipIds: membershipIds
+                                        )
+                                        await viewModel.load()
+                                        return nil
+                                    } catch AppStateError.invalidParticipants {
+                                        return "Select at least one participant."
+                                    } catch {
+                                        return "Failed to update item. Please try again."
                                     }
-                                )
-
-                                // Items Card
-                                ItemsDetailCard(
-                                    items: session.items,
-                                    participants: session.participants,
-                                    onItemTap: { itemId in
-                                        // TODO: Navigate to edit item
-                                    }
-                                )
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 100) // Space for fixed button
+                                },
+                                onDeleteItem: { itemId in
+                                    pendingDeleteItem = session.items.first(where: { $0.id == itemId })
+                                },
+                                onItemTap: { _ in }
+                            )
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 24)
                     }
-                    .background(Color.white)
-
-                    // Fixed Add Item Button
-                    AddItemFixedButton {
-                        showingAddItem = true
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
                 }
+                .background(Color.pageBackground)
                 .sheet(isPresented: $showingReceiptUpload) {
                     ReceiptUploadView(
                         sessionId: session.id,
@@ -160,6 +182,9 @@ struct ShoppingSessionDetailView: View {
         }
         .task {
             await viewModel.load()
+            if let groupId = viewModel.session?.groupId {
+                _ = try? await appState.loadMembers(groupId: groupId)
+            }
         }
         .sheet(isPresented: $showingAddItem) {
             if let session = viewModel.session {
@@ -181,6 +206,40 @@ struct ShoppingSessionDetailView: View {
             Button("OK") { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .confirmationDialog(
+            "Delete Item",
+            isPresented: Binding(
+                get: { pendingDeleteItem != nil },
+                set: { if !$0 { pendingDeleteItem = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDeleteItem = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let item = pendingDeleteItem, let session = viewModel.session else { return }
+                pendingDeleteItem = nil
+                Task {
+                    do {
+                        try await appState.deleteShoppingItem(
+                            itemId: item.id,
+                            sessionId: session.id,
+                            groupId: session.groupId
+                        )
+                        await viewModel.load()
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } catch {
+                        viewModel.errorMessage = "Failed to delete item. Please try again."
+                        UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    }
+                }
+            }
+        } message: {
+            if let item = pendingDeleteItem {
+                Text("Are you sure you want to delete \"\(item.name)\"?")
+            }
         }
         .alert("Delete receipt?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) { }

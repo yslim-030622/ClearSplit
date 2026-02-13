@@ -487,3 +487,47 @@ async def test_calculate_equal_splits():
     assert splits == [1, 0, 0]
     assert sum(splits) == 1
 
+
+@pytest.mark.asyncio
+async def test_create_expense_persists_recomputed_settlement_batch(
+    client: AsyncClient, session: AsyncSession
+):
+    """Regression: expense create should commit settlement recompute in same unit-of-work."""
+    user1 = create_test_user(email="reg1@example.com", username="reg1")
+    user2 = create_test_user(email="reg2@example.com", username="reg2")
+    session.add_all([user1, user2])
+    await session.commit()
+
+    group = Group(name="Regression Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2])
+    await session.commit()
+
+    access_token = create_access_token(user1.id, user1.email)
+
+    create_response = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Regression Dinner",
+            "amount_cents": 1000,
+            "currency": "USD",
+            "paid_by": str(membership1.id),
+            "expense_date": str(date.today()),
+            "split_among": [str(membership1.id), str(membership2.id)],
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+
+    latest_response = await client.get(
+        f"/groups/{group.id}/settlements/latest",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert latest_response.status_code == 200, latest_response.text
+    payload = latest_response.json()
+    assert payload["total_settlements"] == 1
+    assert payload["settlements"][0]["amount_cents"] == 500
