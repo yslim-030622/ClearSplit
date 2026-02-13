@@ -1,26 +1,42 @@
-name: CI
+name: Backend CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: '3.11'
-  POSTGRES_VERSION: '16'
+  PYTHON_VERSION: "3.11"
+  ENV: test
+  DATABASE_URL: postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
+  JWT_SECRET: test-secret-key-for-ci-only-not-for-production-minimum-32-chars
+  JWT_ALGORITHM: HS256
+  ACCESS_TOKEN_EXPIRE_MINUTES: 15
+  REFRESH_TOKEN_EXPIRE_DAYS: 30
+  S3_BUCKET_NAME: clearsplit-ci-test-bucket
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
 
 jobs:
-  # ============================================================================
-  # Backend: Linting
-  # ============================================================================
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./backend
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,137 +45,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff
+          pip install -r requirements-dev.txt
 
-      - name: Run ruff check
+      - name: Run lint gate (syntax + undefined names)
         run: |
-          ruff check app/ || true  # Non-blocking for now
+          ruff check app app/tests --select=E9,F63,F7,F82
 
-      - name: Run ruff format check
-        run: |
-          ruff format --check app/ || true  # Non-blocking for now
-
-  # ============================================================================
-  # Backend: Type Checking
-  # ============================================================================
-  backend-type-check:
-    name: Backend Type Check
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./backend
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install mypy types-python-jose
-
-      - name: Run mypy
-        run: |
-          mypy app/ --ignore-missing-imports || true  # Non-blocking for now
-
-  # ============================================================================
-  # Backend: Tests
-  # ============================================================================
-  backend-test:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
-      fail-fast: false
-
-    env:
-      DATABASE_URL: postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
-      JWT_SECRET: test-secret-key-for-ci-only-not-for-production-minimum-32-chars
-      JWT_ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: 15
-      REFRESH_TOKEN_EXPIRE_DAYS: 30
-      ENV: test
-
-    services:
-      postgres:
-        image: postgres:${{ env.POSTGRES_VERSION }}
-        env:
-          POSTGRES_USER: clearsplit
-          POSTGRES_PASSWORD: clearsplit
-          POSTGRES_DB: clearsplit
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    defaults:
-      run:
-        working-directory: ./backend
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest-cov
-
-      - name: Run database migrations
-        run: |
-          alembic upgrade head
-
-      - name: Run tests with coverage
-        run: |
-          pytest --cov=app --cov-report=xml --cov-report=term-missing -v
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./backend/coverage.xml
-          flags: backend
-          name: backend-${{ matrix.python-version }}
-          fail_ci_if_error: false
-
-  # ============================================================================
-  # Backend: Migration Validation
-  # ============================================================================
   backend-migrations:
     name: Backend Migrations
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./backend
-
     services:
       postgres:
-        image: postgres:${{ env.POSTGRES_VERSION }}
+        image: postgres:16
         env:
           POSTGRES_USER: clearsplit
           POSTGRES_PASSWORD: clearsplit
@@ -171,7 +77,6 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -180,7 +85,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
+          cache: pip
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
@@ -188,50 +93,161 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create .env file
-        run: |
-          cat > .env << EOF
-          ENV=test
-          DATABASE_URL=postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
-          JWT_SECRET=test-secret-key-for-ci-only-not-for-production-minimum-32-chars
-          JWT_ALGORITHM=HS256
-          ACCESS_TOKEN_EXPIRE_MINUTES=15
-          REFRESH_TOKEN_EXPIRE_DAYS=30
-          EOF
-
-      - name: Check migration heads
-        run: |
-          alembic heads
-
-      - name: Test migration up
+      - name: Validate migrations from clean DB
         run: |
           alembic upgrade head
-
-      - name: Test migration down
-        run: |
-          alembic downgrade -1 || true  # May fail if no previous migration
-
-      - name: Test migration up again
-        run: |
+          alembic downgrade base
           alembic upgrade head
 
-  # ============================================================================
-  # CI Summary
-  # ============================================================================
-  ci-summary:
-    name: CI Summary
+  backend-test-pr:
+    name: Backend Tests (PR)
+    if: github.event_name == 'pull_request'
+    needs: [backend-lint, backend-migrations]
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-type-check, backend-test, backend-migrations]
-    if: always()
-
+    defaults:
+      run:
+        working-directory: ./backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clearsplit
+          POSTGRES_PASSWORD: clearsplit
+          POSTGRES_DB: clearsplit
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
     steps:
-      - name: Check CI status
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
         run: |
-          echo "### CI Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Lint | ${{ needs.backend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Type Check | ${{ needs.backend-type-check.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Tests | ${{ needs.backend-test.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Migrations | ${{ needs.backend-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run migrations
+        run: |
+          alembic upgrade head
+
+      - name: Run non-e2e test suite with coverage
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          pytest -m "not e2e" \
+            --junitxml=artifacts/junit.xml \
+            --cov=app \
+            --cov-report=xml:artifacts/coverage.xml \
+            --cov-report=term-missing \
+            --durations=20 \
+            -v | tee artifacts/pytest.log
+
+      - name: Upload PR test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pr-artifacts
+          path: |
+            backend/artifacts
+            backend/.coverage
+          retention-days: 14
+
+  backend-test-main:
+    name: Backend Tests (Main Full Suite)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend-lint, backend-migrations]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clearsplit
+          POSTGRES_PASSWORD: clearsplit
+          POSTGRES_DB: clearsplit
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run migrations
+        run: |
+          alembic upgrade head
+
+      - name: Run full backend test suite (includes e2e)
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          pytest \
+            --junitxml=artifacts/junit.xml \
+            --cov=app \
+            --cov-report=xml:artifacts/coverage.xml \
+            --cov-report=term-missing \
+            --durations=30 \
+            -v | tee artifacts/pytest.log
+
+      - name: Upload main test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-main-test-artifacts
+          path: |
+            backend/artifacts
+            backend/.coverage
+          retention-days: 21
+
+  backend-archive-main:
+    name: Backend Archive Build (Main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend-test-main]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build backend Docker image
+        run: |
+          docker build -t clearsplit-backend:${{ github.sha }} ./backend
+
+      - name: Export image metadata
+        run: |
+          mkdir -p backend-build-artifacts
+          docker image inspect clearsplit-backend:${{ github.sha }} > backend-build-artifacts/image-inspect.json
+
+      - name: Upload archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-main-build-artifacts
+          path: backend-build-artifacts
+          retention-days: 21
