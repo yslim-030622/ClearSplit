@@ -1,13 +1,17 @@
 """Receipt extracted item model (from OCR)."""
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Float, ForeignKey, String, Text, TIMESTAMP
+from sqlalchemy import BigInteger, Float, ForeignKey, Text, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
+
+if TYPE_CHECKING:
+    from app.models.receipt_upload import ReceiptUpload
 
 
 class ReceiptExtractedItem(Base):

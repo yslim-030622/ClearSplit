@@ -1131,7 +1131,7 @@ async def test_extract_items_from_receipt_success(
     from app.services.ocr import ExtractedItem
     
     # Mock OCR function to return test data
-    def mock_extract(image_bytes: bytes):
+    async def mock_extract(image_bytes: bytes):
         return [
             ExtractedItem(
                 name="Bananas",
@@ -1151,7 +1151,7 @@ async def test_extract_items_from_receipt_success(
             ),
         ]
     
-    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
     
     # Mock S3 download
     def mock_get_bytes(storage_key: str):
@@ -1295,7 +1295,7 @@ async def test_extract_items_idempotent(
     # Track how many times OCR is called
     ocr_call_count = [0]
     
-    def mock_extract(image_bytes: bytes):
+    async def mock_extract(image_bytes: bytes):
         ocr_call_count[0] += 1
         return [
             ExtractedItem(
@@ -1308,7 +1308,7 @@ async def test_extract_items_idempotent(
             ),
         ]
     
-    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
     
     # Mock S3 download
     def mock_get_bytes(storage_key: str):
@@ -1384,7 +1384,7 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
     from app.services.ocr import ExtractedItem
     
     # Mock OCR function
-    def mock_extract(image_bytes: bytes):
+    async def mock_extract(image_bytes: bytes):
         return [
             ExtractedItem(
                 name="Item A",
@@ -1396,7 +1396,7 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
             ),
         ]
     
-    monkeypatch.setattr("app.services.shopping.extract_items_from_receipt", mock_extract)
+    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
     
     # Mock S3 download
     def mock_get_bytes(storage_key: str):
