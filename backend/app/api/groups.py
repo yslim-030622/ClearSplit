@@ -2,10 +2,11 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.core.rate_limit import enforce_member_preview_rate_limit
 from app.db.session import get_session
 from app.models.group import Group
 from app.models.membership import Membership
@@ -145,6 +146,7 @@ async def delete_group(
 async def preview_member_invite(
     group_id: UUID,
     request: MemberPreviewRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> MemberPreviewResponse:
@@ -165,6 +167,8 @@ async def preview_member_invite(
     Raises:
         HTTPException: If user is not owner or group not found
     """
+    await enforce_member_preview_rate_limit(http_request, current_user.id, group_id)
+
     # Verify user is owner (only owners can invite)
     await require_owner_role(session, group_id, current_user.id)
     

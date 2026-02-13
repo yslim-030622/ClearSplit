@@ -7,8 +7,19 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
-from app.auth.jwt import create_access_token, create_refresh_token, get_user_id_from_token
+from app.auth.jwt import (
+    BEARER_TOKEN_TYPE,
+    JWTError,
+    create_access_token,
+    create_refresh_token_with_claims,
+    get_refresh_token_identity,
+)
 from app.auth.password import hash_password, verify_password
+from app.auth.refresh_tokens import (
+    persist_refresh_token,
+    validate_and_rotate_refresh_token,
+)
+from app.core.rate_limit import enforce_login_rate_limit, enforce_signup_rate_limit
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.auth import (
@@ -28,6 +39,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
     request: SignupRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     """Create a new user account.
@@ -42,6 +54,8 @@ async def signup(
     Raises:
         HTTPException: If username or email already exists
     """
+    await enforce_signup_rate_limit(http_request)
+
     logger.info(f"Signup attempt for username: {request.username}, email: {request.email}")
     
     # Check if username already exists (check first for better error message)
@@ -90,12 +104,19 @@ async def signup(
 
     # Generate tokens
     access_token = create_access_token(user.id, user.email)
-    refresh_token = create_refresh_token(user.id, user.email)
+    refresh_bundle = create_refresh_token_with_claims(user.id, user.email)
+    await persist_refresh_token(
+        session,
+        user_id=user.id,
+        token_jti=refresh_bundle["jti"],
+        expires_at=refresh_bundle["expires_at"],
+    )
+    await session.commit()
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
+        refresh_token=refresh_bundle["token"],
+        token_type=BEARER_TOKEN_TYPE,
         user=UserRead.model_validate(user),
     )
 
@@ -103,6 +124,7 @@ async def signup(
 @router.post("/login", response_model=TokenResponse)
 async def login(
     request: LoginRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     """Authenticate user and return tokens.
@@ -117,6 +139,8 @@ async def login(
     Raises:
         HTTPException: If username/email or password is invalid
     """
+    await enforce_login_rate_limit(http_request)
+
     # Find user by username or email (try both)
     result = await session.execute(
         select(User).where(
@@ -140,12 +164,19 @@ async def login(
 
     # Generate tokens
     access_token = create_access_token(user.id, user.email)
-    refresh_token = create_refresh_token(user.id, user.email)
+    refresh_bundle = create_refresh_token_with_claims(user.id, user.email)
+    await persist_refresh_token(
+        session,
+        user_id=user.id,
+        token_jti=refresh_bundle["jti"],
+        expires_at=refresh_bundle["expires_at"],
+    )
+    await session.commit()
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
+        refresh_token=refresh_bundle["token"],
+        token_type=BEARER_TOKEN_TYPE,
         user=UserRead.model_validate(user),
     )
 
@@ -168,8 +199,8 @@ async def refresh(
         HTTPException: If refresh token is invalid or expired
     """
     try:
-        user_id = get_user_id_from_token(request.refresh_token, token_type="refresh")
-    except Exception:
+        user_id, current_jti = get_refresh_token_identity(request.refresh_token)
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -185,12 +216,23 @@ async def refresh(
             detail="User not found",
         )
 
-    # Generate new access token
+    new_refresh_bundle = create_refresh_token_with_claims(user.id, user.email)
+    await validate_and_rotate_refresh_token(
+        session,
+        user_id=user.id,
+        current_jti=current_jti,
+        replacement_jti=new_refresh_bundle["jti"],
+        replacement_expires_at=new_refresh_bundle["expires_at"],
+    )
+
+    # Issue a fresh access token only after refresh token rotation succeeds.
     access_token = create_access_token(user.id, user.email)
+    await session.commit()
 
     return RefreshTokenResponse(
         access_token=access_token,
-        token_type="bearer",
+        refresh_token=new_refresh_bundle["token"],
+        token_type=BEARER_TOKEN_TYPE,
     )
 
 
@@ -207,4 +249,3 @@ async def get_me(
         User information
     """
     return UserRead.model_validate(current_user)
-

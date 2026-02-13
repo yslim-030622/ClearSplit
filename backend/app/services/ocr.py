@@ -4,12 +4,26 @@ import asyncio
 import io
 import logging
 import re
+import warnings
 from typing import NamedTuple
 
-import pytesseract
-from PIL import Image
+from app.core.config import get_settings
+
+try:
+    from PIL import Image
+except ModuleNotFoundError:  # pragma: no cover - depends on optional OCR runtime install
+    Image = None  # type: ignore[assignment]
+
+try:
+    import pytesseract
+except ModuleNotFoundError:  # pragma: no cover - depends on optional OCR runtime install
+    pytesseract = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
+_MAX_RECEIPT_PIXELS = max(1, settings.max_receipt_pixels)
+_MAX_OCR_CONCURRENCY = max(1, settings.max_ocr_concurrency)
+_ocr_semaphore = asyncio.Semaphore(_MAX_OCR_CONCURRENCY)
 
 
 class ExtractedItem(NamedTuple):
@@ -44,7 +58,20 @@ def _extract_text_from_image_sync(image_bytes: bytes) -> str:
     logger.info("Starting Tesseract OCR extraction")
     
     # Load image and convert to grayscale for better OCR
-    image = Image.open(io.BytesIO(image_bytes)).convert("L")
+    if Image is None:
+        raise RuntimeError("Pillow is not installed")
+    Image.MAX_IMAGE_PIXELS = _MAX_RECEIPT_PIXELS
+    try:
+        with warnings.catch_warnings():
+            # Make decompression bombs fail fast instead of warning.
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(image_bytes)) as source_image:
+                image = source_image.convert("L")
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning, OSError) as exc:
+        raise ValueError("Image is too large or malformed") from exc
+
+    if image.width * image.height > _MAX_RECEIPT_PIXELS:
+        raise ValueError("Image dimensions exceed OCR safety limit")
     
     # Downscale if image is very large (improves performance)
     max_dimension = 2000
@@ -56,6 +83,9 @@ def _extract_text_from_image_sync(image_bytes: bytes) -> str:
     # Run Tesseract OCR
     # --oem 1: Use LSTM neural net mode
     # --psm 6: Assume a single uniform block of text
+    if pytesseract is None:
+        raise RuntimeError("pytesseract is not installed")
+
     text = pytesseract.image_to_string(
         image,
         lang="eng",
@@ -75,9 +105,10 @@ async def extract_text_from_image(image_bytes: bytes) -> str:
     Returns:
         Extracted text string
     """
-    # Run blocking OCR in thread pool to avoid blocking event loop
-    text = await asyncio.to_thread(_extract_text_from_image_sync, image_bytes)
-    return text
+    # Bound OCR concurrency so expensive requests cannot starve the app.
+    async with _ocr_semaphore:
+        text = await asyncio.to_thread(_extract_text_from_image_sync, image_bytes)
+        return text
 
 
 def parse_receipt_text(text: str) -> list[ExtractedItem]:

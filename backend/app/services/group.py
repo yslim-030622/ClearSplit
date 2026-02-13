@@ -33,7 +33,11 @@ async def get_user_membership(
 
 
 async def require_membership(
-    session: AsyncSession, group_id: UUID, user_id: UUID
+    session: AsyncSession,
+    group_id: UUID,
+    user_id: UUID,
+    *,
+    allow_viewer: bool = True,
 ) -> Membership:
     """Require that user is a member of the group.
 
@@ -46,13 +50,18 @@ async def require_membership(
         Membership
 
     Raises:
-        HTTPException: If user is not a member
+        HTTPException: If user is not a member or lacks required role
     """
     membership = await get_user_membership(session, group_id, user_id)
     if not membership:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are not a member of this group",
+        )
+    if not allow_viewer and membership.role == MembershipRole.VIEWER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Viewers have read-only access in this group",
         )
     return membership
 
@@ -164,4 +173,3 @@ async def create_group_with_owner(
     await session.refresh(group)
 
     return group
-

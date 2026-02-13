@@ -61,6 +61,43 @@ async def test_create_shopping_session(client: AsyncClient, session: AsyncSessio
 
 
 @pytest.mark.asyncio
+async def test_viewer_cannot_create_shopping_session(
+    client: AsyncClient, session: AsyncSession
+):
+    """Viewers should have read-only access and cannot create sessions."""
+    owner = create_test_user(email="shop-owner@example.com", username="shopowner")
+    viewer = create_test_user(email="shop-viewer@example.com", username="shopviewer")
+    session.add_all([owner, viewer])
+    await session.flush()
+
+    group = Group(name="Viewer Shopping Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    viewer_membership = Membership(
+        group_id=group.id, user_id=viewer.id, role=MembershipRole.VIEWER
+    )
+    session.add_all([owner_membership, viewer_membership])
+    await session.flush()
+
+    access_token = create_access_token(viewer.id, viewer.email)
+    response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Viewer Shopping",
+            "shopping_date": str(date.today()),
+            "paid_by": str(viewer_membership.id),
+        },
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_set_session_participants(client: AsyncClient, session: AsyncSession):
     """Test setting participants for a shopping session."""
     # Create users

@@ -249,8 +249,8 @@ async def test_create_expense_invalid_payer(client: AsyncClient, session: AsyncS
         },
     )
 
-    assert response.status_code == 400
-    assert "not found in group" in response.json()["detail"].lower()
+    assert response.status_code == 403
+    assert "own membership" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -531,3 +531,45 @@ async def test_create_expense_persists_recomputed_settlement_batch(
     payload = latest_response.json()
     assert payload["total_settlements"] == 1
     assert payload["settlements"][0]["amount_cents"] == 500
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_create_expense(client: AsyncClient, session: AsyncSession):
+    """Viewers should have read-only access and cannot create expenses."""
+    owner = create_test_user(email="exp-owner@example.com", username="expowner")
+    viewer = create_test_user(email="exp-viewer@example.com", username="expviewer")
+    session.add_all([owner, viewer])
+    await session.commit()
+
+    group = Group(name="Viewer Expense Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id,
+        user_id=owner.id,
+        role=MembershipRole.OWNER,
+    )
+    viewer_membership = Membership(
+        group_id=group.id,
+        user_id=viewer.id,
+        role=MembershipRole.VIEWER,
+    )
+    session.add_all([owner_membership, viewer_membership])
+    await session.commit()
+
+    access_token = create_access_token(viewer.id, viewer.email)
+    response = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={
+            "title": "Viewer Expense",
+            "amount_cents": 500,
+            "currency": "USD",
+            "paid_by": str(viewer_membership.id),
+            "expense_date": str(date.today()),
+            "split_among": [str(viewer_membership.id)],
+        },
+    )
+
+    assert response.status_code == 403

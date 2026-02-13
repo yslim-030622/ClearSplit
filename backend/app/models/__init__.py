@@ -6,6 +6,7 @@ from app.models.expense_split import ExpenseSplit
 from app.models.group import Group
 from app.models.idempotency_key import IdempotencyKey
 from app.models.membership import Membership, MembershipRole
+from app.models.refresh_token import RefreshToken
 from app.models.receipt_upload import ReceiptUpload
 from app.models.receipt_extracted_item import ReceiptExtractedItem
 from app.models.settlement import (
@@ -30,6 +31,7 @@ __all__ = [
     "IdempotencyKey",
     "Membership",
     "MembershipRole",
+    "RefreshToken",
     "ReceiptUpload",
     "ReceiptExtractedItem",
     "Settlement",
