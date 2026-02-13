@@ -103,7 +103,9 @@ struct GroupsListView: View {
                 .padding(.bottom, 34 + 16) // Safe area + margin
                 .accessibilityLabel("Create new group")
             }
-            .sheet(isPresented: $showCreateGroup) {
+            .sheet(isPresented: $showCreateGroup, onDismiss: {
+                Task { await viewModel.load() }
+            }) {
                 CreateGroupView()
                     .environmentObject(appState)
             }
