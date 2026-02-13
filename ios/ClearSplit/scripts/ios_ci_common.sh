@@ -43,7 +43,29 @@ resolved_destination() {
     echo "$IOS_DESTINATION"
     return
   fi
-  echo "platform=iOS Simulator,name=iPhone 15"
+
+  if [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
+    echo "platform=iOS Simulator,name=$IOS_SIMULATOR_NAME"
+    return
+  fi
+
+  # Discover an available iPhone simulator (varies by Xcode image generation).
+  local destinations
+  destinations="$(xcodebuild "${XCODE_BASE_ARGS[@]}" -showdestinations 2>/dev/null || true)"
+  local simulator_name
+  simulator_name="$(
+    printf "%s\n" "$destinations" \
+      | awk -F'name:' '/platform:iOS Simulator/ && /name:iPhone/ { split($2, a, ","); name=a[1]; gsub(/[[:space:]}]+$/, "", name); print name; exit }' \
+      | xargs
+  )"
+
+  if [[ -n "$simulator_name" ]]; then
+    echo "platform=iOS Simulator,name=$simulator_name"
+    return
+  fi
+
+  # Last-resort fallback lets xcodebuild choose a simulator automatically.
+  echo "platform=iOS Simulator"
 }
 
 run_xcodebuild() {

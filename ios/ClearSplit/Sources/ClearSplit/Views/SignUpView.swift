@@ -52,6 +52,7 @@ struct SignUpView: View {
                                     placeholder: "John",
                                     text: $viewModel.firstName,
                                     field: .firstName,
+                                    accessibilityIdentifier: "signup.firstNameField",
                                     textContentType: .givenName,
                                     submitLabel: .next
                                 ) {
@@ -63,6 +64,7 @@ struct SignUpView: View {
                                     placeholder: "Doe",
                                     text: $viewModel.lastName,
                                     field: .lastName,
+                                    accessibilityIdentifier: "signup.lastNameField",
                                     textContentType: .familyName,
                                     submitLabel: .next
                                 ) {
@@ -74,6 +76,7 @@ struct SignUpView: View {
                                     placeholder: "john_doe",
                                     text: $viewModel.username,
                                     field: .username,
+                                    accessibilityIdentifier: "signup.usernameField",
                                     textContentType: .username,
                                     submitLabel: .next
                                 ) {
@@ -85,6 +88,7 @@ struct SignUpView: View {
                                     placeholder: "you@example.com",
                                     text: $viewModel.email,
                                     field: .email,
+                                    accessibilityIdentifier: "signup.emailField",
                                     textContentType: .emailAddress,
                                     keyboardType: .emailAddress,
                                     autocapitalization: .never,
@@ -98,6 +102,7 @@ struct SignUpView: View {
                                     placeholder: "Minimum 8 characters",
                                     text: $viewModel.password,
                                     field: .password,
+                                    accessibilityIdentifier: "signup.passwordField",
                                     textContentType: .newPassword,
                                     submitLabel: .next
                                 ) {
@@ -109,6 +114,7 @@ struct SignUpView: View {
                                     placeholder: "Re-enter password",
                                     text: $viewModel.confirmPassword,
                                     field: .confirmPassword,
+                                    accessibilityIdentifier: "signup.confirmPasswordField",
                                     textContentType: .newPassword,
                                     submitLabel: .done
                                 ) {
@@ -152,6 +158,7 @@ struct SignUpView: View {
                                 viewModel.confirmPassword.isEmpty
                             )
                             .buttonStyle(ScaleButtonStyle())
+                            .accessibilityIdentifier("signup.submitButton")
                         }
                         .padding(24)
                         .background(Color.white)
@@ -172,6 +179,7 @@ struct SignUpView: View {
                         .foregroundColor(.gray700)
                         .disabled(viewModel.isLoading)
                         .padding(.bottom, 24)
+                        .accessibilityIdentifier("signup.loginLinkButton")
                     }
                     .padding(.horizontal, 24)
                     .frame(maxWidth: 420)
@@ -197,6 +205,7 @@ struct SignUpView: View {
         placeholder: String,
         text: Binding<String>,
         field: Field,
+        accessibilityIdentifier: String,
         textContentType: UITextContentType? = nil,
         keyboardType: UIKeyboardType = .default,
         autocapitalization: TextInputAutocapitalization = .words,
@@ -230,6 +239,7 @@ struct SignUpView: View {
                     .focused($focusedField, equals: field)
                     .submitLabel(submitLabel)
                     .onSubmit(onSubmit)
+                    .accessibilityIdentifier(accessibilityIdentifier)
             }
             .frame(height: 48)
         }
@@ -241,6 +251,7 @@ struct SignUpView: View {
         placeholder: String,
         text: Binding<String>,
         field: Field,
+        accessibilityIdentifier: String,
         textContentType: UITextContentType? = nil,
         submitLabel: SubmitLabel,
         onSubmit: @escaping () -> Void
@@ -271,6 +282,7 @@ struct SignUpView: View {
                     .focused($focusedField, equals: field)
                     .submitLabel(submitLabel)
                     .onSubmit(onSubmit)
+                    .accessibilityIdentifier(accessibilityIdentifier)
             }
             .frame(height: 48)
         }

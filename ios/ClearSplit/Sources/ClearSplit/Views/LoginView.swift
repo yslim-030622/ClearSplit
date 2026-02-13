@@ -98,6 +98,7 @@ struct LoginView: View {
                                     .onSubmit {
                                         focusedField = .password
                                     }
+                                    .accessibilityIdentifier("login.emailField")
                             }
                             .frame(height: 48)
                         }
@@ -139,6 +140,7 @@ struct LoginView: View {
                                             Task { await viewModel.login() }
                                         }
                                     }
+                                    .accessibilityIdentifier("login.passwordField")
                             }
                             .frame(height: 48)
                         }
@@ -168,6 +170,7 @@ struct LoginView: View {
                         .disabled(viewModel.isLoading || viewModel.email.isEmpty || viewModel.password.isEmpty)
                         .opacity((viewModel.isLoading || viewModel.email.isEmpty || viewModel.password.isEmpty) ? 0.5 : 1.0)
                         .buttonStyle(ScaleButtonStyle())
+                        .accessibilityIdentifier("login.submitButton")
                     }
                     .padding(24)
                     .background(Color.white)
@@ -204,6 +207,7 @@ struct LoginView: View {
                         }
                         .disabled(viewModel.isLoading)
                         .buttonStyle(ScaleButtonStyle())
+                        .accessibilityIdentifier("login.createAccountButton")
                     }
                     
                     Spacer()

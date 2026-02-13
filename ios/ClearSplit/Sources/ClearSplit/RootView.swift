@@ -1,8 +1,13 @@
+import Foundation
 import SwiftUI
 
 public struct RootView: View {
     @EnvironmentObject var appState: AppState
     @State private var hasBootstrapped = false
+
+    private var isUITestMode: Bool {
+        ProcessInfo.processInfo.arguments.contains("UITEST_MODE")
+    }
 
     public init() {}
 
@@ -20,6 +25,12 @@ public struct RootView: View {
         }
         .task {
             guard !hasBootstrapped else { return }
+            if isUITestMode {
+                // Keep UI smoke tests deterministic by forcing a logged-out state.
+                await appState.logout()
+                hasBootstrapped = true
+                return
+            }
             await appState.bootstrap()
             hasBootstrapped = true
         }
