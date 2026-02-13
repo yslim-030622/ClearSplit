@@ -1,0 +1,91 @@
+name: iOS Main Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-main-checks.yml"
+      - ".github/workflows/ios-pr-checks.yml"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+    inputs:
+      deploy_testflight:
+        description: "Also upload to TestFlight (requires signing + ASC secrets)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ios-main-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUNDLE_GEMFILE: ios/ClearSplit/Gemfile
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+
+jobs:
+  full-validation:
+    name: iOS Full Validation
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios/ClearSplit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
+
+      - name: Run main validation lane
+        run: bundle exec fastlane ios ci_main
+
+  testflight:
+    name: iOS TestFlight Upload
+    needs: [full-validation]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_testflight }}
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios/ClearSplit
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+      IOS_APP_IDENTIFIER: ${{ secrets.IOS_APP_IDENTIFIER }}
+      APP_STORE_CONNECT_TEAM_ID: ${{ secrets.APP_STORE_CONNECT_TEAM_ID }}
+      APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up Ruby and Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Run TestFlight lane
+        run: bundle exec fastlane ios testflight
