@@ -111,7 +111,12 @@ async def compute_settlements(
 ) -> SettlementBatchRead:
     """Compute settlements for a group and persist a new immutable batch."""
 
-    await require_membership(session, group_id, current_user.id)
+    await require_membership(
+        session,
+        group_id,
+        current_user.id,
+        allow_viewer=False,
+    )
 
     idempotency_key_header = get_idempotency_key_from_header(http_request)
     request_body = {"group_id": str(group_id)}
@@ -175,7 +180,12 @@ async def create_payment(
 ) -> SettlementPaymentRead:
     """Create a settlement payment in pending or confirmed state."""
 
-    acting_membership = await require_membership(session, group_id, current_user.id)
+    acting_membership = await require_membership(
+        session,
+        group_id,
+        current_user.id,
+        allow_viewer=False,
+    )
     payment = await create_settlement_payment(
         session,
         group_id=group_id,
@@ -216,6 +226,7 @@ async def confirm_payment(
         session,
         payment_group_id,
         current_user.id,
+        allow_viewer=False,
     )
     payment = await confirm_settlement_payment(
         session,
@@ -274,6 +285,7 @@ async def update_settlement_status(
         session,
         settlement.group_id,
         current_user.id,
+        allow_viewer=False,
     )
     updated = await update_settlement_status_to_paid(
         session,

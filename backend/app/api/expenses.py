@@ -22,6 +22,7 @@ from app.services.expense import (
     get_expense_by_id,
     get_group_expenses,
 )
+from app.services.group import require_membership
 from app.services.settlement import compute_settlement_batch
 
 router = APIRouter(prefix="/groups", tags=["expenses"])
@@ -58,17 +59,17 @@ async def create_expense(
     Raises:
         HTTPException: If validations fail
     """
-    # Get user's memberships in this group
-    result = await session.execute(
-        select(Membership).where(
-            Membership.group_id == group_id, Membership.user_id == current_user.id
-        )
+    # Viewers can read group data but cannot mutate financial records.
+    user_membership = await require_membership(
+        session,
+        group_id,
+        current_user.id,
+        allow_viewer=False,
     )
-    user_membership = result.scalar_one_or_none()
-    if not user_membership:
+    if request.paid_by != user_membership.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not a member of this group",
+            detail="You can only create expenses paid by your own membership",
         )
 
     # Check idempotency

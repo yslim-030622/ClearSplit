@@ -18,7 +18,7 @@ from app.models.user import User
 
 
 test_engine = create_async_engine(
-    get_settings().database_url,
+    get_settings().get_database_url(),
     echo=False,
     poolclass=NullPool,
 )

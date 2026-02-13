@@ -7,7 +7,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.jwt import get_user_id_from_token
+from app.auth.jwt import ACCESS_TOKEN_TYPE, JWTError, get_user_id_from_token
 from app.db.session import get_session
 from app.models.user import User
 
@@ -32,8 +32,8 @@ async def get_current_user(
     """
     token = credentials.credentials
     try:
-        user_id = get_user_id_from_token(token, token_type="access")
-    except Exception:
+        user_id = get_user_id_from_token(token, token_type=ACCESS_TOKEN_TYPE)
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -51,4 +51,3 @@ async def get_current_user(
         )
 
     return user
-

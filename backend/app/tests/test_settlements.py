@@ -262,7 +262,11 @@ async def test_compute_idempotency(client: AsyncClient, session: AsyncSession):
     assert resp1.status_code == resp2.status_code == 201
     assert resp1.json()["id"] == resp2.json()["id"]
 
-    count = await session.execute(select(func.count()).select_from(SettlementBatch))
+    count = await session.execute(
+        select(func.count())
+        .select_from(SettlementBatch)
+        .where(SettlementBatch.group_id == group.id)
+    )
     assert count.scalar() == 1
 
 
@@ -311,7 +315,64 @@ async def test_permissions_enforced(client: AsyncClient, session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_only_debtor_can_mark_paid(client: AsyncClient, session: AsyncSession):
+async def test_viewer_cannot_mutate_settlement_endpoints(
+    client: AsyncClient, session: AsyncSession
+):
+    owner = await _create_user(session, "viewer-owner@example.com")
+    viewer_user = await _create_user(session, "viewer-user@example.com")
+
+    group = Group(name="Viewer Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id,
+        user_id=owner.id,
+        role=MembershipRole.OWNER,
+    )
+    viewer_membership = Membership(
+        group_id=group.id,
+        user_id=viewer_user.id,
+        role=MembershipRole.VIEWER,
+    )
+    session.add_all([owner_membership, viewer_membership])
+    await session.flush()
+
+    await _add_expense(
+        session,
+        group_id=group.id,
+        paid_by=owner_membership.id,
+        amount=1000,
+        splits=[(owner_membership.id, 500), (viewer_membership.id, 500)],
+    )
+
+    viewer_compute = await client.post(
+        f"/groups/{group.id}/settlements/compute",
+        headers=_auth_header(viewer_user),
+    )
+    assert viewer_compute.status_code == 403
+
+    owner_payment = await client.post(
+        f"/groups/{group.id}/settlement-payments",
+        headers=_auth_header(owner),
+        json={
+            "from_membership": str(owner_membership.id),
+            "to_membership": str(viewer_membership.id),
+            "amount_cents": 100,
+            "auto_confirm": False,
+        },
+    )
+    assert owner_payment.status_code == 201, owner_payment.text
+
+    viewer_confirm = await client.post(
+        f"/settlement-payments/{owner_payment.json()['id']}/confirm",
+        headers=_auth_header(viewer_user),
+    )
+    assert viewer_confirm.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_only_debtor_or_owner_can_mark_paid(client: AsyncClient, session: AsyncSession):
     payer = await _create_user(session, "payer@example.com")
     receiver = await _create_user(session, "receiver@example.com")
     observer = await _create_user(session, "observer@example.com")
@@ -332,15 +393,15 @@ async def test_only_debtor_can_mark_paid(client: AsyncClient, session: AsyncSess
     )
     settlement_id = computed.json()["settlements"][0]["id"]
 
-    # Non-debtor cannot mark paid
+    # Unrelated member cannot mark paid
     denied = await client.patch(
         f"/settlements/{settlement_id}",
         json={"status": "paid"},
-        headers=_auth_header(receiver),
+        headers=_auth_header(observer),
     )
     assert denied.status_code == 403
 
-    # Debtor marks paid
+    # Debtor can mark paid
     ok = await client.patch(
         f"/settlements/{settlement_id}",
         json={"status": "paid"},
@@ -446,11 +507,18 @@ async def test_confirmed_payments_reduce_outstanding_balances(
             "from_membership": str(memberships[1].id),
             "to_membership": str(memberships[0].id),
             "amount_cents": 600,
-            "auto_confirm": True,
+            "auto_confirm": False,
         },
     )
     assert payment_create.status_code == 201, payment_create.text
-    assert payment_create.json()["status"] == "confirmed"
+    assert payment_create.json()["status"] == "pending"
+
+    confirm_response = await client.post(
+        f"/settlement-payments/{payment_create.json()['id']}/confirm",
+        headers=_auth_header(creditor),
+    )
+    assert confirm_response.status_code == 200, confirm_response.text
+    assert confirm_response.json()["status"] == "confirmed"
 
     balances_response = await client.get(
         f"/groups/{group.id}/balances",
@@ -460,6 +528,28 @@ async def test_confirmed_payments_reduce_outstanding_balances(
     suggestions = balances_response.json()["suggestions"]
     assert len(suggestions) == 1
     assert suggestions[0]["amount_cents"] == 400
+
+
+@pytest.mark.asyncio
+async def test_receiver_cannot_create_or_autoconfirm_sender_payment(
+    client: AsyncClient, session: AsyncSession
+):
+    sender = await _create_user(session, "sender@example.com")
+    receiver = await _create_user(session, "receiver2@example.com")
+    group, memberships = await _create_group_with_members(session, [sender, receiver])
+
+    forged_create = await client.post(
+        f"/groups/{group.id}/settlement-payments",
+        headers=_auth_header(receiver),
+        json={
+            "from_membership": str(memberships[0].id),
+            "to_membership": str(memberships[1].id),
+            "amount_cents": 500,
+            "auto_confirm": True,
+        },
+    )
+
+    assert forged_create.status_code == 403
 
 
 @pytest.mark.asyncio

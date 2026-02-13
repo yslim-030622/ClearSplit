@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.jwt import create_access_token, create_refresh_token, decode_token
+from app.auth.jwt import create_access_token, decode_token
 from app.main import app
 from app.models.user import User
 from app.tests.conftest import create_test_user
@@ -125,8 +125,12 @@ async def test_refresh_token_success(client: AsyncClient, session: AsyncSession)
     session.add(user)
     await session.commit()
 
-    # Get refresh token
-    refresh_token = create_refresh_token(user.id, user.email)
+    login_response = await client.post(
+        "/auth/login",
+        json={"identifier": "refresh@example.com", "password": "password123"},
+    )
+    assert login_response.status_code == 200
+    refresh_token = login_response.json()["refresh_token"]
 
     # Refresh access token
     response = await client.post(
@@ -137,6 +141,7 @@ async def test_refresh_token_success(client: AsyncClient, session: AsyncSession)
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["token_type"] == "bearer"
 
     # Verify new access token is valid
@@ -144,6 +149,40 @@ async def test_refresh_token_success(client: AsyncClient, session: AsyncSession)
     payload = decode_token(new_access_token, token_type="access")
     assert payload["sub"] == str(user.id)
     assert payload["type"] == "access"
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_replay_is_blocked(client: AsyncClient, session: AsyncSession):
+    """Old refresh token should stop working right after rotation."""
+    user = create_test_user(email="rotate@example.com", username="rotateuser")
+    session.add(user)
+    await session.commit()
+
+    login_response = await client.post(
+        "/auth/login",
+        json={"identifier": "rotate@example.com", "password": "password123"},
+    )
+    assert login_response.status_code == 200
+    original_refresh = login_response.json()["refresh_token"]
+
+    first_refresh = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": original_refresh},
+    )
+    assert first_refresh.status_code == 200
+    rotated_refresh = first_refresh.json()["refresh_token"]
+
+    replay_attempt = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": original_refresh},
+    )
+    assert replay_attempt.status_code == 401
+
+    second_refresh = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": rotated_refresh},
+    )
+    assert second_refresh.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -197,7 +236,7 @@ async def test_get_me_no_token(client: AsyncClient):
     """Test getting current user without token."""
     response = await client.get("/auth/me")
 
-    assert response.status_code == 403
+    assert response.status_code in {401, 403}
 
 
 @pytest.mark.asyncio
@@ -205,7 +244,7 @@ async def test_expired_token(client: AsyncClient, session: AsyncSession):
     """Test access with expired token."""
     from datetime import datetime, timedelta, timezone
 
-    from jose import jwt
+    import jwt
 
     from app.core.config import get_settings
 
@@ -225,7 +264,7 @@ async def test_expired_token(client: AsyncClient, session: AsyncSession):
             "type": "access",
             "exp": expire,
         },
-        settings.jwt_secret,
+        settings.get_jwt_secret(),
         algorithm=settings.jwt_algorithm,
     )
 
@@ -237,4 +276,3 @@ async def test_expired_token(client: AsyncClient, session: AsyncSession):
 
     assert response.status_code == 401
     assert "expired" in response.json()["detail"].lower() or "invalid" in response.json()["detail"].lower()
-

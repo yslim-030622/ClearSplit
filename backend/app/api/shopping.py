@@ -78,7 +78,17 @@ async def create_session(
         HTTPException: If validations fail
     """
     # Verify user is a member of the group
-    await verify_user_is_group_member(db, current_user.id, group_id)
+    user_membership = await verify_user_is_group_member(
+        db,
+        current_user.id,
+        group_id,
+        allow_viewer=False,
+    )
+    if request.paid_by != user_membership.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create shopping sessions paid by your own membership",
+        )
 
     # Create shopping session
     shopping_session = await create_shopping_session(
@@ -190,7 +200,10 @@ async def update_shopping_session(
     
     # Verify user is a member of the group
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     
     # Verify requester is the payer
@@ -241,7 +254,10 @@ async def finalize_session(
 
     shopping_session = await get_shopping_session(db, session_id)
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     updated = await finalize_shopping_session(
         db,
@@ -288,7 +304,10 @@ async def delete_shopping_session(
     
     # Verify user is a member of the group
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     
     # Verify requester is the payer
@@ -304,7 +323,7 @@ async def delete_shopping_session(
             receipt_storage.delete_receipt(receipt.storage_key)
         except Exception as e:
             # Log but don't fail - orphaned S3 objects can be cleaned up later
-            print(f"[Shopping] Warning: Failed to delete receipt from S3: {e}")
+            logger.warning("Failed deleting receipt key=%s from storage: %s", receipt.storage_key, e)
         await db.delete(receipt)
     
     # Delete item splits
@@ -366,7 +385,10 @@ async def set_participants(
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
 
     # Set participants (service will verify payer authorization)
@@ -422,7 +444,10 @@ async def upload_session_receipt(
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
 
     # Upload receipt (service verifies participant authorization + one-receipt rule)
@@ -499,7 +524,10 @@ async def delete_receipt(
     shopping_session = await get_shopping_session(db, receipt.session_id)
 
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
 
     await delete_receipt_upload(db, receipt, shopping_session, user_membership.id)
@@ -548,7 +576,10 @@ async def create_item(
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
 
     # Create item (service will verify participant authorization)
@@ -605,7 +636,10 @@ async def update_item(
     
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     
     # Verify requester can manage this item
@@ -677,7 +711,10 @@ async def delete_item(
     
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     
     # Verify requester can manage this item
@@ -744,7 +781,10 @@ async def set_sharers(
 
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
 
     # Set sharers (service verifies item-management permissions and computes splits)
@@ -809,7 +849,10 @@ async def extract_items_from_receipt_endpoint(
     
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
-        db, current_user.id, shopping_session.group_id
+        db,
+        current_user.id,
+        shopping_session.group_id,
+        allow_viewer=False,
     )
     
     # Verify requester is the receipt uploader.
