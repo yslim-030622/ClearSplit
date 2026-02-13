@@ -54,7 +54,8 @@ async def test_create_shopping_session(client: AsyncClient, session: AsyncSessio
     assert data["group_id"] == str(group.id)
     assert data["paid_by_membership_id"] == str(membership.id)
     assert data["currency"] == "USD"
-    assert data["participants"] == []
+    assert len(data["participants"]) == 1
+    assert data["participants"][0]["membership_id"] == str(membership.id)
     assert data["items"] == []
     assert data["receipts"] == []
 
@@ -282,6 +283,92 @@ async def test_create_item_with_total_only(client: AsyncClient, session: AsyncSe
 
 
 @pytest.mark.asyncio
+async def test_session_participant_can_create_item(client: AsyncClient, session: AsyncSession):
+    """Any participant (not just payer) can create items."""
+    user1 = create_test_user(email="payer@example.com", username="payer")
+    user2 = create_test_user(email="participant@example.com", username="participant")
+    session.add_all([user1, user2])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2])
+    await session.flush()
+
+    payer_token = create_access_token(user1.id, user1.email)
+    participant_token = create_access_token(user2.id, user2.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    session_id = create_session_response.json()["id"]
+
+    set_participants_response = await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"participant_membership_ids": [str(membership1.id), str(membership2.id)]},
+    )
+    assert set_participants_response.status_code == 200
+
+    create_item_response = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {participant_token}"},
+        json={"name": "Bread", "total_cents": 350},
+    )
+    assert create_item_response.status_code == 201, create_item_response.text
+    assert create_item_response.json()["created_by_membership_id"] == str(membership2.id)
+
+
+@pytest.mark.asyncio
+async def test_non_participant_cannot_create_item(client: AsyncClient, session: AsyncSession):
+    """Non-participants cannot create items in a session."""
+    user1 = create_test_user(email="payer2@example.com", username="payer2")
+    user2 = create_test_user(email="participant2@example.com", username="participant2")
+    user3 = create_test_user(email="outsider2@example.com", username="outsider2")
+    session.add_all([user1, user2, user3])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    membership3 = Membership(group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2, membership3])
+    await session.flush()
+
+    payer_token = create_access_token(user1.id, user1.email)
+    outsider_token = create_access_token(user3.id, user3.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    session_id = create_session_response.json()["id"]
+
+    await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"participant_membership_ids": [str(membership1.id), str(membership2.id)]},
+    )
+
+    create_item_response = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {outsider_token}"},
+        json={"name": "Forbidden", "total_cents": 400},
+    )
+    assert create_item_response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_set_item_sharers_equal_split(client: AsyncClient, session: AsyncSession):
     """Test setting sharers for an item with equal split."""
     # Create users
@@ -369,6 +456,73 @@ async def test_set_item_sharers_equal_split(client: AsyncClient, session: AsyncS
     share_amounts = sorted([s["share_cents"] for s in data["splits"]], reverse=True)
     assert share_amounts == [334, 333, 333]
     assert sum(share_amounts) == 1000
+
+    # Payer should receive the extra cent when included among sharers.
+    shares_by_member = {row["membership_id"]: row["share_cents"] for row in data["splits"]}
+    assert shares_by_member[str(membership1.id)] == 334
+
+
+@pytest.mark.asyncio
+async def test_sharer_remainder_fallback_without_payer(
+    client: AsyncClient, session: AsyncSession
+):
+    """When payer is excluded, deterministic UUID order gets remainder cents."""
+    user1 = create_test_user(email="payer-round@example.com", username="payerround")
+    user2 = create_test_user(email="user-round2@example.com", username="userround2")
+    user3 = create_test_user(email="user-round3@example.com", username="userround3")
+    session.add_all([user1, user2, user3])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership1 = Membership(group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER)
+    membership2 = Membership(group_id=group.id, user_id=user2.id, role=MembershipRole.MEMBER)
+    membership3 = Membership(group_id=group.id, user_id=user3.id, role=MembershipRole.MEMBER)
+    session.add_all([membership1, membership2, membership3])
+    await session.flush()
+
+    token = create_access_token(user1.id, user1.email)
+    created_session = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Trip", "paid_by": str(membership1.id)},
+    )
+    session_id = created_session.json()["id"]
+
+    await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "participant_membership_ids": [
+                str(membership1.id),
+                str(membership2.id),
+                str(membership3.id),
+            ]
+        },
+    )
+
+    item_response = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Fallback Split", "total_cents": 1001},
+    )
+    item_id = item_response.json()["id"]
+
+    sharers_response = await client.put(
+        f"/items/{item_id}/sharers",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"membership_ids": [str(membership2.id), str(membership3.id)]},
+    )
+    assert sharers_response.status_code == 200, sharers_response.text
+
+    splits = sharers_response.json()["splits"]
+    shares_by_member = {row["membership_id"]: row["share_cents"] for row in splits}
+    first_member = min([membership2.id, membership3.id], key=lambda value: str(value))
+    second_member = membership3.id if first_member == membership2.id else membership2.id
+    assert shares_by_member[str(first_member)] == 501
+    assert shares_by_member[str(second_member)] == 500
 
 
 @pytest.mark.asyncio
@@ -534,6 +688,150 @@ async def test_sharers_must_be_participants(client: AsyncClient, session: AsyncS
 
 
 @pytest.mark.asyncio
+async def test_item_creator_permissions_and_overrides(
+    client: AsyncClient, session: AsyncSession
+):
+    """Item creator can edit/delete, payer can override, unrelated member cannot."""
+    payer = create_test_user(email="payer-perm@example.com", username="payerperm")
+    creator = create_test_user(email="creator-perm@example.com", username="creatorperm")
+    outsider = create_test_user(email="outsider-perm@example.com", username="outsiderperm")
+    session.add_all([payer, creator, outsider])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    payer_membership = Membership(group_id=group.id, user_id=payer.id, role=MembershipRole.OWNER)
+    creator_membership = Membership(group_id=group.id, user_id=creator.id, role=MembershipRole.MEMBER)
+    outsider_membership = Membership(group_id=group.id, user_id=outsider.id, role=MembershipRole.MEMBER)
+    session.add_all([payer_membership, creator_membership, outsider_membership])
+    await session.flush()
+
+    payer_token = create_access_token(payer.id, payer.email)
+    creator_token = create_access_token(creator.id, creator.email)
+    outsider_token = create_access_token(outsider.id, outsider.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(payer_membership.id)},
+    )
+    session_id = create_session_response.json()["id"]
+
+    await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={
+            "participant_membership_ids": [
+                str(payer_membership.id),
+                str(creator_membership.id),
+                str(outsider_membership.id),
+            ]
+        },
+    )
+
+    created_item = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {creator_token}"},
+        json={"name": "Managed Item", "total_cents": 700},
+    )
+    assert created_item.status_code == 201, created_item.text
+    item_id = created_item.json()["id"]
+
+    # Unrelated non-owner/non-payer/non-creator member cannot update.
+    denied_update = await client.patch(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {outsider_token}"},
+        json={"name": "Hack", "quantity": 1, "total_cents": 700},
+    )
+    assert denied_update.status_code == 403
+
+    # Creator can update.
+    allowed_update = await client.patch(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {creator_token}"},
+        json={"name": "Managed Item Updated", "quantity": 1, "total_cents": 700},
+    )
+    assert allowed_update.status_code == 200, allowed_update.text
+    assert allowed_update.json()["name"] == "Managed Item Updated"
+
+    # Outsider cannot delete.
+    denied_delete = await client.delete(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {outsider_token}"},
+    )
+    assert denied_delete.status_code == 403
+
+    # Payer can override delete.
+    allowed_delete = await client.delete(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {payer_token}"},
+    )
+    assert allowed_delete.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_group_owner_can_override_item_permissions(
+    client: AsyncClient, session: AsyncSession
+):
+    """Group owner override works even when owner is not session payer."""
+    owner = create_test_user(email="owner-override@example.com", username="owneroverride")
+    payer = create_test_user(email="payer-override@example.com", username="payeroverride")
+    creator = create_test_user(email="creator-override@example.com", username="creatoroverride")
+    session.add_all([owner, payer, creator])
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER)
+    payer_membership = Membership(group_id=group.id, user_id=payer.id, role=MembershipRole.MEMBER)
+    creator_membership = Membership(group_id=group.id, user_id=creator.id, role=MembershipRole.MEMBER)
+    session.add_all([owner_membership, payer_membership, creator_membership])
+    await session.flush()
+
+    owner_token = create_access_token(owner.id, owner.email)
+    payer_token = create_access_token(payer.id, payer.email)
+    creator_token = create_access_token(creator.id, creator.email)
+
+    create_session_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={"title": "Trip", "paid_by": str(payer_membership.id)},
+    )
+    session_id = create_session_response.json()["id"]
+
+    await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {payer_token}"},
+        json={
+            "participant_membership_ids": [
+                str(owner_membership.id),
+                str(payer_membership.id),
+                str(creator_membership.id),
+            ]
+        },
+    )
+
+    created_item = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {creator_token}"},
+        json={"name": "Owner Managed", "total_cents": 450},
+    )
+    item_id = created_item.json()["id"]
+
+    owner_update = await client.patch(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"name": "Owner Updated", "quantity": 1, "total_cents": 450},
+    )
+    assert owner_update.status_code == 200, owner_update.text
+    assert owner_update.json()["name"] == "Owner Updated"
+
+
+@pytest.mark.asyncio
 async def test_list_shopping_sessions(client: AsyncClient, session: AsyncSession):
     """Test listing shopping sessions for a group."""
     # Create user
@@ -580,6 +878,38 @@ async def test_list_shopping_sessions(client: AsyncClient, session: AsyncSession
     titles = {s["title"] for s in data}
     assert "Costco Trip 1" in titles
     assert "Trader Joe's" in titles
+
+
+@pytest.mark.asyncio
+async def test_finalize_shopping_session(client: AsyncClient, session: AsyncSession):
+    """Payer can finalize a shopping session."""
+    user = create_test_user(email="finalize@example.com", username="finalize")
+    session.add(user)
+    await session.flush()
+
+    group = Group(name="Test Household", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership = Membership(group_id=group.id, user_id=user.id, role=MembershipRole.OWNER)
+    session.add(membership)
+    await session.flush()
+
+    token = create_access_token(user.id, user.email)
+    create_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Finalizable", "paid_by": str(membership.id)},
+    )
+    session_id = create_response.json()["id"]
+
+    finalize_response = await client.post(
+        f"/shopping-sessions/{session_id}/finalize",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert finalize_response.status_code == 200, finalize_response.text
+    assert finalize_response.json()["status"] == "finalized"
+    assert finalize_response.json()["finalized_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -1139,4 +1469,3 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
     assert len(items) == 1
     assert items[0]["name"] == "Item A"
     assert items[0]["total_cents"] == 100
-

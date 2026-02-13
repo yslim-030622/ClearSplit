@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
     func,
@@ -23,6 +24,7 @@ from app.db import Base
 if TYPE_CHECKING:
     from app.models.group import Group
     from app.models.membership import Membership
+    from app.models.shopping_session import ShoppingSession
 
 
 class SettlementStatus(str, enum.Enum):
@@ -159,3 +161,125 @@ class Settlement(Base):
     to_membership_rel: Mapped["Membership"] = relationship(
         foreign_keys=[to_membership],
     )
+
+
+class SettlementPaymentStatus(str, enum.Enum):
+    """Persisted settlement payment status enum."""
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    VOIDED = "voided"
+
+
+class SettlementPayment(Base):
+    """Actual payment transfer record between two memberships."""
+
+    __tablename__ = "settlement_payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default="uuid_generate_v4()",
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    from_membership: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+    to_membership: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+    amount_cents: Mapped[int] = mapped_column(BigInteger(), nullable=False)
+    status: Mapped[SettlementPaymentStatus] = mapped_column(
+        SQLEnum(
+            SettlementPaymentStatus,
+            name="settlement_payment_status",
+            values_callable=lambda enum_cls: [e.value for e in enum_cls],
+        ),
+        server_default="'pending'",
+        nullable=False,
+    )
+    note: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", "group_id", name="uq_settlement_payments_group_id"),
+        CheckConstraint("amount_cents > 0", name="chk_settlement_payments_amount_positive"),
+        CheckConstraint("from_membership <> to_membership", name="chk_settlement_payments_from_to_diff"),
+        ForeignKeyConstraint(
+            ["group_id", "from_membership"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "to_membership"],
+            ["memberships.group_id", "memberships.id"],
+            ondelete="RESTRICT",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+
+    group: Mapped["Group"] = relationship()
+    from_membership_rel: Mapped["Membership"] = relationship(
+        foreign_keys=[from_membership],
+    )
+    to_membership_rel: Mapped["Membership"] = relationship(
+        foreign_keys=[to_membership],
+    )
+    session_links: Mapped[list["SettlementPaymentSession"]] = relationship(
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class SettlementPaymentSession(Base):
+    """Session coverage mapping for settlement payments."""
+
+    __tablename__ = "settlement_payment_sessions"
+
+    payment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("payment_id", "session_id", name="pk_settlement_payment_sessions"),
+        ForeignKeyConstraint(
+            ["payment_id"],
+            ["settlement_payments.id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["session_id"],
+            ["shopping_sessions.id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    payment: Mapped["SettlementPayment"] = relationship(back_populates="session_links")
+    session: Mapped["ShoppingSession"] = relationship()

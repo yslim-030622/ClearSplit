@@ -106,7 +106,11 @@ final class ShoppingService: ShoppingServicing {
             print("[ShoppingService] ✅ Successfully extracted \(items.count) items")
             return items
         } catch {
-            print("[ShoppingService] ❌ Failed to extract items: \(error)")
+            if isCancellationError(error) {
+                print("[ShoppingService] ℹ️ OCR extraction request was cancelled")
+            } else {
+                print("[ShoppingService] ❌ Failed to extract items: \(error)")
+            }
             throw error
         }
     }
@@ -119,9 +123,39 @@ final class ShoppingService: ShoppingServicing {
             print("[ShoppingService] ✅ Successfully retrieved \(items.count) extracted items")
             return items
         } catch {
-            print("[ShoppingService] ❌ Failed to get extracted items: \(error)")
+            if isCancellationError(error) {
+                print("[ShoppingService] ℹ️ Extracted items request was cancelled")
+            } else {
+                print("[ShoppingService] ❌ Failed to get extracted items: \(error)")
+            }
             throw error
         }
+    }
+
+    private func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        if let apiError = error as? APIError,
+           case .network(let underlyingError) = apiError {
+            if underlyingError is CancellationError {
+                return true
+            }
+            if let urlError = underlyingError as? URLError, urlError.code == .cancelled {
+                return true
+            }
+
+            let nsError = underlyingError as NSError
+            return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
     
     private func createMultipartBody(boundary: String, imageData: Data, contentType: String) -> Data {

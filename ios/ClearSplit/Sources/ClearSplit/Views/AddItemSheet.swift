@@ -74,13 +74,7 @@ struct AddItemSheet: View {
                         )
                     }
                     .padding(20)
-                    .background(Color.white)
-                    .cornerRadius(16)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray200, lineWidth: 1)
-                    )
-                    .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+                    .sectionStyle()
 
                     // Participants Selection
                     AddItemParticipantsSection(
@@ -104,7 +98,7 @@ struct AddItemSheet: View {
                 }
                 .padding(16)
             }
-            .background(Color.gray50)
+            .background(Color.pageBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {

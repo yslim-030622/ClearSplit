@@ -2,7 +2,7 @@
 
 import os
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID
@@ -16,11 +16,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.models.group import Group
-from app.models.membership import Membership
+from app.models.membership import Membership, MembershipRole
 from app.models.receipt_upload import ReceiptUpload
 from app.models.shopping_item import ShoppingItem
 from app.models.shopping_item_split import ShoppingItemSplit
-from app.models.shopping_session import ShoppingSession
+from app.models.shopping_session import ShoppingSession, ShoppingSessionStatus
 from app.models.shopping_session_participant import ShoppingSessionParticipant
 
 
@@ -52,6 +52,40 @@ def calculate_equal_splits(total_cents: int, num_sharers: int) -> list[int]:
     # First 'remainder' people get base_share + 1, rest get base_share
     splits = [base_share + 1] * remainder + [base_share] * (num_sharers - remainder)
     return splits
+
+
+def calculate_equal_splits_for_sharers(
+    total_cents: int,
+    sharer_membership_ids: list[UUID],
+    payer_membership_id: UUID,
+) -> dict[UUID, int]:
+    """Compute per-sharer equal splits with payer-preferred remainder assignment.
+
+    Remainder assignment order:
+    1) payer first (if payer is among sharers)
+    2) deterministic UUID-string sort for all others
+    """
+
+    if not sharer_membership_ids:
+        raise ValueError("At least one sharer is required")
+
+    base_share = total_cents // len(sharer_membership_ids)
+    remainder = total_cents % len(sharer_membership_ids)
+    share_map = {membership_id: base_share for membership_id in sharer_membership_ids}
+
+    sorted_membership_ids = sorted(sharer_membership_ids, key=str)
+    if payer_membership_id in share_map:
+        remainder_order = [payer_membership_id] + [
+            membership_id
+            for membership_id in sorted_membership_ids
+            if membership_id != payer_membership_id
+        ]
+    else:
+        remainder_order = sorted_membership_ids
+
+    for membership_id in remainder_order[:remainder]:
+        share_map[membership_id] += 1
+    return share_map
 
 
 async def validate_memberships_in_group(
@@ -88,6 +122,39 @@ async def validate_memberships_in_group(
     # Sort by UUID string for deterministic ordering
     memberships.sort(key=lambda m: str(m.id))
     return memberships
+
+
+def _touch_session_after_financial_mutation(shopping_session: ShoppingSession) -> None:
+    """Re-open a settled session if obligations change."""
+
+    if shopping_session.status == ShoppingSessionStatus.SETTLED:
+        shopping_session.status = ShoppingSessionStatus.ACTIVE
+        shopping_session.settled_at = None
+
+
+async def can_manage_item(
+    db: AsyncSession,
+    shopping_session: ShoppingSession,
+    item: ShoppingItem,
+    requester_membership_id: UUID,
+) -> bool:
+    """Return true when requester can edit/delete/sharer-manage an item."""
+
+    if requester_membership_id == item.created_by_membership_id:
+        return True
+    if requester_membership_id == shopping_session.paid_by_membership_id:
+        return True
+
+    membership_result = await db.execute(
+        select(Membership).where(
+            Membership.id == requester_membership_id,
+            Membership.group_id == shopping_session.group_id,
+        )
+    )
+    requester_membership = membership_result.scalar_one_or_none()
+    if not requester_membership:
+        return False
+    return requester_membership.role == MembershipRole.OWNER
 
 
 # ============================================================================
@@ -284,9 +351,19 @@ async def create_shopping_session(
         total_amount=total_amount,
         currency="USD",  # Fixed for MVP
         paid_by_membership_id=paid_by_membership_id,
+        status=ShoppingSessionStatus.ACTIVE,
     )
 
     db.add(shopping_session)
+    await db.flush()
+
+    # Payer is always a participant by default.
+    db.add(
+        ShoppingSessionParticipant(
+            session_id=shopping_session.id,
+            membership_id=paid_by_membership_id,
+        )
+    )
     await db.flush()
     await db.refresh(shopping_session)
 
@@ -379,6 +456,12 @@ async def set_session_participants(
             detail="Only the payer can set participants",
         )
 
+    if shopping_session.paid_by_membership_id not in participant_membership_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payer must remain a participant in the session",
+        )
+
     # Validate all participants are members of the group
     await validate_memberships_in_group(
         db, shopping_session.group_id, participant_membership_ids
@@ -429,9 +512,36 @@ async def set_session_participants(
         )
         db.add(participant)
 
+    _touch_session_after_financial_mutation(shopping_session)
     await db.flush()
     await db.refresh(shopping_session)
 
+    return shopping_session
+
+
+async def finalize_shopping_session(
+    db: AsyncSession,
+    shopping_session: ShoppingSession,
+    requester_membership_id: UUID,
+) -> ShoppingSession:
+    """Mark a shopping session as finalized (payer-only)."""
+
+    if requester_membership_id != shopping_session.paid_by_membership_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the payer can finalize the shopping session",
+        )
+
+    if shopping_session.status == ShoppingSessionStatus.SETTLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Settled sessions cannot be re-finalized",
+        )
+
+    shopping_session.status = ShoppingSessionStatus.FINALIZED
+    shopping_session.finalized_at = datetime.now(tz=timezone.utc)
+    await db.flush()
+    await db.refresh(shopping_session)
     return shopping_session
 
 
@@ -657,20 +767,26 @@ async def create_shopping_item(
         quantity: Quantity
         total_cents: Total price in cents
         unit_price_cents: Optional unit price in cents
-        requester_membership_id: Membership ID of requester (must be payer)
+        requester_membership_id: Membership ID of requester
 
     Returns:
         Created shopping item
 
     Raises:
-        HTTPException: If requester is not payer
+        HTTPException: If requester is not a session participant
     """
-    # Verify requester is the payer
-    if requester_membership_id != shopping_session.paid_by_membership_id:
+    participant_ids = {participant.membership_id for participant in shopping_session.participants}
+    if not participant_ids:
+        # Legacy sessions created before participant auto-seeding.
+        participant_ids.add(shopping_session.paid_by_membership_id)
+
+    if requester_membership_id not in participant_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can add items",
+            detail="Only session participants can add items",
         )
+
+    _touch_session_after_financial_mutation(shopping_session)
 
     # Create item
     item = ShoppingItem(
@@ -679,6 +795,7 @@ async def create_shopping_item(
         quantity=quantity,
         total_cents=total_cents,
         unit_price_cents=unit_price_cents,
+        created_by_membership_id=requester_membership_id,
     )
 
     db.add(item)
@@ -700,13 +817,13 @@ async def set_item_sharers(
         db: Database session
         item: Shopping item to set sharers for
         sharer_membership_ids: List of membership IDs who share this item
-        requester_membership_id: Membership ID of requester (must be payer)
+        requester_membership_id: Membership ID of requester
 
     Returns:
         List of created splits
 
     Raises:
-        HTTPException: If requester is not payer or sharers not participants
+        HTTPException: If requester is not authorized or sharers not participants
     """
     # Get the shopping session
     result = await db.execute(
@@ -721,11 +838,16 @@ async def set_item_sharers(
             detail=f"Shopping session for item {item.id} not found",
         )
 
-    # Verify requester is the payer
-    if requester_membership_id != shopping_session.paid_by_membership_id:
+    # Verify requester can manage this item.
+    if not await can_manage_item(
+        db,
+        shopping_session,
+        item,
+        requester_membership_id=requester_membership_id,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the payer can set sharers",
+            detail="Only the item creator, payer, or group owner can set sharers",
         )
 
     # Verify all sharers are participants in the session
@@ -746,12 +868,18 @@ async def set_item_sharers(
     for split in item.splits:
         await db.delete(split)
 
-    # Calculate equal splits (deterministic by sorted membership IDs)
-    share_amounts = calculate_equal_splits(item.total_cents, len(sharers))
+    # Calculate equal splits with payer-preferred remainder distribution.
+    sharer_ids_in_order = [membership.id for membership in sharers]
+    share_map = calculate_equal_splits_for_sharers(
+        item.total_cents,
+        sharer_membership_ids=sharer_ids_in_order,
+        payer_membership_id=shopping_session.paid_by_membership_id,
+    )
 
     # Create new splits
     new_splits = []
-    for membership, share_cents in zip(sharers, share_amounts):
+    for membership in sharers:
+        share_cents = share_map[membership.id]
         split = ShoppingItemSplit(
             item_id=item.id,
             membership_id=membership.id,
@@ -760,6 +888,7 @@ async def set_item_sharers(
         db.add(split)
         new_splits.append(split)
 
+    _touch_session_after_financial_mutation(shopping_session)
     await db.flush()
 
     # Refresh all splits to get created_at timestamps
