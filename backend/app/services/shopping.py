@@ -1,10 +1,12 @@
 """Shopping service layer for business logic."""
 
+from __future__ import annotations
+
 import os
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 from uuid import UUID
 
 import boto3
@@ -22,6 +24,9 @@ from app.models.shopping_item import ShoppingItem
 from app.models.shopping_item_split import ShoppingItemSplit
 from app.models.shopping_session import ShoppingSession, ShoppingSessionStatus
 from app.models.shopping_session_participant import ShoppingSessionParticipant
+
+if TYPE_CHECKING:
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
 
 
 # ============================================================================
@@ -650,7 +655,7 @@ async def delete_receipt_upload(
 async def extract_items_from_receipt_upload(
     db: AsyncSession,
     receipt: ReceiptUpload,
-) -> list["ReceiptExtractedItem"]:
+) -> list[ReceiptExtractedItem]:
     """Extract items from a receipt image using OCR.
     
     Downloads the receipt from S3, runs OCR, parses items,
