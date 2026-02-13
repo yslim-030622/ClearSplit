@@ -68,7 +68,7 @@ async def store_idempotency_response(
         status_code=status_code,
     )
     session.add(idempotency_key)
-    await session.commit()
+    await session.flush()
 
 
 def get_idempotency_key_from_header(request: Request) -> str | None:
@@ -81,4 +81,3 @@ def get_idempotency_key_from_header(request: Request) -> str | None:
         Idempotency key string or None
     """
     return request.headers.get("Idempotency-Key")
-

@@ -31,6 +31,7 @@ Root behavior:
 
 - auth session lifecycle
 - groups, memberships, expenses, settlements caches
+- live balances cache and settlement payment history cache
 - shopping sessions and receipt interactions
 - optimistic updates plus refresh calls after writes
 
@@ -49,6 +50,7 @@ Root behavior:
 | `Networking/AuthService.swift` | login/signup/me/refresh endpoints. |
 | `Networking/GroupsService.swift` | groups list endpoint. |
 | `Networking/ShoppingService.swift` | shopping sessions, participants, receipt upload/download/extract, item/sharer endpoints. |
+| `Networking/SettlementService.swift` | live balances, payment create/confirm/history, legacy mark-paid endpoint. |
 | `Storage/KeychainService.swift` | token persistence under `com.clearsplit.auth`. |
 | `Config/APIConfig.swift` | base URL from `API_BASE_URL` Info.plist key or localhost fallback. |
 
@@ -71,6 +73,7 @@ Models are shaped to backend snake_case payloads through explicit coding keys an
 | --- | --- | --- |
 | Auth | `Views/LoginView.swift`, `Views/SignUpView.swift` | `LoginViewModel`, `SignUpViewModel` |
 | Groups | `Views/GroupsListView.swift`, `Views/GroupDetailView.swift`, `Views/CreateGroupView.swift` | `GroupsViewModel` |
+| Balances & settlement | `Views/BalancesSettlementView.swift` | state-driven via `AppState` |
 | Shopping sessions | `Views/ShoppingSessionsListView.swift`, `Views/CreateShoppingSessionView.swift`, `Views/ShoppingSessionDetailView.swift` | `ShoppingSessionsViewModel`, `CreateShoppingSessionViewModel`, `ShoppingSessionDetailViewModel` |
 | Item creation | `Views/AddItemSheet.swift` + form components | `AddItemViewModel` |
 | Receipt upload/review | `Views/ReceiptUploadView.swift`, `Views/ExtractedItemsReviewView.swift`, `Views/ReceiptPreviewSheet.swift`, `Views/ReceiptReviewView.swift` | mixed state in views plus service-driven calls |

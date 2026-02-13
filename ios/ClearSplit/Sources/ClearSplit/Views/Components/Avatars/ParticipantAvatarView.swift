@@ -22,7 +22,11 @@ struct ParticipantAvatarView: View {
             Text(displayName)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.gray700)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.9)
         }
+        .frame(width: 72)
     }
 
     private var displayName: String {
@@ -31,9 +35,13 @@ struct ParticipantAvatarView: View {
             if user.id == currentUserId {
                 return "You"
             }
-            return "\(user.firstName) \(user.lastName)"
+            let fullName = "\(user.firstName) \(user.lastName)".trimmingCharacters(in: .whitespaces)
+            if !fullName.isEmpty {
+                return fullName
+            }
+            return user.displayName
         }
-        return "Member"
+        return "Member \(participant.membershipId.uuidString.prefix(4).uppercased())"
     }
 
     private var displayInitial: String {

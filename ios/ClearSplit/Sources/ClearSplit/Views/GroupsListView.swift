@@ -2,13 +2,13 @@ import SwiftUI
 
 struct GroupsListView: View {
     @StateObject private var viewModel: GroupsViewModel
-    let appState: AppState
+    @ObservedObject private var appState: AppState
     let onLogout: () -> Void
     @State private var showCreateGroup = false
     @State private var showLogoutAlert = false
 
     init(appState: AppState, onLogout: @escaping () -> Void) {
-        self.appState = appState
+        _appState = ObservedObject(wrappedValue: appState)
         _viewModel = StateObject(wrappedValue: GroupsViewModel(appState: appState))
         self.onLogout = onLogout
     }
@@ -17,7 +17,7 @@ struct GroupsListView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 // Background
-                Color(hex: "F9FAFB")
+                Color.pageBackground
                     .ignoresSafeArea()
                 
                 // Content
@@ -135,6 +135,7 @@ struct GroupCard: View {
     let group: Group
     let appState: AppState
     @State private var isPressed = false
+    @State private var isHovered = false
 
     private var memberCount: Int {
         appState.membershipsByGroupId[group.id]?.count ?? 0
@@ -144,16 +145,8 @@ struct GroupCard: View {
         guard let myMembershipId = appState.getUserMembership(in: group.id)?.id else {
             return 0
         }
-
-        let settlements = appState.settlements(for: group.id)
-        return settlements.reduce(into: Decimal.zero) { total, settlement in
-            let amount = Decimal(settlement.amountCents) / 100
-            if settlement.fromMembership == myMembershipId {
-                total -= amount
-            } else if settlement.toMembership == myMembershipId {
-                total += amount
-            }
-        }
+        let netCents = appState.netBalanceCents(groupId: group.id, membershipId: myMembershipId)
+        return Decimal(netCents) / 100
     }
     
     private var isSettled: Bool {
@@ -213,13 +206,7 @@ struct GroupCard: View {
             }
             .padding(16)
             .frame(height: 72)
-            .background(isPressed ? Color(hex: "F9FAFB") : .white)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
-            )
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.05), radius: 2, y: 1)
+            .itemCardStyle(isHovered: isHovered || isPressed)
             .scaleEffect(isPressed ? 0.99 : 1.0)
             .animation(.easeOut(duration: 0.15), value: isPressed)
         }
@@ -229,6 +216,11 @@ struct GroupCard: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
     
     private var balanceText: String {
@@ -284,11 +276,6 @@ struct GroupCardSkeleton: View {
         }
         .padding(16)
         .frame(height: 72)
-        .background(Color.white)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
-        )
-        .cornerRadius(12)
+        .itemCardStyle()
     }
 }

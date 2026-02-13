@@ -43,12 +43,12 @@ struct ReceiptsDetailCard: View {
                 }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray100)
+                            .fill(Color.cardInset)
                             .frame(width: 80, height: 80)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(style: StrokeStyle(lineWidth: 2, dash: [4, 4]))
-                                    .foregroundColor(.gray300)
+                                    .foregroundColor(.borderMedium)
                             )
 
                         Image(systemName: "doc.text.fill")
@@ -75,13 +75,6 @@ struct ReceiptsDetailCard: View {
             }
         }
         .padding(20)
-        .background(Color.white)
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
-                .allowsHitTesting(false)
-        )
-        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+        .sectionStyle()
     }
 }

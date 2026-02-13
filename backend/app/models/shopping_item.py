@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from app.db import Base
 
 if TYPE_CHECKING:
+    from app.models.membership import Membership
     from app.models.shopping_session import ShoppingSession
     from app.models.shopping_item_split import ShoppingItemSplit
 
@@ -33,6 +34,11 @@ class ShoppingItem(Base):
     quantity: Mapped[int] = mapped_column(Integer(), nullable=False, server_default="1")
     unit_price_cents: Mapped[int | None] = mapped_column(BigInteger(), nullable=True)
     total_cents: Mapped[int] = mapped_column(BigInteger(), nullable=False)
+    created_by_membership_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memberships.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -47,9 +53,9 @@ class ShoppingItem(Base):
 
     # Relationships
     session: Mapped["ShoppingSession"] = relationship(back_populates="items")
+    created_by_membership: Mapped["Membership"] = relationship(foreign_keys=[created_by_membership_id])
     splits: Mapped[list["ShoppingItemSplit"]] = relationship(
         back_populates="item",
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-

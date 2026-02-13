@@ -16,7 +16,9 @@ public final class AppState: ObservableObject {
     @Published var groups: [Group] = []
     @Published var expensesByGroupId: [UUID: [Expense]] = [:]
     @Published var membershipsByGroupId: [UUID: [Membership]] = [:]
-    @Published var settlementsByGroupId: [UUID: [Settlement]] = [:]
+    @Published var settlementsByGroupId: [UUID: [Settlement]] = [:] // legacy snapshots
+    @Published var groupBalancesByGroupId: [UUID: GroupBalances] = [:]
+    @Published var settlementPaymentsByGroupId: [UUID: [SettlementPayment]] = [:]
     @Published var shoppingSessionsByGroupId: [UUID: [ShoppingSession]] = [:]
     @Published var isLoadingExpenses = false
     @Published var isLoadingBalances = false
@@ -27,17 +29,20 @@ public final class AppState: ObservableObject {
     let authService: AuthServicing
     let groupsService: GroupsServicing
     let shoppingService: ShoppingServicing
+    let settlementService: SettlementServicing
 
     init(
         apiClient: APIClient = APIClient(),
         authService: AuthServicing? = nil,
         groupsService: GroupsServicing? = nil,
-        shoppingService: ShoppingServicing? = nil
+        shoppingService: ShoppingServicing? = nil,
+        settlementService: SettlementServicing? = nil
     ) {
         self.apiClient = apiClient
         self.authService = authService ?? AuthService(client: apiClient)
         self.groupsService = groupsService ?? GroupsService(client: apiClient)
         self.shoppingService = shoppingService ?? ShoppingService(client: apiClient)
+        self.settlementService = settlementService ?? SettlementService(client: apiClient)
     }
 
     // Public convenience initializer for app target; keeps designated initializer internal.
@@ -125,6 +130,8 @@ public final class AppState: ObservableObject {
         expensesByGroupId = [:]
         membershipsByGroupId = [:]
         settlementsByGroupId = [:]
+        groupBalancesByGroupId = [:]
+        settlementPaymentsByGroupId = [:]
         shoppingSessionsByGroupId = [:]
         await apiClient.clearTokens()
     }
@@ -154,6 +161,8 @@ public final class AppState: ObservableObject {
         expensesByGroupId[groupId] = nil
         membershipsByGroupId[groupId] = nil
         settlementsByGroupId[groupId] = nil
+        groupBalancesByGroupId[groupId] = nil
+        settlementPaymentsByGroupId[groupId] = nil
         shoppingSessionsByGroupId[groupId] = nil
     }
 
@@ -223,14 +232,8 @@ public final class AppState: ObservableObject {
     func loadBalances(groupId: UUID) async throws {
         isLoadingBalances = true
         defer { isLoadingBalances = false }
-        do {
-            let batch: SettlementBatch = try await apiClient.request(APIRequest(
-                path: "groups/\(groupId.uuidString)/settlements/latest"
-            ))
-            settlementsByGroupId[groupId] = batch.settlements ?? []
-        } catch APIError.server(let status, _) where status == 404 {
-            settlementsByGroupId[groupId] = []
-        }
+        let balances = try await settlementService.getBalances(groupId: groupId)
+        groupBalancesByGroupId[groupId] = balances
     }
 
     func expenses(for groupId: UUID) -> [Expense] {
@@ -239,6 +242,46 @@ public final class AppState: ObservableObject {
 
     func settlements(for groupId: UUID) -> [Settlement] {
         settlementsByGroupId[groupId] ?? []
+    }
+
+    func balances(for groupId: UUID) -> GroupBalances? {
+        groupBalancesByGroupId[groupId]
+    }
+
+    func netBalanceCents(groupId: UUID, membershipId: UUID) -> Int {
+        guard let balanceRows = groupBalancesByGroupId[groupId]?.balances else { return 0 }
+        return balanceRows.first(where: { $0.membershipId == membershipId })?.netCents ?? 0
+    }
+
+    func loadSettlementPayments(groupId: UUID) async throws {
+        let payments = try await settlementService.listPayments(groupId: groupId)
+        settlementPaymentsByGroupId[groupId] = payments
+    }
+
+    func settlementPayments(for groupId: UUID) -> [SettlementPayment] {
+        settlementPaymentsByGroupId[groupId] ?? []
+    }
+
+    @discardableResult
+    func createSettlementPayment(
+        groupId: UUID,
+        request: SettlementPaymentCreateRequest
+    ) async throws -> SettlementPayment {
+        let payment = try await settlementService.createPayment(groupId: groupId, request: request)
+        try await loadBalances(groupId: groupId)
+        try await loadSettlementPayments(groupId: groupId)
+        return payment
+    }
+
+    @discardableResult
+    func confirmSettlementPayment(
+        groupId: UUID,
+        paymentId: UUID
+    ) async throws -> SettlementPayment {
+        let payment = try await settlementService.confirmPayment(paymentId: paymentId)
+        try await loadBalances(groupId: groupId)
+        try await loadSettlementPayments(groupId: groupId)
+        return payment
     }
 
     // MARK: - Shopping Sessions
@@ -332,13 +375,14 @@ public final class AppState: ObservableObject {
         request: ShoppingItemCreate,
         membershipIds: [UUID]
     ) async throws -> ShoppingItem {
-        guard !membershipIds.isEmpty else { throw AppStateError.invalidParticipants }
         let item: ShoppingItem = try await apiClient.request(APIRequest(
             path: "items/\(itemId.uuidString)",
             method: "PATCH",
             body: request
         ))
-        _ = try await shoppingService.setSharers(itemId: itemId, request: SharersSetRequest(membershipIds: membershipIds))
+        if !membershipIds.isEmpty {
+            _ = try await shoppingService.setSharers(itemId: itemId, request: SharersSetRequest(membershipIds: membershipIds))
+        }
         _ = try await refreshShoppingSession(sessionId: sessionId, groupId: groupId)
         return item
     }
