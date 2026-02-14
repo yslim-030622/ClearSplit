@@ -56,20 +56,19 @@ struct TotalAmountHeroCard: View {
     }
 
     private var paidByText: String {
-        guard let currentUserId = currentUserId else {
+        guard let membership = groupMemberships.first(where: { $0.id == paidByMembershipId }) else {
             return "Paid by Unknown"
         }
 
-        guard let membership = groupMemberships.first(where: { $0.id == paidByMembershipId }),
-              let user = membership.user else {
-            return "Paid by Unknown"
+        guard let user = membership.user else {
+            return "Paid by \(membership.displayName)"
         }
 
         if user.id == currentUserId {
             return "Paid by You"
         }
 
-        return "Paid by \(user.firstName) \(user.lastName)"
+        return "Paid by \(user.displayName)"
     }
 }
 

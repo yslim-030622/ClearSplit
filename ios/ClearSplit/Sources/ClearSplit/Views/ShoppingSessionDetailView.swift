@@ -38,7 +38,9 @@ struct ShoppingSessionDetailView: View {
                         // Blue Gradient Hero Card
                         TotalAmountHeroCard(
                             totalCents: session.totalCents,
-                            paidByMembershipId: session.paidByMembershipId
+                            paidByMembershipId: session.paidByMembershipId,
+                            groupMemberships: appState.membershipsByGroupId[session.groupId] ?? [],
+                            currentUserId: currentUserId
                         )
 
                         // Content Area
