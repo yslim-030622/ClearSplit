@@ -12,11 +12,11 @@ public struct RootView: View {
     public init() {}
 
     public var body: some View {
-        NavigationStack {
+        SwiftUI.Group {
             if !hasBootstrapped {
                 ProgressView("Loading…")
             } else if appState.user != nil {
-                GroupsListView(appState: appState) {
+                MainTabView(appState: appState) {
                     Task { await appState.logout() }
                 }
             } else {
