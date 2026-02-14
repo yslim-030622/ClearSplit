@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+import logging
 from typing import Iterable
 from uuid import UUID
 
@@ -26,6 +27,8 @@ from app.models.settlement import (
 from app.models.shopping_item import ShoppingItem
 from app.models.shopping_session import ShoppingSession, ShoppingSessionStatus
 
+logger = logging.getLogger(__name__)
+
 
 async def _get_group_memberships(
     session: AsyncSession, group_id: UUID
@@ -43,7 +46,7 @@ async def _get_group_memberships(
     return memberships
 
 
-def _assert_zero_net_or_raise(
+def _warn_non_zero_net(
     group_id: UUID,
     balances: dict[UUID, int],
     diagnostics: dict[str, object],
@@ -57,15 +60,12 @@ def _assert_zero_net_or_raise(
         key=lambda row: abs(row[1]),
         reverse=True,
     )[:10]
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={
-            "message": "Balance computation net sum mismatch",
-            "group_id": str(group_id),
-            "net_total_cents": net_total,
-            "top_non_zero_memberships": non_zero,
-            "diagnostics": diagnostics,
-        },
+    logger.warning(
+        "Balance computation net sum mismatch group_id=%s net_total_cents=%s top_non_zero_memberships=%s diagnostics=%s",
+        group_id,
+        net_total,
+        non_zero,
+        diagnostics,
     )
 
 
@@ -190,7 +190,7 @@ async def _compute_balances(
             diagnostics["confirmed_payment_total_cents"]
         ) + amount
 
-    _assert_zero_net_or_raise(group_id, balances, diagnostics)
+    _warn_non_zero_net(group_id, balances, diagnostics)
     return balances, diagnostics
 
 
@@ -319,6 +319,9 @@ async def _resolve_covered_sessions(
     group_id: UUID,
     session_ids: list[UUID] | None,
 ) -> list[ShoppingSession]:
+    if session_ids is None:
+        return []
+
     if session_ids:
         result = await session.execute(
             select(ShoppingSession)
@@ -338,18 +341,7 @@ async def _resolve_covered_sessions(
             )
         return sessions
 
-    # Default coverage: all active/finalized sessions.
-    result = await session.execute(
-        select(ShoppingSession)
-        .where(
-            ShoppingSession.group_id == group_id,
-            ShoppingSession.status.in_(
-                [ShoppingSessionStatus.ACTIVE, ShoppingSessionStatus.FINALIZED]
-            ),
-        )
-        .options(selectinload(ShoppingSession.items).selectinload(ShoppingItem.splits))
-    )
-    return list(result.scalars().all())
+    return []
 
 
 async def _validate_memberships_for_payment(

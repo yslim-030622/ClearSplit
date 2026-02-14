@@ -15,10 +15,15 @@ final class LoginViewModel: ObservableObject {
     }
 
     func login() async {
-        guard validate() else { return }
+        let identifier = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validate(identifier: identifier) else { return }
+        if APIConfig.requiresLANBaseURLForCurrentRuntime {
+            present(APIConfig.deviceLoopbackHintMessage)
+            return
+        }
         isLoading = true
         do {
-            try await appState.login(identifier: email, password: password)
+            try await appState.login(identifier: identifier, password: password)
             isLoading = false
         } catch {
             isLoading = false
@@ -26,8 +31,8 @@ final class LoginViewModel: ObservableObject {
         }
     }
 
-    private func validate() -> Bool {
-        guard !email.isEmpty else {
+    private func validate(identifier: String) -> Bool {
+        guard !identifier.isEmpty else {
             present("Email is required")
             return false
         }
@@ -53,6 +58,12 @@ final class LoginViewModel: ObservableObject {
         case let urlError as URLError:
             present(connectionMessage(for: urlError))
         case APIError.server(let status, let message):
+            if status == 401 {
+                present(
+                    "Invalid email/username or password. If this is a fresh local backend database, create an account first."
+                )
+                return
+            }
             present("Server error (\(status)): \(message ?? "No message")")
         default:
             present("Login failed: \(String(describing: error))")
@@ -60,9 +71,8 @@ final class LoginViewModel: ObservableObject {
     }
 
     private func connectionMessage(for urlError: URLError? = nil) -> String {
-        let host = APIConfig.baseURL.host?.lowercased()
-        if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-            return "Cannot connect to server. If using a real device, set API_BASE_URL to your Mac LAN IP (e.g. http://192.168.x.x:8000)."
+        if APIConfig.requiresLANBaseURLForCurrentRuntime {
+            return APIConfig.deviceLoopbackHintMessage
         }
 
         guard let urlError else {

@@ -1,5 +1,5 @@
 # System Architecture Overview
-ClearSplit backend is an async FastAPI service that provides authentication, group membership, expense splitting, settlement computation/payment tracking, shopping-session itemization, receipt storage, and receipt OCR extraction. This is evidenced by route/service modules in `backend/app/api/*.py`, `backend/app/services/*.py`, and the repository description in `README.md`.
+ClearSplit backend is an async FastAPI service that provides authentication, friend relationships, group membership, expense splitting, settlement computation/payment tracking, shopping-session itemization, receipt storage, and receipt OCR extraction. This is evidenced by route/service modules in `backend/app/api/*.py`, `backend/app/services/*.py`, and the repository description in `README.md`.
 
 Architectural style: modular monolith.
 - API layer: FastAPI routers in `backend/app/api/`.
@@ -116,7 +116,7 @@ Production startup command(s) (verifiable):
 
 ## API controllers
 - Responsibility: HTTP route definitions and request orchestration.
-- Key files: `backend/app/api/auth.py`, `backend/app/api/groups.py`, `backend/app/api/expenses.py`, `backend/app/api/settlements.py`, `backend/app/api/shopping.py`.
+- Key files: `backend/app/api/auth.py`, `backend/app/api/friends.py`, `backend/app/api/groups.py`, `backend/app/api/expenses.py`, `backend/app/api/settlements.py`, `backend/app/api/shopping.py`.
 - Public interfaces: `router` objects included in `backend/app/main.py`.
 - Dependencies:
   - Internal: services, schemas, auth dependencies, db session dependency.
@@ -132,10 +132,11 @@ Production startup command(s) (verifiable):
   - External: `PyJWT`, `bcrypt`, FastAPI security.
 - Coupling notes: `core/idempotency.py` depends on `services/expense.py` for request hashing.
 
-## Domain services: groups/memberships/expenses/settlements
+## Domain services: friends/groups/memberships/expenses/settlements
 - Responsibility: authorization checks and core business operations.
-- Key files: `backend/app/services/group.py`, `backend/app/services/membership.py`, `backend/app/services/expense.py`, `backend/app/services/settlement.py`.
+- Key files: `backend/app/services/friends.py`, `backend/app/services/group.py`, `backend/app/services/membership.py`, `backend/app/services/expense.py`, `backend/app/services/settlement.py`.
 - Public interfaces:
+  - Friends: request/accept/decline/list flows with normalized user-pair invariants.
   - Group: membership/owner guards, group fetch/list/create.
   - Membership: lookup and add-member flows.
   - Expense: create equal-split expenses, read flows, idempotency hash helper.
@@ -230,6 +231,85 @@ Error handling strategy:
 - Request validation returns explicit 422 payload via custom exception handler.
 - Unhandled exceptions rely on FastAPI default 500 handling.
 - Some explicit rollback logic is local (for example, user creation path in `backend/app/api/auth.py`).
+
+# Friends Feature (MVP)
+## New data model
+- New model: `backend/app/models/friendship.py` (`Friendship`, `FriendshipStatus`).
+- New migration: `backend/alembic/versions/20260214_0011_friendships_table.py`.
+- New table: `friendships`.
+  - Columns:
+    - `id UUID PRIMARY KEY DEFAULT uuid_generate_v4()`
+    - `user_low_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
+    - `user_high_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
+    - `requested_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
+    - `status friendship_status NOT NULL DEFAULT 'pending'`
+    - `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+    - `updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`
+  - Enum values: `pending`, `accepted`, `declined`.
+  - Constraints/invariants:
+    - `UNIQUE (user_low_id, user_high_id)` ensures one row per user pair.
+    - `CHECK (user_low_id <> user_high_id)` disallows self friendship rows.
+    - `CHECK (requested_by_user_id = user_low_id OR requested_by_user_id = user_high_id)` ensures requester is one of the pair.
+  - Indexes:
+    - `idx_friendships_status_user_low (status, user_low_id)`
+    - `idx_friendships_status_user_high (status, user_high_id)`
+  - Trigger:
+    - `friendships_set_updated_at` updates `updated_at` via shared `set_updated_at()` trigger function.
+- Pair normalization rule (service + schema invariant): friendship pairs are always normalized to `(min(user_id), max(user_id))` before insert/update lookup.
+
+## New API endpoints
+- Router: `backend/app/api/friends.py` (included in `backend/app/main.py`).
+- Endpoints (all authenticated via `get_current_user`):
+  - `POST /friends/requests`
+    - Input: `FriendRequestCreate { to_user_id }`
+    - Responsibility: create a pending request or apply request-state policy for existing row.
+  - `POST /friends/requests/{friendship_id}/accept`
+    - Responsibility: receiver-only transition from pending to accepted.
+  - `POST /friends/requests/{friendship_id}/decline`
+    - Responsibility: receiver-only transition from pending to declined.
+  - `GET /friends?q=...`
+    - Responsibility: list accepted friendships for current user; optional case-insensitive search within current user’s friend list only.
+
+## New service module and business rules
+- Service module: `backend/app/services/friends.py`.
+- Layer responsibilities:
+  - API layer performs orchestration (dependency injection, request/response mapping, `commit()`).
+  - Service layer owns friendship business logic and invariant enforcement (`flush()`, conflict mapping).
+  - Model layer remains persistence only.
+  - Schema layer defines transport contracts (`backend/app/schemas/friends.py`).
+- Implemented rules:
+  - `send_friend_request`:
+    - Reject self-request (`400`).
+    - If existing friendship is `accepted`, return `409`.
+    - If existing friendship is `pending` and already requested by same sender, return `409`.
+    - If existing friendship is `pending` requested by the other user, auto-accept (policy decision).
+    - If existing friendship is `declined`, allow re-request by resetting to `pending` and updating `requested_by_user_id` (policy decision).
+  - `accept_friend_request` / `decline_friend_request`:
+    - Only request receiver may act (`403` for sender).
+    - Only valid when current status is `pending` (`400` otherwise).
+  - `list_friends`:
+    - Returns only `accepted` rows involving current user.
+    - Computes the “other user” via SQL `CASE` and joins to `users` in one query (no per-row friend lookup/N+1).
+    - Optional `q` filter applies server-side (`ILIKE`) across `username`, `first_name`, `last_name`.
+  - Integrity collisions (`IntegrityError`) are mapped to HTTP `409`.
+
+## Friends data flow
+- Request lifecycle:
+  - `POST /friends/requests` -> normalize pair -> `SELECT ... FOR UPDATE` existing row -> create/update row -> `flush` in service -> `commit` in API -> return `FriendshipOut`.
+- Acceptance flow:
+  - `POST /friends/requests/{id}/accept` -> authorize participant + receiver role -> state transition `pending -> accepted` -> flush/commit -> return current friendship + friend projection.
+- Decline flow:
+  - `POST /friends/requests/{id}/decline` -> authorize participant + receiver role -> state transition `pending -> declined` -> flush/commit -> return current friendship + friend projection.
+- Search flow:
+  - `GET /friends?q=...` -> single joined query limited to accepted rows where current user participates -> optional case-insensitive filter -> serialized friend-safe output fields only.
+
+## Architectural tradeoffs and decisions
+- Pair normalization tradeoff:
+  - Chosen to represent an undirected relationship as one canonical row; this simplifies uniqueness and lookup logic.
+- Reverse pending auto-accept policy:
+  - Chosen for lower user friction and deterministic handling of crossed requests.
+- Re-request after decline policy:
+  - Allowed by resetting existing row to `pending` instead of creating a second row; this preserves history shape and keeps one-row-per-pair invariant.
 
 # Integration Points
 Third-party services explicitly referenced:
