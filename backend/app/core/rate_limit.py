@@ -40,7 +40,7 @@ def _parse_trusted_proxy_networks() -> list[IPNetwork]:
 _trusted_proxy_networks = _parse_trusted_proxy_networks()
 
 
-def _normalize_client_value(value: str) -> str:
+def _normalize_client_value(value: str, *, allow_non_ip: bool = False) -> str:
     candidate = value.strip()
     if not candidate:
         return ""
@@ -48,8 +48,10 @@ def _normalize_client_value(value: str) -> str:
     try:
         return str(ipaddress.ip_address(candidate))
     except ValueError:
-        # Keep non-IP values stable without trusting arbitrary formatting.
-        return candidate.lower()
+        if allow_non_ip:
+            # Keep non-IP values stable without trusting arbitrary formatting.
+            return candidate.lower()
+        return ""
 
 
 def _is_request_from_trusted_proxy(request: Request) -> bool:
@@ -146,7 +148,7 @@ def _client_identifier(request: Request) -> str:
             return real_ip
 
     if request.client and request.client.host:
-        normalized = _normalize_client_value(request.client.host)
+        normalized = _normalize_client_value(request.client.host, allow_non_ip=True)
         if normalized:
             return normalized
 

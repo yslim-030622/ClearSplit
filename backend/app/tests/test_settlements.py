@@ -485,6 +485,36 @@ async def test_shopping_session_status_filtering(client: AsyncClient, session: A
 
 
 @pytest.mark.asyncio
+async def test_balances_tolerate_split_sum_mismatch(client: AsyncClient, session: AsyncSession):
+    users = [
+        await _create_user(session, "mismatch-a@example.com"),
+        await _create_user(session, "mismatch-b@example.com"),
+    ]
+    group, memberships = await _create_group_with_members(session, users)
+
+    # Intentionally mismatched splits (700 != 1000) to simulate legacy/corrupted rows.
+    await _add_shopping_item_split(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,
+        item_total_cents=1000,
+        splits=[(memberships[1].id, 700)],
+        status=ShoppingSessionStatus.ACTIVE,
+    )
+
+    response = await client.get(
+        f"/groups/{group.id}/balances",
+        headers=_auth_header(users[0]),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    balances = {row["membership_id"]: row["net_cents"] for row in payload["balances"]}
+    assert balances[str(memberships[0].id)] == 1000
+    assert balances[str(memberships[1].id)] == -700
+    assert payload["suggestions"][0]["amount_cents"] == 700
+
+
+@pytest.mark.asyncio
 async def test_confirmed_payments_reduce_outstanding_balances(
     client: AsyncClient, session: AsyncSession
 ):
@@ -598,6 +628,57 @@ async def test_confirming_payment_can_settle_covered_session(
     assert refreshed_session.status_code == 200
     assert refreshed_session.json()["status"] == "settled"
     assert refreshed_session.json()["settled_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_auto_confirm_payment_without_session_ids_does_not_distort_balances(
+    client: AsyncClient, session: AsyncSession
+):
+    payer = await _create_user(session, "no-cover-payer@example.com")
+    sharer = await _create_user(session, "no-cover-sharer@example.com")
+    group, memberships = await _create_group_with_members(session, [payer, sharer])
+
+    shopping_session = await _add_shopping_item_split(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,
+        item_total_cents=500,
+        splits=[(memberships[1].id, 500)],
+        status=ShoppingSessionStatus.FINALIZED,
+    )
+
+    create_response = await client.post(
+        f"/groups/{group.id}/settlement-payments",
+        headers=_auth_header(sharer),
+        json={
+            "from_membership": str(memberships[1].id),
+            "to_membership": str(memberships[0].id),
+            "amount_cents": 500,
+            "auto_confirm": True,
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    assert create_response.json()["status"] == "confirmed"
+    assert create_response.json()["session_ids"] == []
+
+    balances_response = await client.get(
+        f"/groups/{group.id}/balances",
+        headers=_auth_header(payer),
+    )
+    assert balances_response.status_code == 200, balances_response.text
+    payload = balances_response.json()
+    balances = {row["membership_id"]: row["net_cents"] for row in payload["balances"]}
+    assert balances[str(memberships[0].id)] == 0
+    assert balances[str(memberships[1].id)] == 0
+    assert payload["suggestions"] == []
+
+    refreshed_session = await client.get(
+        f"/shopping-sessions/{shopping_session.id}",
+        headers=_auth_header(payer),
+    )
+    assert refreshed_session.status_code == 200
+    assert refreshed_session.json()["status"] == "finalized"
+    assert refreshed_session.json()["settled_at"] is None
 
 
 @pytest.mark.asyncio

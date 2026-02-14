@@ -28,6 +28,7 @@ public final class AppState: ObservableObject {
     let apiClient: APIClient
     let authService: AuthServicing
     let groupsService: GroupsServicing
+    let friendsService: FriendsServicing
     let shoppingService: ShoppingServicing
     let settlementService: SettlementServicing
 
@@ -35,12 +36,14 @@ public final class AppState: ObservableObject {
         apiClient: APIClient = APIClient(),
         authService: AuthServicing? = nil,
         groupsService: GroupsServicing? = nil,
+        friendsService: FriendsServicing? = nil,
         shoppingService: ShoppingServicing? = nil,
         settlementService: SettlementServicing? = nil
     ) {
         self.apiClient = apiClient
         self.authService = authService ?? AuthService(client: apiClient)
         self.groupsService = groupsService ?? GroupsService(client: apiClient)
+        self.friendsService = friendsService ?? FriendsService(client: apiClient)
         self.shoppingService = shoppingService ?? ShoppingService(client: apiClient)
         self.settlementService = settlementService ?? SettlementService(client: apiClient)
     }

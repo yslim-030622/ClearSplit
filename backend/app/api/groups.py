@@ -3,13 +3,17 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.core.rate_limit import enforce_member_preview_rate_limit
 from app.db.session import get_session
+from app.models.expense_split import ExpenseSplit
 from app.models.group import Group
 from app.models.membership import Membership
+from app.models.settlement import Settlement, SettlementPayment
+from app.models.shopping_session import ShoppingSession
 from app.models.user import User
 from app.schemas.group import GroupCreate, GroupRead
 from app.schemas.membership import (
@@ -136,7 +140,14 @@ async def delete_group(
     await require_owner_role(session, group_id, current_user.id)
 
     deleted_group = GroupRead.model_validate(group)
-    await session.delete(group)
+    # Remove rows that reference memberships with RESTRICT before deleting the group.
+    await session.execute(delete(ShoppingSession).where(ShoppingSession.group_id == group_id))
+    await session.execute(delete(ExpenseSplit).where(ExpenseSplit.group_id == group_id))
+    await session.execute(delete(Settlement).where(Settlement.group_id == group_id))
+    await session.execute(
+        delete(SettlementPayment).where(SettlementPayment.group_id == group_id)
+    )
+    await session.execute(delete(Group).where(Group.id == group_id))
     await session.commit()
 
     return deleted_group

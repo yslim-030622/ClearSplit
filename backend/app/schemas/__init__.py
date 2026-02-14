@@ -14,6 +14,7 @@ from app.schemas.expense import (
     ExpenseSplitRead,
     ExpenseUpdate,
 )
+from app.schemas.friends import FriendRequestCreate, FriendshipOut, FriendUserOut
 from app.schemas.group import GroupCreate, GroupRead, GroupUpdate
 from app.schemas.membership import (
     AddMemberRequest,
@@ -68,6 +69,10 @@ __all__ = [
     "ExpenseUpdate",
     "ExpenseSplitCreate",
     "ExpenseSplitRead",
+    # Friends
+    "FriendRequestCreate",
+    "FriendshipOut",
+    "FriendUserOut",
     # Settlement
     "SettlementBatchCreate",
     "SettlementBatchRead",
@@ -86,4 +91,3 @@ __all__ = [
     "ShoppingSessionParticipantRead",
     "ShoppingSessionRead",
 ]
-

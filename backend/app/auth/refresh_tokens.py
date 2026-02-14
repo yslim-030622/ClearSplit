@@ -43,6 +43,9 @@ async def validate_and_rotate_refresh_token(
     replacement_expires_at: datetime,
 ) -> None:
     now = datetime.now(tz=timezone.utc)
+    if current_jti == replacement_jti:
+        raise _invalid_refresh_token()
+
     result = await session.execute(
         select(RefreshToken)
         .where(
