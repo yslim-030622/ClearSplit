@@ -3,6 +3,7 @@
 from app.models.activity_log import ActivityLog
 from app.models.expense import Expense
 from app.models.expense_split import ExpenseSplit
+from app.models.friendship import Friendship, FriendshipStatus
 from app.models.group import Group
 from app.models.idempotency_key import IdempotencyKey
 from app.models.membership import Membership, MembershipRole
@@ -27,6 +28,8 @@ __all__ = [
     "ActivityLog",
     "Expense",
     "ExpenseSplit",
+    "Friendship",
+    "FriendshipStatus",
     "Group",
     "IdempotencyKey",
     "Membership",

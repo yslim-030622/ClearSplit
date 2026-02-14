@@ -20,6 +20,10 @@ final class SignUpViewModel: ObservableObject {
 
     func signup() async -> Bool {
         guard validate() else { return false }
+        if APIConfig.requiresLANBaseURLForCurrentRuntime {
+            present(APIConfig.deviceLoopbackHintMessage)
+            return false
+        }
         isLoading = true
         do {
             try await appState.signup(
@@ -86,9 +90,8 @@ final class SignUpViewModel: ObservableObject {
     }
 
     private func connectionMessage(for urlError: URLError? = nil) -> String {
-        let host = APIConfig.baseURL.host?.lowercased()
-        if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-            return "Cannot connect to server. If using a real device, set API_BASE_URL to your Mac LAN IP (e.g. http://192.168.x.x:8000)."
+        if APIConfig.requiresLANBaseURLForCurrentRuntime {
+            return APIConfig.deviceLoopbackHintMessage
         }
 
         guard let urlError else {

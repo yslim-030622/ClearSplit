@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
-from app.api import auth, expenses, groups, shopping
+from app.api import auth, expenses, friends, groups, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
 from app.core.config import get_settings
@@ -68,6 +68,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(friends.router)
 app.include_router(groups.router)
 app.include_router(expenses.router)
 app.include_router(settlements.router)

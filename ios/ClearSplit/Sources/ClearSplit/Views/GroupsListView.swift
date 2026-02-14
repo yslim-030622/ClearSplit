@@ -3,15 +3,12 @@ import SwiftUI
 struct GroupsListView: View {
     @StateObject private var viewModel: GroupsViewModel
     @ObservedObject private var appState: AppState
-    let onLogout: () -> Void
     @State private var showCreateGroup = false
-    @State private var showLogoutAlert = false
     @State private var groupPendingDelete: Group?
 
-    init(appState: AppState, onLogout: @escaping () -> Void) {
+    init(appState: AppState) {
         _appState = ObservedObject(wrappedValue: appState)
         _viewModel = StateObject(wrappedValue: GroupsViewModel(appState: appState))
-        self.onLogout = onLogout
     }
 
     private var headerRow: some View {
@@ -22,14 +19,6 @@ struct GroupsListView: View {
                 .tracking(-0.5)
 
             Spacer()
-
-            Button(action: { showLogoutAlert = true }) {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Color(hex: "2563EB"))
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel("Log out")
         }
     }
 
@@ -55,7 +44,7 @@ struct GroupsListView: View {
                             }
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
-                            .padding(.bottom, 100)
+                            .padding(.bottom, 96)
                         }
                     }
                     .refreshable {
@@ -84,7 +73,7 @@ struct GroupsListView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .padding(.top, 100)
-                            .padding(.bottom, 100)
+                            .padding(.bottom, 96)
                         }
                     }
                     .refreshable {
@@ -118,7 +107,7 @@ struct GroupsListView: View {
                         await viewModel.load()
                     }
                     .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 100)
+                        Color.clear.frame(height: 88)
                     }
                 }
                 
@@ -134,7 +123,7 @@ struct GroupsListView: View {
                         .shadow(color: Color(hex: "2563EB").opacity(0.2), radius: 8, y: 2)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 34 + 16) // Safe area + margin
+                .padding(.bottom, 16)
                 .accessibilityLabel("Create new group")
             }
             .sheet(isPresented: $showCreateGroup, onDismiss: {
@@ -143,14 +132,6 @@ struct GroupsListView: View {
                 CreateGroupView()
                     .environmentObject(appState)
             }
-        }
-        .alert("Log Out", isPresented: $showLogoutAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Log Out", role: .destructive) {
-                onLogout()
-            }
-        } message: {
-            Text("Are you sure you want to log out?")
         }
         .alert(
             "Delete Group",

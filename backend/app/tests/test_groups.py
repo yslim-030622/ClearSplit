@@ -7,6 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.jwt import create_access_token
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
+from app.models.receipt_upload import ReceiptUpload
+from app.models.settlement import SettlementPayment
+from app.models.shopping_item import ShoppingItem
+from app.models.shopping_item_split import ShoppingItemSplit
+from app.models.shopping_session import ShoppingSession
+from app.models.shopping_session_participant import ShoppingSessionParticipant
 from app.tests.conftest import create_test_user
 
 
@@ -720,3 +726,156 @@ async def test_delete_group_not_owner(client: AsyncClient, session: AsyncSession
 
     group_result = await session.execute(select(Group).where(Group.id == group.id))
     assert group_result.scalar_one_or_none() is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_group_owner_with_settlement_payments(
+    client: AsyncClient, session: AsyncSession
+):
+    """Deleting a group with payment history should not raise FK violations."""
+    from sqlalchemy import select
+
+    owner = create_test_user(email="owner_settle_delete@example.com", username="owner_settle_delete")
+    member = create_test_user(email="member_settle_delete@example.com", username="member_settle_delete")
+    session.add_all([owner, member])
+    await session.flush()
+
+    group = Group(name="Delete With Payments", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    member_membership = Membership(
+        group_id=group.id, user_id=member.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([owner_membership, member_membership])
+    await session.flush()
+
+    session.add(
+        SettlementPayment(
+            group_id=group.id,
+            from_membership=member_membership.id,
+            to_membership=owner_membership.id,
+            amount_cents=250,
+        )
+    )
+    await session.flush()
+
+    owner_token = create_access_token(owner.id, owner.email)
+    response = await client.delete(
+        f"/groups/{group.id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert response.status_code == 200, response.text
+
+    group_result = await session.execute(select(Group).where(Group.id == group.id))
+    assert group_result.scalar_one_or_none() is None
+
+    payment_result = await session.execute(
+        select(SettlementPayment).where(SettlementPayment.group_id == group.id)
+    )
+    assert payment_result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_group_owner_with_shopping_session_payer_fk(
+    client: AsyncClient, session: AsyncSession
+):
+    """Deleting a group with shopping session payer FK should not fail."""
+    from sqlalchemy import select
+
+    owner = create_test_user(email="owner_shop_delete@example.com", username="owner_shop_delete")
+    member = create_test_user(email="member_shop_delete@example.com", username="member_shop_delete")
+    session.add_all([owner, member])
+    await session.flush()
+
+    group = Group(name="Delete With Shopping", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    owner_membership = Membership(
+        group_id=group.id, user_id=owner.id, role=MembershipRole.OWNER
+    )
+    member_membership = Membership(
+        group_id=group.id, user_id=member.id, role=MembershipRole.MEMBER
+    )
+    session.add_all([owner_membership, member_membership])
+    await session.flush()
+
+    shopping_session = ShoppingSession(
+        group_id=group.id,
+        title="Groceries",
+        paid_by_membership_id=owner_membership.id,
+    )
+    session.add(shopping_session)
+    await session.flush()
+
+    shopping_item = ShoppingItem(
+        session_id=shopping_session.id,
+        name="Milk",
+        quantity=1,
+        total_cents=500,
+        created_by_membership_id=owner_membership.id,
+    )
+    session.add(shopping_item)
+    await session.flush()
+
+    session.add_all(
+        [
+            ShoppingSessionParticipant(
+                session_id=shopping_session.id,
+                membership_id=member_membership.id,
+            ),
+            ShoppingItemSplit(
+                item_id=shopping_item.id,
+                membership_id=member_membership.id,
+                share_cents=500,
+            ),
+            ReceiptUpload(
+                session_id=shopping_session.id,
+                uploaded_by_membership_id=owner_membership.id,
+                storage_key="receipts/test-delete.jpg",
+                content_type="image/jpeg",
+            ),
+        ]
+    )
+    await session.flush()
+
+    owner_token = create_access_token(owner.id, owner.email)
+    response = await client.delete(
+        f"/groups/{group.id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert response.status_code == 200, response.text
+
+    group_result = await session.execute(select(Group).where(Group.id == group.id))
+    assert group_result.scalar_one_or_none() is None
+
+    shopping_result = await session.execute(
+        select(ShoppingSession).where(ShoppingSession.group_id == group.id)
+    )
+    assert shopping_result.scalar_one_or_none() is None
+
+    item_result = await session.execute(
+        select(ShoppingItem).where(ShoppingItem.session_id == shopping_session.id)
+    )
+    assert item_result.scalar_one_or_none() is None
+
+    split_result = await session.execute(
+        select(ShoppingItemSplit).where(ShoppingItemSplit.item_id == shopping_item.id)
+    )
+    assert split_result.scalar_one_or_none() is None
+
+    participant_result = await session.execute(
+        select(ShoppingSessionParticipant).where(
+            ShoppingSessionParticipant.session_id == shopping_session.id
+        )
+    )
+    assert participant_result.scalar_one_or_none() is None
+
+    receipt_result = await session.execute(
+        select(ReceiptUpload).where(ReceiptUpload.session_id == shopping_session.id)
+    )
+    assert receipt_result.scalar_one_or_none() is None

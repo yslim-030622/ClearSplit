@@ -27,6 +27,15 @@ struct BalancesSettlementView: View {
         settlements.filter { !$0.isSettled }
     }
 
+    private var settledSettlements: [SettlementPlan] {
+        settlements.filter { $0.isSettled }
+    }
+
+    private var visibleSuggestedSettlements: [SettlementPlan] {
+        guard let membership = currentMembership else { return [] }
+        return activeSettlements.filter { $0.fromUserId == membership.id }
+    }
+
     private var showAllSettledState: Bool {
         !individualBalances.isEmpty &&
         activeSettlements.isEmpty &&
@@ -38,8 +47,12 @@ struct BalancesSettlementView: View {
             VStack(spacing: 16) {
                 individualBalancesSection
 
-                if !settlements.isEmpty {
+                if !visibleSuggestedSettlements.isEmpty {
                     suggestedPaymentsSection
+                }
+
+                if !settledSettlements.isEmpty {
+                    paymentHistorySection
                 }
 
                 if showAllSettledState {
@@ -113,7 +126,7 @@ struct BalancesSettlementView: View {
                 .foregroundColor(Color(hex: "111827"))
 
             VStack(spacing: 12) {
-                ForEach(settlements) { settlement in
+                ForEach(visibleSuggestedSettlements) { settlement in
                     SettlementCard(
                         settlement: settlement,
                         canMarkAsPaid: canMarkSettlementAsPaid(settlement) && !isRefreshing,
@@ -121,6 +134,27 @@ struct BalancesSettlementView: View {
                         onMarkAsPaid: {
                             markSettlementAsPaid(settlement: settlement)
                         }
+                    )
+                }
+            }
+        }
+        .padding(20)
+        .cardStyle()
+    }
+
+    private var paymentHistorySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Payment History")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(Color(hex: "111827"))
+
+            VStack(spacing: 12) {
+                ForEach(settledSettlements) { settlement in
+                    SettlementCard(
+                        settlement: settlement,
+                        canMarkAsPaid: false,
+                        isActionLoading: false,
+                        onMarkAsPaid: {}
                     )
                 }
             }
@@ -145,23 +179,38 @@ struct BalancesSettlementView: View {
 
     private func reloadData() async {
         do {
-            async let membersTask: Void = appState.loadMembers(groupId: group.id)
-            async let sessionsTask: Void = appState.loadShoppingSessions(groupId: group.id)
-            async let paymentsTask: Void = appState.loadSettlementPayments(groupId: group.id)
-            async let balancesTask: Void = appState.loadBalances(groupId: group.id)
-            _ = try await (membersTask, sessionsTask, paymentsTask, balancesTask)
-
-            rebuildViewModels()
+            try await appState.loadBalances(groupId: group.id)
+        } catch is CancellationError {
+            return
         } catch {
             errorMessage = "Failed to refresh balances."
             showError = true
+            return
         }
+
+        do {
+            try await appState.loadMembers(groupId: group.id)
+        } catch is CancellationError {
+            return
+        } catch {
+            print("⚠️ BalancesSettlementView: members refresh failed: \(error)")
+        }
+
+        do {
+            try await appState.loadSettlementPayments(groupId: group.id)
+        } catch is CancellationError {
+            return
+        } catch {
+            print("⚠️ BalancesSettlementView: settlement payments refresh failed: \(error)")
+        }
+
+        rebuildViewModels()
     }
 
     private func rebuildViewModels() {
         let memberships = appState.membershipsByGroupId[group.id] ?? []
         let membershipsById = Dictionary(uniqueKeysWithValues: memberships.map { ($0.id, $0) })
-        let sessions = appState.shoppingSessionsByGroupId[group.id] ?? []
+        let groupBalances = appState.balances(for: group.id)
         let payments = appState.settlementPayments(for: group.id)
 
         var userNames: [UUID: String] = [:]
@@ -169,10 +218,10 @@ struct BalancesSettlementView: View {
             userNames[membership.id] = membershipDisplayName(membership)
         }
 
-        var balancesByMembership = BalanceCalculator.calculateIndividualBalances(
-            from: sessions,
-            confirmedPayments: payments
-        )
+        var balancesByMembership: [UUID: Int] = [:]
+        for balance in groupBalances?.balances ?? [] {
+            balancesByMembership[balance.membershipId] = balance.netCents
+        }
 
         for membership in memberships where balancesByMembership[membership.id] == nil {
             balancesByMembership[membership.id] = 0
@@ -186,19 +235,27 @@ struct BalancesSettlementView: View {
                 isSettled: abs(balanceCents) <= 1
             )
         }
-        balanceRows.sort {
-            if $0.name == "You" { return true }
-            if $1.name == "You" { return false }
-            if $0.balanceCents == $1.balanceCents {
-                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-            return $0.balanceCents > $1.balanceCents
-        }
+        balanceRows = sortBalanceRows(balanceRows)
 
-        let optimized = SettlementOptimizer.optimizeSettlements(
-            balances: balancesByMembership,
-            userNames: userNames
-        )
+        let suggestedPayments = (groupBalances?.suggestions ?? [])
+            .map { suggestion in
+                SettlementPlan(
+                    id: suggestion.id,
+                    fromUserId: suggestion.fromMembership,
+                    fromUserName: userNames[suggestion.fromMembership] ?? memberFallbackName(id: suggestion.fromMembership, map: membershipsById),
+                    toUserId: suggestion.toMembership,
+                    toUserName: userNames[suggestion.toMembership] ?? memberFallbackName(id: suggestion.toMembership, map: membershipsById),
+                    amountCents: suggestion.amountCents,
+                    isSettled: false,
+                    settledAt: nil
+                )
+            }
+            .sorted {
+                if $0.amountCents == $1.amountCents {
+                    return $0.fromUserName.localizedCaseInsensitiveCompare($1.fromUserName) == .orderedAscending
+                }
+                return $0.amountCents > $1.amountCents
+            }
 
         let settledHistory = payments
             .filter { $0.status.lowercased() == "confirmed" }
@@ -214,30 +271,24 @@ struct BalancesSettlementView: View {
                     settledAt: payment.confirmedAt ?? payment.sentAt ?? payment.createdAt
                 )
             }
-
-        var allSettlements = optimized + settledHistory
-        allSettlements.sort {
-            if $0.isSettled != $1.isSettled {
-                return !$0.isSettled && $1.isSettled
+            .sorted {
+                let lhsDate = $0.settledAt ?? .distantPast
+                let rhsDate = $1.settledAt ?? .distantPast
+                if lhsDate == rhsDate {
+                    return $0.amountCents > $1.amountCents
+                }
+                return lhsDate > rhsDate
             }
-            if $0.amountCents == $1.amountCents {
-                return $0.fromUserName.localizedCaseInsensitiveCompare($1.fromUserName) == .orderedAscending
-            }
-            return $0.amountCents > $1.amountCents
-        }
 
         individualBalances = balanceRows
-        settlements = allSettlements
+        settlements = suggestedPayments + settledHistory
     }
 
     // MARK: - Interactions
 
     private func canMarkSettlementAsPaid(_ settlement: SettlementPlan) -> Bool {
         guard let membership = currentMembership else { return false }
-        if membership.role.lowercased() == "owner" {
-            return true
-        }
-        return membership.id == settlement.fromUserId || membership.id == settlement.toUserId
+        return membership.id == settlement.fromUserId
     }
 
     private func markSettlementAsPaid(settlement: SettlementPlan) {
@@ -247,11 +298,9 @@ struct BalancesSettlementView: View {
         guard canMarkSettlementAsPaid(settlement) else { return }
 
         pendingSettlementIds.insert(settlement.id)
-
-        if let index = settlements.firstIndex(where: { $0.id == settlement.id }) {
-            settlements[index].isSettled = true
-            settlements[index].settledAt = Date()
-        }
+        let previousBalances = individualBalances
+        let previousSettlements = settlements
+        applyOptimisticSettlement(settlement)
 
         Task {
             do {
@@ -262,13 +311,11 @@ struct BalancesSettlementView: View {
                     autoConfirm: true
                 )
                 _ = try await appState.createSettlementPayment(groupId: group.id, request: request)
-                rebuildViewModels()
+                await reloadData()
                 await showSuccess()
             } catch {
-                if let index = settlements.firstIndex(where: { $0.id == settlement.id }) {
-                    settlements[index].isSettled = false
-                    settlements[index].settledAt = nil
-                }
+                individualBalances = previousBalances
+                settlements = previousSettlements
                 errorMessage = "Failed to mark as settled. Please try again."
                 showError = true
             }
@@ -311,6 +358,40 @@ struct BalancesSettlementView: View {
             return membershipDisplayName(membership)
         }
         return "Member \(id.uuidString.prefix(4).uppercased())"
+    }
+
+    private func applyOptimisticSettlement(_ settlement: SettlementPlan) {
+        settlements.removeAll { $0.id == settlement.id }
+
+        var balancesByMembership = Dictionary(
+            uniqueKeysWithValues: individualBalances.map { ($0.userId, $0.balanceCents) }
+        )
+        balancesByMembership[settlement.fromUserId, default: 0] += settlement.amountCents
+        balancesByMembership[settlement.toUserId, default: 0] -= settlement.amountCents
+
+        let userNames = Dictionary(
+            uniqueKeysWithValues: individualBalances.map { ($0.userId, $0.name) }
+        )
+        let rows = balancesByMembership.map { membershipId, balanceCents in
+            IndividualBalance(
+                userId: membershipId,
+                name: userNames[membershipId] ?? "Unknown",
+                balanceCents: balanceCents,
+                isSettled: abs(balanceCents) <= 1
+            )
+        }
+        individualBalances = sortBalanceRows(rows)
+    }
+
+    private func sortBalanceRows(_ rows: [IndividualBalance]) -> [IndividualBalance] {
+        rows.sorted {
+            if $0.name == "You" { return true }
+            if $1.name == "You" { return false }
+            if $0.balanceCents == $1.balanceCents {
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            return $0.balanceCents > $1.balanceCents
+        }
     }
 }
 

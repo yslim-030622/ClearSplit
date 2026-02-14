@@ -1,0 +1,168 @@
+import Foundation
+import Combine
+
+@MainActor
+final class FriendsViewModel: ObservableObject {
+    @Published var friends: [Friendship] = []
+    @Published var incomingRequests: [Friendship] = []
+    @Published var outgoingRequests: [Friendship] = []
+    @Published var isLoading = false
+    @Published var isSubmittingRequest = false
+    @Published var errorMessage: String?
+
+    private let appState: AppState
+
+    init(appState: AppState) {
+        self.appState = appState
+    }
+
+    func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            try await refreshLists()
+        } catch where isCancellationError(error) {
+            return
+        } catch {
+            errorMessage = readableErrorMessage(from: error, fallback: "Failed to load friends.")
+        }
+    }
+
+    func sendFriendRequest(input: String, inputType: FriendInputType) async -> Bool {
+        guard !isSubmittingRequest else { return false }
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInput.isEmpty else { return false }
+
+        var toUserID: UUID?
+        var identifier: String?
+
+        switch inputType {
+        case .id:
+            guard let parsed = UUID(uuidString: trimmedInput) else {
+                errorMessage = "Enter a valid user ID."
+                return false
+            }
+            toUserID = parsed
+        case .email:
+            identifier = trimmedInput
+        }
+
+        isSubmittingRequest = true
+        defer { isSubmittingRequest = false }
+
+        do {
+            _ = try await appState.friendsService.sendFriendRequest(
+                toUserID: toUserID,
+                identifier: identifier
+            )
+            try await refreshLists()
+            return true
+        } catch where isCancellationError(error) {
+            return false
+        } catch {
+            errorMessage = readableErrorMessage(from: error, fallback: "Failed to send friend request.")
+            return false
+        }
+    }
+
+    func acceptFriendRequest(friendshipID: UUID) async -> Bool {
+        do {
+            _ = try await appState.friendsService.acceptFriendRequest(friendshipID: friendshipID)
+            try await refreshLists()
+            return true
+        } catch where isCancellationError(error) {
+            return false
+        } catch {
+            errorMessage = readableErrorMessage(from: error, fallback: "Failed to accept friend request.")
+            return false
+        }
+    }
+
+    func declineFriendRequest(friendshipID: UUID) async -> Bool {
+        do {
+            _ = try await appState.friendsService.declineFriendRequest(friendshipID: friendshipID)
+            try await refreshLists()
+            return true
+        } catch where isCancellationError(error) {
+            return false
+        } catch {
+            errorMessage = readableErrorMessage(from: error, fallback: "Failed to decline friend request.")
+            return false
+        }
+    }
+
+    func removeFriend(friendshipID: UUID) async -> Bool {
+        do {
+            _ = try await appState.friendsService.removeFriendship(friendshipID: friendshipID)
+            try await refreshLists()
+            return true
+        } catch where isCancellationError(error) {
+            return false
+        } catch {
+            errorMessage = readableErrorMessage(from: error, fallback: "Failed to remove friend.")
+            return false
+        }
+    }
+
+    private func refreshLists() async throws {
+        async let accepted = appState.friendsService.listFriends()
+        async let incoming = appState.friendsService.listIncomingRequests()
+        async let outgoing = appState.friendsService.listOutgoingRequests()
+        let (acceptedList, incomingList, outgoingList) = try await (accepted, incoming, outgoing)
+
+        friends = acceptedList.sorted {
+            $0.friend.displayName.localizedCaseInsensitiveCompare($1.friend.displayName) == .orderedAscending
+        }
+        incomingRequests = incomingList.sorted { $0.createdAt > $1.createdAt }
+        outgoingRequests = outgoingList.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func readableErrorMessage(from error: Error, fallback: String) -> String {
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .server(_, let message):
+                if let message, !message.isEmpty {
+                    return message
+                }
+                return fallback
+            case .unauthorized:
+                return "Your session expired. Please log in again."
+            case .decoding:
+                return "Unexpected server response. Please try again."
+            case .network(let underlyingError):
+                return "Network error: \(underlyingError.localizedDescription)"
+            }
+        }
+        return fallback
+    }
+
+    private func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+
+        if let apiError = error as? APIError,
+           case .network(let underlyingError) = apiError {
+            if underlyingError is CancellationError {
+                return true
+            }
+            if let urlError = underlyingError as? URLError, urlError.code == .cancelled {
+                return true
+            }
+
+            let nsError = underlyingError as NSError
+            return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        }
+
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+}
