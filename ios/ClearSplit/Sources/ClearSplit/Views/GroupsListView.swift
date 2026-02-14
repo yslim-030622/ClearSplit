@@ -175,9 +175,6 @@ struct GroupsListView: View {
         .task {
             await viewModel.load()
         }
-        .navigationDestination(for: Group.self) { group in
-            GroupDetailView(appState: appState, group: group)
-        }
         .alert("Error", isPresented: Binding(
             get: { viewModel.errorMessage != nil },
             set: { if !$0 { viewModel.errorMessage = nil } }
@@ -216,7 +213,7 @@ struct GroupCard: View {
     }
     
     var body: some View {
-        NavigationLink(value: group) {
+        NavigationLink(destination: GroupDetailView(appState: appState, group: group)) {
             HStack(spacing: 0) {
                 // Left: Group info
                 VStack(alignment: .leading, spacing: 6) {
