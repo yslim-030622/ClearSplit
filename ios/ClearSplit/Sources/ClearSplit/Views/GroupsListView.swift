@@ -11,121 +11,18 @@ struct GroupsListView: View {
         _viewModel = StateObject(wrappedValue: GroupsViewModel(appState: appState))
     }
 
-    private var headerRow: some View {
-        HStack {
-            Text("My Groups")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Color(hex: "111827"))
-                .tracking(-0.5)
-
-            Spacer()
-        }
-    }
-
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                // Background
                 Color.pageBackground
                     .ignoresSafeArea()
-                
-                // Content
-                if viewModel.isLoading && viewModel.groups.isEmpty {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            headerRow
-                                .padding(.horizontal, 16)
-                                .padding(.top, 47 + 8) // Safe area + spacing
 
-                            VStack(spacing: 12) {
-                                ForEach(0..<3, id: \.self) { _ in
-                                    GroupCardSkeleton()
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.top, 16)
-                            .padding(.bottom, 96)
-                        }
-                    }
-                    .refreshable {
-                        await viewModel.load()
-                    }
-                } else if viewModel.groups.isEmpty {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            headerRow
-                                .padding(.horizontal, 16)
-                                .padding(.top, 47 + 8) // Safe area + spacing
+                content
 
-                            VStack(spacing: 16) {
-                                Image(systemName: "person.3")
-                                    .font(.system(size: 64))
-                                    .foregroundColor(Color(hex: "D1D5DB"))
-
-                                Text("No groups yet")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(Color(hex: "4B5563"))
-
-                                Text("Create a group to start splitting expenses")
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(Color(hex: "6B7280"))
-                                    .multilineTextAlignment(.center)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(.top, 100)
-                            .padding(.bottom, 96)
-                        }
-                    }
-                    .refreshable {
-                        await viewModel.load()
-                    }
-                } else {
-                    List {
-                        headerRow
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 47 + 8, leading: 16, bottom: 8, trailing: 16))
-                            .listRowBackground(Color.clear)
-
-                        ForEach(viewModel.groups) { group in
-                            GroupCard(group: group, appState: appState)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                                .listRowBackground(Color.clear)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) {
-                                        groupPendingDelete = group
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .refreshable {
-                        await viewModel.load()
-                    }
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 88)
-                    }
-                }
-                
-                // Bottom Button
-                Button(action: { showCreateGroup = true }) {
-                    Text("Create New Group")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(Color(hex: "2563EB"))
-                        .cornerRadius(12)
-                        .shadow(color: Color(hex: "2563EB").opacity(0.2), radius: 8, y: 2)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                .accessibilityLabel("Create new group")
+                createGroupButton
             }
+            .navigationTitle("My Groups")
+            .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $showCreateGroup, onDismiss: {
                 Task { await viewModel.load() }
             }) {
@@ -165,6 +62,120 @@ struct GroupsListView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.isLoading && viewModel.groups.isEmpty {
+            loadingView
+        } else if viewModel.groups.isEmpty {
+            emptyView
+        } else {
+            groupsList
+        }
+    }
+
+    private var loadingView: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(0..<3, id: \.self) { _ in
+                    GroupCardSkeleton()
+                }
+            }
+            .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+            .padding(.top, TabLayoutMetrics.topPadding)
+            .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
+        }
+        .refreshable {
+            await viewModel.load()
+        }
+    }
+
+    private var emptyView: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Image(systemName: "person.3")
+                    .font(.system(size: 64))
+                    .foregroundColor(Color(hex: "D1D5DB"))
+
+                Text("No groups yet")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(Color(hex: "4B5563"))
+
+                Text("Create a group to start splitting expenses")
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundColor(Color(hex: "6B7280"))
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+            .padding(.top, 88)
+            .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
+        }
+        .refreshable {
+            await viewModel.load()
+        }
+    }
+
+    private var groupsList: some View {
+        List {
+            ForEach(Array(viewModel.groups.enumerated()), id: \.element.id) { index, group in
+                GroupCard(group: group, appState: appState)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: index == 0 ? TabLayoutMetrics.topPadding : 6,
+                            leading: TabLayoutMetrics.horizontalPadding,
+                            bottom: 6,
+                            trailing: TabLayoutMetrics.horizontalPadding
+                        )
+                    )
+                    .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            groupPendingDelete = group
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .refreshable {
+            await viewModel.load()
+        }
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 88)
+        }
+    }
+
+    private var createGroupButton: some View {
+        Button(action: { showCreateGroup = true }) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+
+                Text("Create New Group")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(
+                LinearGradient(
+                    colors: [Color.blue600, Color.blue700],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .cornerRadius(14)
+            .shadow(color: Color.blue600.opacity(0.25), radius: 10, y: 3)
+        }
+        .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+        .padding(.bottom, 16)
+        .accessibilityLabel("Create new group")
     }
 }
 

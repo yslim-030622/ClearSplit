@@ -36,45 +36,48 @@ struct FriendsTabView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                headerView
+            ScrollView {
+                VStack(spacing: TabLayoutMetrics.sectionSpacing) {
+                    searchField
 
-                ScrollView {
-                    VStack(spacing: 16) {
-                        if showAddFriend {
-                            addFriendForm
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-
-                        if viewModel.isLoading && allFriends.isEmpty && friendRequests.isEmpty {
-                            loadingCard
-                        } else {
-                            if !friendRequests.isEmpty {
-                                friendRequestsSection
-                            }
-
-                            if !viewModel.outgoingRequests.isEmpty {
-                                outgoingRequestsSection
-                            }
-
-                            friendsListSection
-                        }
-
-                        infoBox
+                    if showAddFriend {
+                        addFriendForm
+                            .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    .padding(16)
-                    .padding(.bottom, 24)
+
+                    if viewModel.isLoading && allFriends.isEmpty && friendRequests.isEmpty {
+                        loadingCard
+                    } else {
+                        if !friendRequests.isEmpty {
+                            friendRequestsSection
+                        }
+
+                        if !viewModel.outgoingRequests.isEmpty {
+                            outgoingRequestsSection
+                        }
+
+                        friendsListSection
+                    }
+
+                    infoBox
                 }
-                .refreshable {
-                    await viewModel.load()
-                }
-                .background(Color.pageBackground)
+                .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+                .padding(.top, TabLayoutMetrics.topPadding)
+                .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
             }
-            .background(
-                Color.pageBackground
-                    .ignoresSafeArea()
-            )
+            .refreshable {
+                await viewModel.load()
+            }
+            .background(Color.pageBackground)
+            .navigationTitle("Friends")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    addFriendToolbarButton
+                }
+            }
         }
+        .background(Color.pageBackground.ignoresSafeArea())
         .task {
             await viewModel.load()
         }
@@ -89,58 +92,47 @@ struct FriendsTabView: View {
         }
     }
 
-    private var headerView: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("Friends")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(.gray900)
-
-                Spacer()
-
-                Button(action: {
-                    withAnimation(.spring()) {
-                        showAddFriend.toggle()
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.badge.plus")
-                            .font(.system(size: 14))
-                        Text("Add Friend")
-                            .font(.system(size: 14, weight: .medium))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.blue600)
-                    .cornerRadius(8)
+    private var addFriendToolbarButton: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                showAddFriend.toggle()
+                if !showAddFriend {
+                    newFriendInput = ""
                 }
             }
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray400)
-
-                TextField("Search friends...", text: $searchQuery)
-                    .font(.system(size: 14))
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: showAddFriend ? "xmark" : "person.badge.plus")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(showAddFriend ? "Close" : "Add")
+                    .font(.system(size: 14, weight: .semibold))
             }
-            .padding(10)
-            .background(Color.cardInset)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.borderLight, lineWidth: 1)
-            )
+            .foregroundColor(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.blue600)
             .cornerRadius(10)
         }
-        .padding(20)
-        .background(Color.cardBackground)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundColor(.gray400)
+
+            TextField("Search friends...", text: $searchQuery)
+                .font(.system(size: 14))
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+        }
+        .padding(12)
+        .background(Color.cardInset)
         .overlay(
-            Rectangle()
-                .fill(Color.borderMedium)
-                .frame(height: 1),
-            alignment: .bottom
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.borderLight, lineWidth: 1)
         )
+        .cornerRadius(12)
     }
 
     private var addFriendForm: some View {
