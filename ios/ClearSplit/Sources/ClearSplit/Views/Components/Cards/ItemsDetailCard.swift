@@ -39,18 +39,18 @@ struct ItemsDetailCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
             sectionHeader
 
             if items.isEmpty {
                 Text("No items yet")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.subheadline)
+                    .foregroundColor(.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
                     .itemCardStyle()
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: ClearSplitTheme.Spacing.sm) {
                     ForEach(items) { item in
                         switch displayMode {
                         case .detailed:
@@ -80,21 +80,21 @@ struct ItemsDetailCard: View {
                 addItemButton
             }
         }
-        .padding(16)
+        .padding(ClearSplitTheme.Spacing.md)
         .sectionStyle()
     }
 
     private var sectionHeader: some View {
         HStack(alignment: .center) {
             Text("Items")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
 
             Spacer()
 
             Text("\(items.count)")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.gray600)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                .foregroundColor(.textSecondary)
                 .frame(minWidth: 24, minHeight: 24)
                 .padding(.horizontal, 6)
                 .background(Color.gray100)
@@ -107,18 +107,15 @@ struct ItemsDetailCard: View {
         Button(action: onAddItem) {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.body.weight(.semibold))
 
                 Text("Add Item")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(ClearSplitTheme.Typography.bodyStrong)
             }
-            .foregroundColor(.white)
+            .foregroundColor(.textOnBrand)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(Color.blue500)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PrimaryActionButtonStyle())
         .accessibilityLabel("Add item")
     }
 }

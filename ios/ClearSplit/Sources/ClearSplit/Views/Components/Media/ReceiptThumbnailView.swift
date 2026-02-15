@@ -38,10 +38,10 @@ struct ReceiptThumbnailView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 80, height: 80)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.gray200, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+                                .stroke(Color.borderMedium, lineWidth: 1)
                         )
                 case .failure(let error):
                     errorView
@@ -72,8 +72,8 @@ struct ReceiptThumbnailView: View {
     }
 
     private var loadingView: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.gray200)
+        RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+            .fill(Color.cardInset)
             .frame(width: 80, height: 80)
             .overlay(
                 ProgressView()
@@ -82,13 +82,13 @@ struct ReceiptThumbnailView: View {
     }
 
     private var errorView: some View {
-        RoundedRectangle(cornerRadius: 12)
-            .fill(Color.gray200)
+        RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+            .fill(Color.cardInset)
             .frame(width: 80, height: 80)
             .overlay(
                 Image(systemName: "doc.text.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(.gray400)
+                    .foregroundColor(.textMuted)
             )
     }
 

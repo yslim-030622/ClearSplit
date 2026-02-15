@@ -22,7 +22,7 @@ struct SignUpView: View {
         NavigationStack {
             ZStack {
                 LinearGradient(
-                    colors: [Color.blue50, Color.gray50],
+                    colors: [Color.brandSubtle, Color.pageBackground],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -35,11 +35,11 @@ struct SignUpView: View {
 
                         VStack(spacing: 8) {
                             Text("Create Account")
-                                .font(.system(size: 30, weight: .bold))
-                                .foregroundColor(.gray900)
+                                .font(ClearSplitTheme.Typography.hero)
+                                .foregroundColor(.textPrimary)
                             Text("Set up your ClearSplit profile")
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(.gray600)
+                                .font(ClearSplitTheme.Typography.body)
+                                .foregroundColor(.textSecondary)
                         }
 
                         Spacer()
@@ -136,8 +136,8 @@ struct SignUpView: View {
                                             .tint(.white)
                                     }
                                     Text("Create Account")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundColor(.white)
+                                        .font(ClearSplitTheme.Typography.bodyStrong)
+                                        .foregroundColor(.textOnBrand)
                                 }
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
@@ -146,8 +146,8 @@ struct SignUpView: View {
                                     viewModel.email.isEmpty ||
                                     viewModel.password.isEmpty ||
                                     viewModel.confirmPassword.isEmpty
-                                        ? Color.blue600.opacity(0.75)
-                                        : Color.blue600
+                                        ? Color.brandPrimary.opacity(0.75)
+                                        : Color.brandPrimary
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
@@ -161,13 +161,13 @@ struct SignUpView: View {
                             .accessibilityIdentifier("signup.submitButton")
                         }
                         .padding(24)
-                        .background(Color.white)
+                        .background(Color.cardBackground)
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.gray200, lineWidth: 1)
+                                .stroke(Color.borderMedium, lineWidth: 1)
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .shadow(color: Color.black.opacity(0.05), radius: 2, y: 1)
+                        .applyElevation(.low)
 
                         Spacer()
                             .frame(height: 20)
@@ -175,8 +175,8 @@ struct SignUpView: View {
                         Button("Already have an account? Log In") {
                             dismiss()
                         }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray700)
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                        .foregroundColor(.textSecondary)
                         .disabled(viewModel.isLoading)
                         .padding(.bottom, 24)
                         .accessibilityIdentifier("signup.loginLinkButton")
@@ -214,16 +214,16 @@ struct SignUpView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.gray700)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                .foregroundColor(.textSecondary)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
+                    .fill(Color.cardBackground)
 
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        focusedField == field ? Color.blue500 : Color.gray300,
+                        focusedField == field ? Color.brandPrimary : Color.borderMedium,
                         lineWidth: focusedField == field ? 2 : 1
                     )
 
@@ -233,7 +233,7 @@ struct SignUpView: View {
                     .textInputAutocapitalization(autocapitalization)
                     .autocorrectionDisabled()
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.textPrimary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
                     .focused($focusedField, equals: field)
@@ -258,16 +258,16 @@ struct SignUpView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.gray700)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                .foregroundColor(.textSecondary)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white)
+                    .fill(Color.cardBackground)
 
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        focusedField == field ? Color.blue500 : Color.gray300,
+                        focusedField == field ? Color.brandPrimary : Color.borderMedium,
                         lineWidth: focusedField == field ? 2 : 1
                     )
 
@@ -276,7 +276,7 @@ struct SignUpView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.textPrimary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
                     .focused($focusedField, equals: field)

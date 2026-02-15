@@ -22,37 +22,37 @@ struct TotalAmountHeroCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // Label
             Text("Total Amount")
-                .font(.system(size: 14, weight: .regular))
+                .font(ClearSplitTheme.Typography.subheadline)
                 .foregroundColor(.white.opacity(0.9))
                 .padding(.bottom, 8)
 
             // Amount
             Text(formatCurrency(cents: totalCents, currency: "USD"))
-                .font(.system(size: 56, weight: .bold))
+                .font(ClearSplitTheme.Typography.hero)
                 .foregroundColor(.white)
                 .padding(.bottom, 12)
 
             // Paid by
             HStack(spacing: 6) {
                 Image(systemName: "person.fill")
-                    .font(.system(size: 16))
+                    .font(.body)
                     .foregroundColor(.white.opacity(0.9))
 
                 Text(paidByText)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(ClearSplitTheme.Typography.subheadline)
                     .foregroundColor(.white.opacity(0.9))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .padding(ClearSplitTheme.Spacing.lg)
         .background(
             LinearGradient(
-                colors: [Color.blue600, Color.blue700],
+                colors: [Color.brandPrimary, Color.brandPrimaryPressed],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
-        .cornerRadius(24, corners: [.bottomLeft, .bottomRight])
+        .cornerRadius(ClearSplitTheme.Radius.xl + 4, corners: [.bottomLeft, .bottomRight])
     }
 
     private var paidByText: String {

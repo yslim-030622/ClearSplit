@@ -26,37 +26,37 @@ struct ParticipantsDetailCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.md) {
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "person.2.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(.gray700)
+                        .foregroundColor(.textSecondary)
 
                     Text("Participants")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.sectionTitle)
+                        .foregroundColor(.textPrimary)
                 }
 
                 Spacer()
 
                 // Count Badge
                 Text("\(participants.count)")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.blue700)
+                    .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+                    .foregroundColor(.brandPrimaryPressed)
                     .frame(width: 24, height: 24)
-                    .background(Color.blue50)
+                    .background(Color.brandSubtle)
                     .clipShape(Circle())
 
                 if canEdit, let onEditTapped {
                     Button(action: onEditTapped) {
                         Text(participants.isEmpty ? "Set" : "Edit")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.blue600)
+                            .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+                            .foregroundColor(.brandPrimary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 6)
-                            .background(Color.blue50)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .background(Color.brandSubtle)
+                            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                     }
                     .buttonStyle(PlainButtonStyle())
                 }
@@ -65,19 +65,19 @@ struct ParticipantsDetailCard: View {
             if participants.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No participants yet")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray700)
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                        .foregroundColor(.textSecondary)
 
                     Text("Add members to this session to start splitting items.")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(.gray500)
+                        .font(ClearSplitTheme.Typography.caption)
+                        .foregroundColor(.textTertiary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(Color.cardInset)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                         .stroke(Color.borderLight, lineWidth: 1)
                 )
             } else {
@@ -93,7 +93,7 @@ struct ParticipantsDetailCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(20)
+        .padding(ClearSplitTheme.Spacing.lg)
         .sectionStyle()
     }
 }

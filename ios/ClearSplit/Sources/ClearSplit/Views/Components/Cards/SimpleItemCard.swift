@@ -36,44 +36,44 @@ struct SimpleItemCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.xs + 2) {
             HStack(alignment: .top, spacing: 12) {
                 Text("\(item.quantity) \(item.name)")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.body)
+                    .foregroundColor(.textPrimary)
                     .lineLimit(2)
 
                 Spacer()
 
                 Text(formatCurrency(cents: item.totalCents, currency: "USD"))
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
             }
 
             HStack(alignment: .top, spacing: 4) {
                 Text("Shared by:")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray600)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textSecondary)
 
                 Text(sharedByText)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray400)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textMuted)
                     .lineLimit(1)
             }
 
             HStack {
                 Text("Your share:")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray600)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textSecondary)
 
                 Spacer()
 
                 Text(formatCurrency(cents: yourShareCents, currency: "USD"))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.semibold))
+                    .foregroundColor(.textPrimary)
             }
         }
-        .padding(16)
+        .padding(ClearSplitTheme.Spacing.md)
         .itemCardStyle(isHovered: isHovered)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {

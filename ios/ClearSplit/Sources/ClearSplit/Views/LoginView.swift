@@ -18,7 +18,7 @@ struct LoginView: View {
             ZStack {
                 // Gradient background
                 LinearGradient(
-                    colors: [Color.blue50, Color.gray50],
+                    colors: [Color.brandSubtle, Color.pageBackground],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -32,29 +32,29 @@ struct LoginView: View {
                         // Logo Icon
                         ZStack {
                             RoundedRectangle(cornerRadius: 16)
-                                .fill(Color.blue600)
+                                .fill(Color.brandPrimary)
                                 .frame(width: 64, height: 64)
-                                .shadow(color: Color.black.opacity(0.1), radius: 12, x: 0, y: 4)
+                                .applyElevation(.medium)
                             
                             Image(systemName: "doc.text")
                                 .font(.system(size: 32, weight: .medium))
-                                .foregroundColor(.white)
+                                .foregroundColor(.textOnBrand)
                         }
                         .accessibilityLabel("ClearSplit logo")
                         
                         // App Name
                         Text("ClearSplit")
-                            .font(.system(size: 30, weight: .bold))
-                            .foregroundColor(.gray900)
+                            .font(ClearSplitTheme.Typography.hero)
+                            .foregroundColor(.textPrimary)
                             .onAppear {
                                 print("✅ NEW LOGIN VIEW IS LOADING!")
                             }
                         
                         // Tagline
                         Text("\"clearly split with your friends\"")
-                            .font(.system(size: 16, weight: .regular))
+                            .font(ClearSplitTheme.Typography.body)
                             .italic()
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
                     }
                     
                     Spacer()
@@ -65,22 +65,22 @@ struct LoginView: View {
                         // Email Field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Email")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.gray700)
+                                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                                .foregroundColor(.textSecondary)
                             
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white)
+                                    .fill(Color.cardBackground)
                                 
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(
-                                        focusedField == .email ? Color.blue500 : Color.gray300,
+                                        focusedField == .email ? Color.brandPrimary : Color.borderMedium,
                                         lineWidth: focusedField == .email ? 2 : 1
                                     )
                                 
                                 if focusedField == .email {
                                     RoundedRectangle(cornerRadius: 15)
-                                        .stroke(Color.blue500.opacity(0.5), lineWidth: 3)
+                                        .stroke(Color.brandPrimary.opacity(0.25), lineWidth: 3)
                                         .padding(-3)
                                 }
                                 
@@ -90,7 +90,7 @@ struct LoginView: View {
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                                     .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(.gray900)
+                                    .foregroundColor(.textPrimary)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
                                     .focused($focusedField, equals: .email)
@@ -106,22 +106,22 @@ struct LoginView: View {
                         // Password Field
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Password")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.gray700)
+                                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                                .foregroundColor(.textSecondary)
                             
                             ZStack {
                                 RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.white)
+                                    .fill(Color.cardBackground)
                                 
                                 RoundedRectangle(cornerRadius: 12)
                                     .stroke(
-                                        focusedField == .password ? Color.blue500 : Color.gray300,
+                                        focusedField == .password ? Color.brandPrimary : Color.borderMedium,
                                         lineWidth: focusedField == .password ? 2 : 1
                                     )
                                 
                                 if focusedField == .password {
                                     RoundedRectangle(cornerRadius: 15)
-                                        .stroke(Color.blue500.opacity(0.5), lineWidth: 3)
+                                        .stroke(Color.brandPrimary.opacity(0.25), lineWidth: 3)
                                         .padding(-3)
                                 }
                                 
@@ -130,7 +130,7 @@ struct LoginView: View {
                                     .textInputAutocapitalization(.never)
                                     .autocorrectionDisabled()
                                     .font(.system(size: 16, weight: .regular))
-                                    .foregroundColor(.gray900)
+                                    .foregroundColor(.textPrimary)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
                                     .focused($focusedField, equals: .password)
@@ -155,15 +155,15 @@ struct LoginView: View {
                                         .tint(.white)
                                 }
                                 Text("Log In")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .font(ClearSplitTheme.Typography.bodyStrong)
+                                    .foregroundColor(.textOnBrand)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
                             .background(
                                 focusedField == nil && !viewModel.isLoading && !viewModel.email.isEmpty && !viewModel.password.isEmpty
-                                    ? Color.blue600
-                                    : Color.blue600.opacity(0.9)
+                                    ? Color.brandPrimary
+                                    : Color.brandPrimary.opacity(0.9)
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
@@ -173,13 +173,13 @@ struct LoginView: View {
                         .accessibilityIdentifier("login.submitButton")
                     }
                     .padding(24)
-                    .background(Color.white)
+                    .background(Color.cardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray200, lineWidth: 1)
+                            .stroke(Color.borderMedium, lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: Color.black.opacity(0.05), radius: 2, y: 1)
+                    .applyElevation(.low)
                     
                     Spacer()
                         .frame(height: 32)
@@ -187,21 +187,21 @@ struct LoginView: View {
                     // Sign Up Section
                     VStack(spacing: 12) {
                         Text("Don't have an account?")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(.gray600)
+                            .font(ClearSplitTheme.Typography.subheadline)
+                            .foregroundColor(.textSecondary)
                         
                         Button {
                             showSignUp = true
                         } label: {
                             Text("Create Account")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(.gray900)
+                                .font(ClearSplitTheme.Typography.bodyStrong)
+                                .foregroundColor(.textPrimary)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
-                                .background(Color.white)
+                                .background(Color.cardBackground)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .stroke(Color.gray200, lineWidth: 1)
+                                        .stroke(Color.borderMedium, lineWidth: 1)
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                         }

@@ -7,26 +7,26 @@ struct ReceiptUploadEmptyState: View {
     var body: some View {
         VStack(spacing: 0) {
             // Hero Section
-            VStack(spacing: 12) {
+            VStack(spacing: ClearSplitTheme.Spacing.sm) {
                 ZStack {
                     Circle()
-                        .fill(Color.blue100)
+                        .fill(Color.brandSurface)
                         .frame(width: 80, height: 80)
 
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 40))
-                        .foregroundColor(.blue600)
+                        .foregroundColor(.brandPrimary)
                 }
                 .padding(.bottom, 12)
 
                 Text("Add Receipt Photo")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.title)
+                    .foregroundColor(.textPrimary)
                     .padding(.bottom, 4)
 
                 Text("Take a photo or select one from your gallery to add items automatically")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray600)
+                    .font(ClearSplitTheme.Typography.subheadline)
+                    .foregroundColor(.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
                     .padding(.bottom, 32)
@@ -34,23 +34,23 @@ struct ReceiptUploadEmptyState: View {
             .padding(.top, 40)
 
             // Action Buttons
-            VStack(spacing: 16) {
+            VStack(spacing: ClearSplitTheme.Spacing.md) {
                 // Primary Button: Take Photo
                 Button(action: onTakePhoto) {
                     HStack(spacing: 12) {
                         Image(systemName: "camera.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white)
+                            .font(.title2)
+                            .foregroundColor(.textOnBrand)
 
                         Text("Take Photo")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(.white)
+                            .font(ClearSplitTheme.Typography.sectionTitle)
+                            .foregroundColor(.textOnBrand)
                     }
                     .frame(maxWidth: 448)
                     .frame(height: 96)
-                    .background(Color.blue600)
-                    .cornerRadius(16)
-                    .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+                    .background(Color.brandPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+                    .applyElevation(.low)
                 }
                 .buttonStyle(PlainButtonStyle())
 
@@ -58,22 +58,22 @@ struct ReceiptUploadEmptyState: View {
                 Button(action: onChooseFromGallery) {
                     HStack(spacing: 12) {
                         Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 24))
-                            .foregroundColor(.gray900)
+                            .font(.title2)
+                            .foregroundColor(.textPrimary)
 
                         Text("Choose from Gallery")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(.gray900)
+                            .font(ClearSplitTheme.Typography.sectionTitle)
+                            .foregroundColor(.textPrimary)
                     }
                     .frame(maxWidth: 448)
                     .frame(height: 96)
-                    .background(Color.white)
+                    .background(Color.cardBackground)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray300, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
+                            .stroke(Color.borderMedium, lineWidth: 1.5)
                     )
-                    .cornerRadius(16)
-                    .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+                    .applyElevation(.low)
                 }
                 .buttonStyle(PlainButtonStyle())
             }

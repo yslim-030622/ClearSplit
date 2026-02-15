@@ -101,12 +101,12 @@ struct BalancesSettlementView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Individual Balances")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Color(hex: "111827"))
+                .foregroundColor(Color.textPrimary)
 
             if individualBalances.isEmpty {
                 Text("No balances yet.")
                     .font(.system(size: 14))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
             } else {
                 VStack(spacing: 12) {
                     ForEach(individualBalances) { balance in
@@ -123,7 +123,7 @@ struct BalancesSettlementView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Suggested Payments")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Color(hex: "111827"))
+                .foregroundColor(Color.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(visibleSuggestedSettlements) { settlement in
@@ -146,7 +146,7 @@ struct BalancesSettlementView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Payment History")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Color(hex: "111827"))
+                .foregroundColor(Color.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(settledSettlements) { settlement in
@@ -417,7 +417,7 @@ private struct IndividualBalanceRow: View {
 
             Text(balance.name)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundColor(Color(hex: "111827"))
+                .foregroundColor(Color.textPrimary)
 
             Spacer()
 
@@ -433,21 +433,21 @@ private struct IndividualBalanceRow: View {
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "059669"))
+                    .foregroundColor(Color.success)
                 Text("Settled")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color(hex: "059669"))
+                    .foregroundColor(Color.success)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color(hex: "D1FAE5"))
+            .background(Color.successSurface)
             .cornerRadius(8)
 
         case .owed:
             VStack(alignment: .trailing, spacing: 2) {
                 Text("gets back")
                     .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
                 Text("+$\(balance.balance, specifier: "%.2f")")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundColor(Color(hex: "10B981"))
@@ -457,16 +457,16 @@ private struct IndividualBalanceRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text("owes")
                     .font(.system(size: 13))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
                 Text("$\(abs(balance.balance), specifier: "%.2f")")
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color(hex: "EF4444"))
+                    .foregroundColor(Color.danger)
             }
 
         case .even:
             Text("Even")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(Color(hex: "6B7280"))
+                .foregroundColor(Color.textTertiary)
         }
     }
 }
@@ -484,32 +484,32 @@ private struct SettlementCard: View {
                     avatarView(for: settlement.fromUserName, color: "3B82F6")
                     Text(settlement.fromUserName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(hex: "111827"))
+                        .foregroundColor(Color.textPrimary)
                 }
 
                 Spacer()
 
                 Image(systemName: settlement.isSettled ? "arrow.right.circle.fill" : "arrow.right")
                     .font(.system(size: 18))
-                    .foregroundColor(settlement.isSettled ? Color(hex: "10B981") : Color(hex: "9CA3AF"))
+                    .foregroundColor(settlement.isSettled ? Color(hex: "10B981") : Color.textMuted)
 
                 Spacer()
 
                 HStack(spacing: 8) {
                     Text(settlement.toUserName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(hex: "111827"))
+                        .foregroundColor(Color.textPrimary)
                     avatarView(for: settlement.toUserName, color: "A855F7")
                 }
             }
 
             Divider()
-                .background(Color(hex: "E5E7EB"))
+                .background(Color.borderMedium)
 
             HStack {
                 Text("$\(settlement.amount, specifier: "%.2f")")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(Color(hex: "111827"))
+                    .foregroundColor(Color.textPrimary)
 
                 Spacer()
 
@@ -556,10 +556,10 @@ private struct SettlementCard: View {
             Text("Settled")
                 .font(.system(size: 14, weight: .medium))
         }
-        .foregroundColor(Color(hex: "059669"))
+        .foregroundColor(Color.success)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Color(hex: "D1FAE5"))
+        .background(Color.successSurface)
         .cornerRadius(8)
     }
 
@@ -578,7 +578,7 @@ private struct SettlementCard: View {
             .foregroundColor(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Color(hex: "2563EB"))
+            .background(Color.brandPrimary)
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
@@ -591,7 +591,7 @@ private struct AllSettledCard: View {
     var body: some View {
         VStack(spacing: 16) {
             Circle()
-                .fill(Color(hex: "D1FAE5"))
+                .fill(Color.successSurface)
                 .frame(width: 64, height: 64)
                 .overlay(
                     Image(systemName: "checkmark.circle.fill")
@@ -601,18 +601,18 @@ private struct AllSettledCard: View {
 
             Text("All Settled Up!")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Color(hex: "111827"))
+                .foregroundColor(Color.textPrimary)
 
             Text("Everyone in this group is even")
                 .font(.system(size: 15))
-                .foregroundColor(Color(hex: "6B7280"))
+                .foregroundColor(Color.textTertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
         .padding(.horizontal, 20)
         .background(
             LinearGradient(
-                colors: [Color(hex: "F0FDF4"), Color(hex: "D1FAE5")],
+                colors: [Color(hex: "F0FDF4"), Color.successSurface],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -640,10 +640,10 @@ private struct InfoCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: "DBEAFE"))
+        .background(Color.infoSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: "BFDBFE"), lineWidth: 1)
+                .stroke(Color.infoBorder, lineWidth: 1)
         )
         .cornerRadius(12)
     }
@@ -670,7 +670,7 @@ private struct SuccessToast: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(Color(hex: "059669"))
+                .foregroundColor(Color.success)
             Text(message)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(Color(hex: "064E3B"))
@@ -678,7 +678,7 @@ private struct SuccessToast: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(hex: "D1FAE5"))
+        .background(Color.successSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
                 .stroke(Color(hex: "86EFAC"), lineWidth: 1)

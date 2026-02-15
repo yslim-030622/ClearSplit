@@ -9,29 +9,21 @@ struct AddItemPriceQuantitySection: View {
     var onValidationChange: (String, String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.xs) {
             HStack(spacing: 4) {
                 Text("Unit Price")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
                 Text("*")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.red500)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.danger)
             }
 
             TextField("0.00", text: $unitPriceText)
-                .font(.system(size: 16, weight: .regular))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.body)
+                .foregroundColor(.textPrimary)
                 .keyboardType(.decimalPad)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 14)
-                .frame(height: 48)
-                .background(inputBackground(field: "unitPrice"))
-                .cornerRadius(12)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(inputBorder(field: "unitPrice"), lineWidth: inputBorderWidth(field: "unitPrice"))
-                )
+                .appInputFieldStyle(isFocused: focusedField == .price, hasError: formErrors["unitPrice"] != nil)
                 .focused($focusedField, equals: .price)
                 .onChange(of: unitPriceText) { newValue in
                     if formErrors["unitPrice"] != nil {
@@ -41,102 +33,72 @@ struct AddItemPriceQuantitySection: View {
 
             if let error = formErrors["unitPrice"] {
                 Text(error)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.red600)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.danger)
             } else {
                 Text("Price per item")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
         }
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.xs) {
             HStack(spacing: 4) {
                 Text("Quantity")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
                 Text("*")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.red500)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.danger)
             }
 
             HStack(spacing: 12) {
                 Button(action: { if quantity > 1 { quantity -= 1 } }) {
                     Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue600)
+                        .font(.title3)
+                        .foregroundColor(.brandPrimary)
                 }
 
                 TextField("1", value: $quantity, format: .number)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.center)
                     .frame(height: 48)
 
                 Button(action: { quantity += 1 }) {
                     Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(.blue600)
+                        .font(.title3)
+                        .foregroundColor(.brandPrimary)
                 }
             }
             .frame(height: 48)
             .background(Color.cardInset)
-            .cornerRadius(12)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                     .stroke(Color.borderLight, lineWidth: 1)
             )
         }
 
         HStack {
             Text("Total per item:")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(.gray600)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textSecondary)
 
             Spacer()
 
             Text(String(format: "$%.2f", itemTotal))
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.bodyStrong)
+                .foregroundColor(.textPrimary)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .background(Color.cardInset)
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                 .stroke(Color.borderLight, lineWidth: 1)
         )
-    }
-
-    private func inputBackground(field: String) -> Color {
-        if formErrors[field] != nil {
-            return Color.red50
-        }
-        if field == "unitPrice" && focusedField == .price {
-            return Color.cardBackground
-        }
-        return Color.cardInset
-    }
-
-    private func inputBorder(field: String) -> Color {
-        if formErrors[field] != nil {
-            return Color.red300
-        }
-        if field == "unitPrice" && focusedField == .price {
-            return Color.blue500
-        }
-        return Color.borderLight
-    }
-
-    private func inputBorderWidth(field: String) -> CGFloat {
-        if formErrors[field] != nil {
-            return 2
-        }
-        if field == "unitPrice" && focusedField == .price {
-            return 2
-        }
-        return 1
     }
 }

@@ -27,7 +27,7 @@ struct ShoppingSessionsListView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color(hex: "F9FAFB")
+            Color.pageBackground
                 .ignoresSafeArea()
 
             if viewModel.isLoading && viewModel.sessions.isEmpty {
@@ -52,26 +52,26 @@ struct ShoppingSessionsListView: View {
                             VStack(spacing: 16) {
                                 Image(systemName: "cart.badge.plus")
                                     .font(.system(size: 64, weight: .light))
-                                    .foregroundColor(Color(hex: "9CA3AF"))
+                                    .foregroundColor(Color.textMuted)
 
                                 Text("No Shopping Sessions Yet")
                                     .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(Color(hex: "111827"))
+                                    .foregroundColor(Color.textPrimary)
 
                                 Text("Create your first shopping session to start tracking expenses with your group.")
                                     .font(.system(size: 15, weight: .regular))
-                                    .foregroundColor(Color(hex: "6B7280"))
+                                    .foregroundColor(Color.textTertiary)
                                     .multilineTextAlignment(.center)
                                     .padding(.horizontal, 32)
 
                                 Button(action: { showingCreateSession = true }) {
                                     Text("Create Session")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundColor(.white)
+                                        .font(ClearSplitTheme.Typography.bodyStrong)
+                                        .foregroundColor(.textOnBrand)
                                         .frame(maxWidth: 200)
                                         .padding(.vertical, 12)
-                                        .background(Color(hex: "2563EB"))
-                                        .cornerRadius(8)
+                                        .background(Color.brandPrimary)
+                                        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                                 }
                                 .padding(.top, 8)
                             }
@@ -130,9 +130,9 @@ struct ShoppingSessionsListView: View {
             } label: {
                 Image(systemName: "questionmark.circle.fill")
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.textOnBrand)
                     .frame(width: 48, height: 48)
-                    .background(Color(hex: "1F2937"))
+                    .background(Color.textPrimary)
                     .clipShape(Circle())
                     .shadow(color: Color.black.opacity(0.15), radius: 12, x: 0, y: 4)
             }
@@ -147,7 +147,7 @@ struct ShoppingSessionsListView: View {
                 Button(action: { showingCreateSession = true }) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 30, weight: .semibold))
-                        .foregroundColor(Color(hex: "2563EB"))
+                        .foregroundColor(Color.brandPrimary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Create Session")
@@ -238,27 +238,27 @@ struct ShoppingSessionCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 Text(session.title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(Color(hex: "111827"))
+                    .font(ClearSplitTheme.Typography.sectionTitle)
+                    .foregroundColor(Color.textPrimary)
                     .lineLimit(1)
                     .frame(maxWidth: 220, alignment: .leading)
 
                 Spacer()
 
                 Text(session.formattedTotal)
-                    .font(.system(size: 22, weight: .bold, design: .default))
-                    .foregroundColor(Color(hex: "111827"))
+                    .font(ClearSplitTheme.Typography.title)
+                    .foregroundColor(Color.textPrimary)
             }
             .padding(20)
 
             HStack(spacing: 6) {
                 Image(systemName: "calendar")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
 
                 Text(formatDateString(session.shoppingDate))
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
@@ -270,30 +270,30 @@ struct ShoppingSessionCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "cart")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Color(hex: "6B7280"))
+                        .foregroundColor(Color.textTertiary)
 
                     Text("\(session.items.count) items")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Color(hex: "6B7280"))
+                        .foregroundColor(Color.textTertiary)
                 }
 
                 Spacer()
 
                 Text("Paid by \(getPaidByName())")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(Color(hex: "4B5563"))
+                    .font(ClearSplitTheme.Typography.subheadline)
+                    .foregroundColor(Color.textSecondary)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
+        .background(Color.cardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+                .stroke(Color.borderMedium, lineWidth: 1)
         )
         .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 3, x: 0, y: 1)
+        .applyElevation(.low)
     }
 }
 
@@ -302,19 +302,19 @@ struct ShoppingSessionCardSkeleton: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.borderMedium)
                     .frame(width: 150, height: 20)
 
                 Spacer()
 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.borderMedium)
                     .frame(width: 80, height: 24)
             }
             .padding(20)
 
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(hex: "E5E7EB"))
+                .fill(Color.borderMedium)
                 .frame(width: 100, height: 14)
                 .padding(.horizontal, 20)
                 .padding(.top, 4)
@@ -324,24 +324,24 @@ struct ShoppingSessionCardSkeleton: View {
 
             HStack {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.borderMedium)
                     .frame(width: 80, height: 14)
 
                 Spacer()
 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.borderMedium)
                     .frame(width: 100, height: 14)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
         }
         .frame(height: 112)
-        .background(Color.white)
+        .background(Color.cardBackground)
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+                .stroke(Color.borderMedium, lineWidth: 1)
         )
         .shimmer()
     }
@@ -438,11 +438,11 @@ struct ShoppingSessionsHelpSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(title)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(Color(hex: "111827"))
+                    .foregroundColor(Color.textPrimary)
 
                 Text(content)
                     .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .foregroundColor(Color.textTertiary)
             }
         }
     }

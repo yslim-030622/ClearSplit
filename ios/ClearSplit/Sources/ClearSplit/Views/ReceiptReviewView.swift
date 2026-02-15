@@ -80,7 +80,7 @@ struct ReceiptReviewView: View {
                     .padding(16)
                     .padding(.bottom, 80) // Space for fixed button
                 }
-                .background(Color(UIColor.systemGroupedBackground))
+                .background(Color.pageBackground)
             }
             
             // Fixed Confirm Button
@@ -92,7 +92,7 @@ struct ReceiptReviewView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
-                        .foregroundColor(.primary)
+                        .foregroundColor(.textPrimary)
                 }
             }
             
@@ -104,7 +104,7 @@ struct ReceiptReviewView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showReceiptPreview = true }) {
                     Image(systemName: "photo")
-                        .foregroundColor(.blue)
+                        .foregroundColor(.brandPrimary)
                 }
             }
         }
@@ -174,15 +174,15 @@ struct ReceiptReviewView: View {
                 Text("Add Item")
                     .font(.system(size: 16, weight: .medium))
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(.textSecondary)
             .frame(maxWidth: .infinity)
             .frame(height: 60)
-            .background(Color(UIColor.systemBackground))
+            .background(Color.cardBackground)
             .cornerRadius(16)
             .overlay(
                 RoundedRectangle(cornerRadius: 16)
                     .stroke(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                    .foregroundColor(Color(UIColor.systemGray4))
+                    .foregroundColor(Color.borderMedium)
             )
         }
         .accessibilityLabel("Add new item")
@@ -209,7 +209,7 @@ struct ReceiptReviewView: View {
             }
             .disabled(items.isEmpty)
             .padding(16)
-            .background(Color(UIColor.systemBackground))
+            .background(Color.cardBackground)
         }
     }
     

@@ -19,8 +19,8 @@ public struct ExtractedItemsReviewView: View {
     @State private var showingAddSheet = false
     @State private var itemToDelete: EditableExtractedItem?
 
-    private let headerGradientStart = Color(red: 0.231, green: 0.510, blue: 0.965)
-    private let headerGradientEnd = Color(red: 0.147, green: 0.388, blue: 0.922)
+    private let headerGradientStart = Color.brandPrimary
+    private let headerGradientEnd = Color.brandPrimaryPressed
 
     private var totalAmountCents: Int {
         extractedItems.reduce(0) { $0 + $1.totalCents }
@@ -33,7 +33,7 @@ public struct ExtractedItemsReviewView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                Color.gray50
+                Color.pageBackground
                     .ignoresSafeArea()
 
                 content
@@ -58,7 +58,7 @@ public struct ExtractedItemsReviewView: View {
                                 .font(.system(size: 17, weight: .semibold))
                             Text("Back")
                         }
-                        .foregroundColor(.blue500)
+                        .foregroundColor(.brandPrimary)
                     }
                 }
             }
@@ -116,11 +116,11 @@ public struct ExtractedItemsReviewView: View {
 
                 Text("Extraction Failed")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.textPrimary)
 
                 Text(error)
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.gray600)
+                    .foregroundColor(.textSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
 
@@ -226,20 +226,20 @@ public struct ExtractedItemsReviewView: View {
         VStack(alignment: .center, spacing: 8) {
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 28, weight: .regular))
-                .foregroundColor(.gray500)
+                .foregroundColor(.textTertiary)
             Text("No items extracted yet")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.gray900)
+                .foregroundColor(.textPrimary)
             Text("Add an item manually to continue.")
                 .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.gray600)
+                .foregroundColor(.textSecondary)
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color.white)
+        .background(Color.cardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
+                .stroke(Color.borderMedium, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -250,12 +250,12 @@ public struct ExtractedItemsReviewView: View {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 16, weight: .medium))
                 Text("Add Item")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(ClearSplitTheme.Typography.bodyStrong)
             }
-            .foregroundColor(.white)
+            .foregroundColor(.textOnBrand)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .background(Color.blue500)
+            .background(Color.brandPrimary)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(ScaleButtonStyle())
@@ -264,7 +264,7 @@ public struct ExtractedItemsReviewView: View {
     private var confirmButton: some View {
         VStack(spacing: 0) {
             LinearGradient(
-                colors: [Color.gray50.opacity(0), Color.gray50],
+                colors: [Color.pageBackground.opacity(0), Color.pageBackground],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -274,26 +274,26 @@ public struct ExtractedItemsReviewView: View {
                 HStack(spacing: 8) {
                     if isConfirming {
                         ProgressView()
-                            .tint(.white)
+                            .tint(.textOnBrand)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 16, weight: .medium))
                     }
 
                     Text("Confirm \(extractedItems.count) \(extractedItems.count == 1 ? "Item" : "Items") (\(totalAmountText))")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(ClearSplitTheme.Typography.bodyStrong)
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.textOnBrand)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(extractedItems.isEmpty ? Color.gray400 : Color.blue500)
+                .background(extractedItems.isEmpty ? Color.textMuted : Color.brandPrimary)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             }
             .disabled(extractedItems.isEmpty || isConfirming)
             .buttonStyle(ScaleButtonStyle())
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(Color.gray50)
+            .background(Color.pageBackground)
         }
     }
 
@@ -447,22 +447,22 @@ private enum ExtractedItemConfidenceLevel: String, CaseIterable, Identifiable {
     var badgeBackground: Color {
         switch self {
         case .high:
-            return Color(red: 0.220, green: 0.804, blue: 0.467).opacity(0.15)
+            return Color.successSurface
         case .medium:
-            return Color(red: 0.984, green: 0.753, blue: 0.267).opacity(0.15)
+            return Color.warningSurface
         case .low:
-            return Color(red: 0.976, green: 0.620, blue: 0.475).opacity(0.15)
+            return Color.dangerSurface
         }
     }
 
     var badgeText: Color {
         switch self {
         case .high:
-            return Color(red: 0.047, green: 0.569, blue: 0.302)
+            return Color.success
         case .medium:
-            return Color(red: 0.717, green: 0.451, blue: 0.027)
+            return Color.warning
         case .low:
-            return Color(red: 0.937, green: 0.369, blue: 0.118)
+            return Color.danger
         }
     }
 
@@ -516,22 +516,22 @@ private struct ExtractedReviewItemCard: View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(Color.blue500.opacity(0.1))
+                    .fill(Color.brandPrimary.opacity(0.1))
                     .frame(width: 32, height: 32)
 
                 Text("\(index)")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.blue500)
+                    .foregroundColor(.brandPrimary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.name)
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.textPrimary)
 
                 Text(item.priceBreakdownText)
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.gray600)
+                    .foregroundColor(.textSecondary)
 
                 HStack(spacing: 4) {
                     if item.confidenceLevel.requiresWarning {
@@ -557,7 +557,7 @@ private struct ExtractedReviewItemCard: View {
                 }) {
                     Image(systemName: "pencil")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.blue500)
+                        .foregroundColor(.brandPrimary)
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
@@ -568,17 +568,17 @@ private struct ExtractedReviewItemCard: View {
                 }) {
                     Image(systemName: "trash")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Color(red: 0.957, green: 0.263, blue: 0.212))
+                        .foregroundColor(.danger)
                         .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(16)
-        .background(Color.white)
+        .background(Color.cardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
+                .stroke(Color.borderMedium, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
@@ -628,7 +628,7 @@ private struct EditExtractedItemSheet: View {
 
                     HStack(spacing: 8) {
                         Text("$")
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
                         TextField("0.00", text: $unitPriceText)
                             .keyboardType(.decimalPad)
                     }
@@ -638,7 +638,7 @@ private struct EditExtractedItemSheet: View {
                             Text("Quantity")
                             Spacer()
                             Text("\(quantity)")
-                                .foregroundColor(.gray600)
+                                .foregroundColor(.textSecondary)
                         }
                     }
                 }
@@ -655,7 +655,7 @@ private struct EditExtractedItemSheet: View {
                 Section {
                     HStack {
                         Text("Total")
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
                         Spacer()
                         Text(String(format: "$%.2f", totalAmount))
                             .font(.system(size: 17, weight: .semibold))
@@ -729,7 +729,7 @@ private struct AddExtractedItemSheet: View {
 
                     HStack(spacing: 8) {
                         Text("$")
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
                         TextField("0.00", text: $unitPriceText)
                             .keyboardType(.decimalPad)
                     }
@@ -739,7 +739,7 @@ private struct AddExtractedItemSheet: View {
                             Text("Quantity")
                             Spacer()
                             Text("\(quantity)")
-                                .foregroundColor(.gray600)
+                                .foregroundColor(.textSecondary)
                         }
                     }
                 }

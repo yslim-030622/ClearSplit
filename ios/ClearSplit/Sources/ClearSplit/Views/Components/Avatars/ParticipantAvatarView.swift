@@ -6,7 +6,7 @@ struct ParticipantAvatarView: View {
     let currentUserId: UUID?
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: ClearSplitTheme.Spacing.xs - 2) {
             // Avatar
             ZStack {
                 Circle()
@@ -20,8 +20,8 @@ struct ParticipantAvatarView: View {
 
             // Name
             Text(displayName)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.gray700)
+                .font(ClearSplitTheme.Typography.caption.weight(.medium))
+                .foregroundColor(.textSecondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.9)
@@ -54,14 +54,12 @@ struct ParticipantAvatarView: View {
 
     private var avatarGradient: LinearGradient {
         let colors = [
-            [Color(hex: "60A5FA"), Color(hex: "2563EB")], // Blue
-            [Color(hex: "38BDF8"), Color(hex: "0284C7")], // Sky
-            [Color(hex: "3B82F6"), Color(hex: "1D4ED8")], // Blue variant
-            [Color(hex: "6366F1"), Color(hex: "4F46E5")], // Indigo
-            [Color(hex: "8B5CF6"), Color(hex: "7C3AED")], // Purple
-            [Color(hex: "EC4899"), Color(hex: "DB2777")], // Pink
-            [Color(hex: "10B981"), Color(hex: "059669")], // Green
-            [Color(hex: "F59E0B"), Color(hex: "D97706")]  // Amber
+            [Color(hex: "60A5FA"), Color(hex: "2563EB")],
+            [Color(hex: "38BDF8"), Color(hex: "0284C7")],
+            [Color(hex: "14B8A6"), Color(hex: "0F766E")],
+            [Color(hex: "10B981"), Color(hex: "059669")],
+            [Color(hex: "64748B"), Color(hex: "334155")],
+            [Color(hex: "0EA5E9"), Color(hex: "0369A1")]
         ]
 
         let hash = participant.membershipId.uuidString.hashValue

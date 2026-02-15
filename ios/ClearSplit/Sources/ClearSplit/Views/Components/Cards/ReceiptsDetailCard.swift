@@ -9,17 +9,17 @@ struct ReceiptsDetailCard: View {
     let onUploadTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.md) {
             // Header
             HStack {
                 HStack(spacing: 8) {
                     Image(systemName: "doc.text.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(.gray700)
+                        .foregroundColor(.textSecondary)
 
                     Text("Receipts")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.sectionTitle)
+                        .foregroundColor(.textPrimary)
                 }
 
                 Spacer()
@@ -28,9 +28,9 @@ struct ReceiptsDetailCard: View {
                     Button(action: onUploadTap) {
                         Image(systemName: "camera.fill")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.blue600)
+                            .foregroundColor(.brandPrimary)
                             .frame(width: 44, height: 44)
-                            .background(Color.blue50)
+                            .background(Color.brandSubtle)
                             .clipShape(Circle())
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -57,7 +57,7 @@ struct ReceiptsDetailCard: View {
 
                                 Image(systemName: "doc.text.fill")
                                     .font(.system(size: 32))
-                                    .foregroundColor(.gray400)
+                                    .foregroundColor(.textMuted)
                             }
                             .contentShape(Rectangle())
                         }
@@ -75,7 +75,7 @@ struct ReceiptsDetailCard: View {
 
                             Image(systemName: "doc.text.fill")
                                 .font(.system(size: 32))
-                                .foregroundColor(.gray400)
+                                .foregroundColor(.textMuted)
                         }
                     }
                 }
@@ -95,7 +95,7 @@ struct ReceiptsDetailCard: View {
                 }
             }
         }
-        .padding(20)
+        .padding(ClearSplitTheme.Spacing.lg)
         .sectionStyle()
     }
 }
