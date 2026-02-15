@@ -23,13 +23,13 @@
 
 ### 1. UUID Primary Keys
 - All models use `UUID(as_uuid=True)` for primary keys
-- Server default: `"uuid_generate_v4()"` (string, not function call)
-- Example: `id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default="uuid_generate_v4()")`
+- Server default: `"gen_random_uuid()"` (string, not function call)
+- Example: `id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default="gen_random_uuid()")`
 
-### 2. CITEXT for Email
-- User.email uses `CITEXT()` for case-insensitive email storage
-- Requires PostgreSQL `citext` extension (created in migration)
-- Example: `email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)`
+### 2. Text + normalized identity fields
+- User email/username use `Text()` columns.
+- API/service layer normalizes username/email/identifier values to lowercase.
+- Example: `email: Mapped[str] = mapped_column(Text(), unique=True, nullable=False)`
 
 ### 3. BIGINT for Cents
 - All monetary values use `BigInteger()` (maps to PostgreSQL `bigint`)
@@ -105,4 +105,3 @@ Tests use transactions that rollback after each test, so they're safe to run aga
 - **Membership** ↔ **Expense** (via paid_by, composite FK at DB level)
 - **Membership** ↔ **ExpenseSplit** (one-to-many)
 - **Membership** ↔ **Settlement** (via from_membership/to_membership, composite FK at DB level)
-

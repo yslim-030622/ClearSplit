@@ -73,7 +73,7 @@ WHERE m.group_id = $1;
 ```
 
 ## Alembic Migration Plan
-1. Create extensions `uuid-ossp`, `citext`; create enums `membership_role`, `settlement_status`.
+1. Create enums `membership_role`, `settlement_status`.
 2. Tables: `users`, `groups`.
 3. `memberships` (with uniques on (group_id, user_id) and (group_id, id)).
 4. `expenses` (composite FK to memberships for paid_by) and uniques on (id, group_id).
@@ -84,7 +84,7 @@ WHERE m.group_id = $1;
 9. Trigger functions: `set_updated_at`, `enforce_expense_split_sum`; constraint trigger creation.
 
 ## Assumptions
-- `citext` is available (Postgres standard extension) for case-insensitive emails.
+- Username/email identifiers are normalized to lowercase in the API layer.
 - Default currency is USD per group; expenses can override currency. FX handling can be added with an FX rates table and additional currency columns without primary key changes.
 - Activity log is schema-light via `metadata jsonb`; app will standardize shapes.
 - Idempotency retention handled by scheduled job.
