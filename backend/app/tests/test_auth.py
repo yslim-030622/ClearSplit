@@ -65,6 +65,28 @@ async def test_signup_duplicate_email(client: AsyncClient, session: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_signup_duplicate_email_case_insensitive(client: AsyncClient, session: AsyncSession):
+    """Signup should reject duplicate emails regardless of legacy casing."""
+    user = create_test_user(email="Admin@Admin.com", username="admin")
+    session.add(user)
+    await session.commit()
+
+    response = await client.post(
+        "/auth/signup",
+        json={
+            "username": "admin2",
+            "email": "admin@admin.com",
+            "password": "password123",
+            "first_name": "Admin",
+            "last_name": "User",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "already registered" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, session: AsyncSession):
     """Test successful login."""
     # Create user
@@ -84,6 +106,23 @@ async def test_login_success(client: AsyncClient, session: AsyncSession):
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
     assert data["user"]["email"] == "login@example.com"
+
+
+@pytest.mark.asyncio
+async def test_login_legacy_case_insensitive_identifier(client: AsyncClient, session: AsyncSession):
+    """Login should still work for legacy mixed-case username/email rows."""
+    user = create_test_user(email="Admin@Admin.com", username="AdminUser")
+    session.add(user)
+    await session.commit()
+
+    response = await client.post(
+        "/auth/login",
+        json={"identifier": "admin@admin.com", "password": "password123"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["user"]["email"].lower() == "admin@admin.com"
 
 
 @pytest.mark.asyncio

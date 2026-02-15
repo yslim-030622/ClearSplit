@@ -3,7 +3,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -19,6 +19,7 @@ from app.auth.refresh_tokens import (
     persist_refresh_token,
     validate_and_rotate_refresh_token,
 )
+from app.core.identity import normalize_email, normalize_identifier, normalize_username
 from app.core.rate_limit import enforce_login_rate_limit, enforce_signup_rate_limit
 from app.db.session import get_session
 from app.models.user import User
@@ -56,25 +57,36 @@ async def signup(
     """
     await enforce_signup_rate_limit(http_request)
 
-    logger.info(f"Signup attempt for username: {request.username}, email: {request.email}")
+    normalized_username = normalize_username(request.username)
+    normalized_email = normalize_email(request.email)
+
+    logger.info(
+        "Signup attempt for username: %s, email: %s",
+        normalized_username,
+        normalized_email,
+    )
     
     # Check if username already exists (check first for better error message)
-    result = await session.execute(select(User).where(User.username == request.username))
+    result = await session.execute(
+        select(User).where(func.lower(User.username) == normalized_username)
+    )
     existing_user_by_username = result.scalar_one_or_none()
 
     if existing_user_by_username:
-        logger.warning(f"Signup failed: Username '{request.username}' already taken")
+        logger.warning("Signup failed: Username '%s' already taken", normalized_username)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken",
         )
 
     # Check if email already exists
-    result = await session.execute(select(User).where(User.email == request.email))
+    result = await session.execute(
+        select(User).where(func.lower(User.email) == normalized_email)
+    )
     existing_user_by_email = result.scalar_one_or_none()
 
     if existing_user_by_email:
-        logger.warning(f"Signup failed: Email '{request.email}' already registered")
+        logger.warning("Signup failed: Email '%s' already registered", normalized_email)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
@@ -84,8 +96,8 @@ async def signup(
     try:
         password_hash = hash_password(request.password)
         user = User(
-            username=request.username,
-            email=request.email,
+            username=normalized_username,
+            email=normalized_email,
             password_hash=password_hash,
             first_name=request.first_name,
             last_name=request.last_name,
@@ -141,10 +153,15 @@ async def login(
     """
     await enforce_login_rate_limit(http_request)
 
+    normalized_identifier = normalize_identifier(request.identifier)
+
     # Find user by username or email (try both)
     result = await session.execute(
         select(User).where(
-            or_(User.username == request.identifier, User.email == request.identifier)
+            or_(
+                func.lower(User.username) == normalized_identifier,
+                func.lower(User.email) == normalized_identifier,
+            )
         )
     )
     user = result.scalar_one_or_none()

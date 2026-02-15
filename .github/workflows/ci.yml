@@ -104,7 +104,7 @@ jobs:
         run: |
           python --version
           pip --version
-          pytest --version
+          alembic --version
 
       - name: Wait for Postgres readiness
         run: |

@@ -1,0 +1,17 @@
+.env
+.env.*
+.git
+.venv
+venv
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.coverage
+htmlcov
+app/tests
+tests

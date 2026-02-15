@@ -1,4 +1,6 @@
 import logging
+from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request, status
@@ -13,7 +15,7 @@ from app.api import auth, expenses, friends, groups, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
 from app.core.config import get_settings
-from app.db.session import get_session
+from app.db.session import engine, get_session
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.expense import ExpenseRead, ExpenseSplitRead
@@ -21,15 +23,50 @@ from app.services.expense import get_expense_by_id
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ClearSplit API", version="1.0.0")
-
 # CORS middleware for iOS app
 settings = get_settings()
 env_name = settings.env.lower()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(
+    title="ClearSplit API",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs" if env_name in {"local", "test"} else None,
+    redoc_url="/redoc" if env_name in {"local", "test"} else None,
+    openapi_url="/openapi.json" if env_name in {"local", "test"} else None,
+)
+
 local_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+
+def _validate_non_local_cors_origins(origins: list[str]) -> None:
+    invalid: list[str] = []
+    for origin in origins:
+        parsed = urlparse(origin)
+        has_invalid_path_bits = any([parsed.path not in {"", "/"}, parsed.params, parsed.query, parsed.fragment])
+        is_https_origin = parsed.scheme == "https" and bool(parsed.netloc)
+        if not is_https_origin or has_invalid_path_bits:
+            invalid.append(origin)
+
+    if invalid:
+        invalid_values = ", ".join(invalid)
+        raise RuntimeError(
+            "Invalid CORS_ORIGINS value(s) for non-local environment: "
+            f"{invalid_values}. Use comma-separated HTTPS origins only "
+            "(e.g. https://app.example.com)."
+        )
+
+
 if env_name in {"local", "test"}:
     cors_origins = sorted(set(local_origins + settings.get_cors_origins()))
     allow_credentials = False
@@ -40,6 +77,7 @@ else:
             "CORS_ORIGINS must be configured in non-local environments. "
             "Use a comma-separated list of trusted https origins."
         )
+    _validate_non_local_cors_origins(cors_origins)
     allow_credentials = True
 
 app.add_middleware(
@@ -103,20 +141,14 @@ async def get_expense(
     return expense_response
 
 
-@app.get("/health")
-async def health(db: AsyncSession = Depends(get_session)) -> dict[str, str | bool]:
-    """Health check endpoint with database connectivity test.
-    
-    Returns:
-        dict with status, database connectivity, and S3 availability
-    """
-    detailed = env_name in {"local", "test"}
+async def _build_health_payload(db: AsyncSession) -> tuple[dict[str, str | bool], int]:
     response: dict[str, str | bool] = {
         "status": "ok",
         "database": False,
         "s3": False,
     }
-    
+    status_code = status.HTTP_200_OK
+
     # Check database connection
     try:
         await db.execute(text("SELECT 1"))
@@ -124,10 +156,34 @@ async def health(db: AsyncSession = Depends(get_session)) -> dict[str, str | boo
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
         response["status"] = "degraded"
-    
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     # Check S3 configuration (lightweight availability signal)
     response["s3"] = bool(settings.s3_bucket_name)
+    return response, status_code
+
+
+@app.get("/health/live")
+async def health_live() -> dict[str, str]:
+    """Liveness probe endpoint that validates process availability."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready(db: AsyncSession = Depends(get_session)) -> JSONResponse:
+    """Readiness probe endpoint that validates dependency availability."""
+    detailed = env_name in {"local", "test"}
+    response, status_code = await _build_health_payload(db)
 
     if detailed:
-        return response
-    return {"status": str(response["status"])}
+        return JSONResponse(content=response, status_code=status_code)
+    return JSONResponse(
+        content={"status": str(response["status"])},
+        status_code=status_code,
+    )
+
+
+@app.get("/health")
+async def health(db: AsyncSession = Depends(get_session)) -> JSONResponse:
+    """Backwards-compatible health alias that maps to readiness checks."""
+    return await health_ready(db)
