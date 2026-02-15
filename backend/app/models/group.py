@@ -25,7 +25,7 @@ class Group(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default="uuid_generate_v4()",
+        server_default="gen_random_uuid()",
     )
     name: Mapped[str] = mapped_column(Text(), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="USD")
