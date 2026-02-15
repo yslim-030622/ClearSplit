@@ -17,9 +17,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
-    op.execute('CREATE EXTENSION IF NOT EXISTS citext;')
-
     # Explicitly create enums once and prevent table DDL from recreating them
     membership_role = postgresql.ENUM(
         "owner", "member", "viewer", name="membership_role", create_type=False
@@ -32,8 +29,8 @@ def upgrade() -> None:
 
     op.create_table(
         "users",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
-        sa.Column("email", postgresql.CITEXT(), nullable=False, unique=True),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("email", sa.Text(), nullable=False, unique=True),
         sa.Column("password_hash", sa.Text(), nullable=False),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.Column("updated_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -41,7 +38,7 @@ def upgrade() -> None:
 
     op.create_table(
         "groups",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("currency", sa.String(length=3), nullable=False, server_default=sa.text("'USD'")),
         sa.Column("version", sa.Integer(), nullable=False, server_default=sa.text("1")),
@@ -51,7 +48,7 @@ def upgrade() -> None:
 
     op.create_table(
         "memberships",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("role", membership_role, nullable=False),
@@ -64,7 +61,7 @@ def upgrade() -> None:
 
     op.create_table(
         "settlement_batches",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("status", settlement_status, nullable=False, server_default=sa.text("'suggested'")),
         sa.Column("total_settlements", sa.Integer(), nullable=False, server_default=sa.text("0")),
@@ -78,7 +75,7 @@ def upgrade() -> None:
 
     op.create_table(
         "expenses",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("amount_cents", sa.BigInteger(), nullable=False),
@@ -103,7 +100,7 @@ def upgrade() -> None:
 
     op.create_table(
         "expense_splits",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("expense_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("membership_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -128,7 +125,7 @@ def upgrade() -> None:
 
     op.create_table(
         "settlements",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("batch_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("from_membership", postgresql.UUID(as_uuid=True), nullable=False),
@@ -163,7 +160,7 @@ def upgrade() -> None:
 
     op.create_table(
         "activity_log",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("groups.id", ondelete="CASCADE")),
         sa.Column("actor_membership", postgresql.UUID(as_uuid=True), sa.ForeignKey("memberships.id", ondelete="SET NULL")),
         sa.Column("event_type", sa.Text(), nullable=False),
@@ -174,7 +171,7 @@ def upgrade() -> None:
 
     op.create_table(
         "idempotency_keys",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("endpoint", sa.Text(), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("request_hash", sa.Text(), nullable=False),
@@ -283,6 +280,3 @@ def downgrade() -> None:
     membership_role = postgresql.ENUM(name="membership_role")
     settlement_status.drop(op.get_bind(), checkfirst=True)
     membership_role.drop(op.get_bind(), checkfirst=True)
-
-    op.execute('DROP EXTENSION IF EXISTS citext;')
-    op.execute('DROP EXTENSION IF EXISTS "uuid-ossp";')

@@ -3,10 +3,11 @@
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import normalize_email, normalize_identifier, normalize_username
 from app.models.membership import Membership, MembershipRole
 from app.models.user import User
 
@@ -23,7 +24,10 @@ async def find_user_by_email(
     Returns:
         User if found, None otherwise
     """
-    result = await session.execute(select(User).where(User.email == email))
+    normalized_email = normalize_email(email)
+    result = await session.execute(
+        select(User).where(func.lower(User.email) == normalized_email)
+    )
     return result.scalar_one_or_none()
 
 
@@ -39,7 +43,10 @@ async def find_user_by_username(
     Returns:
         User if found, None otherwise
     """
-    result = await session.execute(select(User).where(User.username == username))
+    normalized_username = normalize_username(username)
+    result = await session.execute(
+        select(User).where(func.lower(User.username) == normalized_username)
+    )
     return result.scalar_one_or_none()
 
 
@@ -55,10 +62,14 @@ async def find_user_by_identifier(
     Returns:
         User if found, None otherwise
     """
+    normalized_identifier = normalize_identifier(identifier)
     from sqlalchemy import or_
     result = await session.execute(
         select(User).where(
-            or_(User.username == identifier, User.email == identifier)
+            or_(
+                func.lower(User.username) == normalized_identifier,
+                func.lower(User.email) == normalized_identifier,
+            )
         )
     )
     return result.scalar_one_or_none()
