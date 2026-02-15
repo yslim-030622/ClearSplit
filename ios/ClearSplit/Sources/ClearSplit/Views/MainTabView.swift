@@ -98,7 +98,7 @@ struct MainTabBar: View {
                 .frame(height: 1),
             alignment: .top
         )
-        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: -2)
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: -3)
     }
 
     private func triggerSelectionFeedback() {
@@ -120,17 +120,17 @@ struct TabBarButton: View {
             VStack(spacing: 4) {
                 Image(systemName: isSelected ? tab.icon : tab.iconUnselected)
                     .font(.system(size: 24, weight: isSelected ? .semibold : .regular))
-                    .foregroundColor(isSelected ? Color.blue600 : Color.gray400)
+                    .foregroundColor(isSelected ? Color.brandPrimary : Color.textMuted)
 
                 Text(tab.rawValue)
-                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
-                    .foregroundColor(isSelected ? Color.blue600 : Color.gray500)
+                    .font(.caption.weight(isSelected ? .semibold : .medium))
+                    .foregroundColor(isSelected ? Color.brandPrimary : Color.textTertiary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scaleEffect(isPressed ? 0.95 : 1)
             .overlay(alignment: .top) {
                 Rectangle()
-                    .fill(isSelected ? Color.blue600 : Color.clear)
+                    .fill(isSelected ? Color.brandPrimary : Color.clear)
                     .frame(height: 2)
                     .padding(.horizontal, 18)
             }

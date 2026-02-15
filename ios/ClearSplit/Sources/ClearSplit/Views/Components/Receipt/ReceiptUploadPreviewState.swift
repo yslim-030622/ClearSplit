@@ -8,12 +8,12 @@ struct ReceiptUploadPreviewState: View {
     var onRemove: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: ClearSplitTheme.Spacing.md) {
             // Image Preview Container
             ZStack(alignment: .topTrailing) {
                 // Background
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.gray900)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
+                    .fill(Color.textPrimary)
                     .frame(minHeight: 400, maxHeight: 600)
                     .frame(maxWidth: .infinity)
 
@@ -24,7 +24,7 @@ struct ReceiptUploadPreviewState: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(minHeight: 400, maxHeight: 600)
                         .frame(maxWidth: .infinity)
-                        .cornerRadius(16)
+                        .cornerRadius(ClearSplitTheme.Radius.lg)
                         .clipped()
                 }
 
@@ -32,7 +32,7 @@ struct ReceiptUploadPreviewState: View {
                 Button(action: onRemove) {
                     ZStack {
                         Circle()
-                            .fill(Color.gray900.opacity(0.8))
+                            .fill(Color.textPrimary.opacity(0.8))
                             .frame(width: 40, height: 40)
 
                         Image(systemName: "xmark")
@@ -44,7 +44,7 @@ struct ReceiptUploadPreviewState: View {
             }
 
             // Action Buttons
-            VStack(spacing: 12) {
+            VStack(spacing: ClearSplitTheme.Spacing.sm) {
                 // Primary Button: Use This Photo
                 Button(action: onUsePhoto) {
                     HStack(spacing: 8) {
@@ -54,18 +54,18 @@ struct ReceiptUploadPreviewState: View {
                                 .frame(width: 20, height: 20)
 
                             Text("Processing...")
-                                .font(.system(size: 17, weight: .medium))
-                                .foregroundColor(.white)
+                                .font(ClearSplitTheme.Typography.bodyStrong)
+                                .foregroundColor(.textOnBrand)
                         } else {
                             Text("Use This Photo")
-                                .font(.system(size: 17, weight: .medium))
-                                .foregroundColor(.white)
+                                .font(ClearSplitTheme.Typography.bodyStrong)
+                                .foregroundColor(.textOnBrand)
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 56)
-                    .background(isUploading ? Color.blue400 : Color.blue600)
-                    .cornerRadius(12)
+                    .background(isUploading ? Color.blue400 : Color.brandPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
                 }
                 .disabled(isUploading)
                 .buttonStyle(PlainButtonStyle())
@@ -73,16 +73,16 @@ struct ReceiptUploadPreviewState: View {
                 // Secondary Button: Choose Different Photo
                 Button(action: onChooseDifferent) {
                     Text("Choose Different Photo")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.bodyStrong)
+                        .foregroundColor(.textPrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(isUploading ? Color.gray100 : Color.white)
+                        .background(isUploading ? Color.gray100 : Color.cardBackground)
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.gray300, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+                                .stroke(Color.borderMedium, lineWidth: 1)
                         )
-                        .cornerRadius(12)
+                        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
                 }
                 .disabled(isUploading)
                 .buttonStyle(PlainButtonStyle())
@@ -90,8 +90,8 @@ struct ReceiptUploadPreviewState: View {
 
             // Info Text
             Text("We'll automatically extract items and prices from your receipt")
-                .font(.system(size: 14))
-                .foregroundColor(.gray600)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
         }

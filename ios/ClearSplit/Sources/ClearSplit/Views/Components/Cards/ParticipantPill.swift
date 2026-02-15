@@ -6,12 +6,12 @@ struct ParticipantPill: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(isCurrentUser ? .blue500 : .gray600)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+            .foregroundColor(isCurrentUser ? .brandPrimary : .textSecondary)
+            .padding(.horizontal, ClearSplitTheme.Spacing.sm)
+            .padding(.vertical, ClearSplitTheme.Spacing.xs - 1)
             .pillStyle(isCurrentUser: isCurrentUser)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
             .accessibilityLabel("\(title) is sharing this item")
     }
 }

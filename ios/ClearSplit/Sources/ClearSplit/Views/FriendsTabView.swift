@@ -107,22 +107,22 @@ struct FriendsTabView: View {
                 Text(showAddFriend ? "Close" : "Add")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundColor(.white)
+            .foregroundColor(.textOnBrand)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color.blue600)
-            .cornerRadius(10)
+            .background(Color.brandPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm + 2))
         }
     }
 
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
-                .foregroundColor(.gray400)
+                .font(.subheadline)
+                .foregroundColor(.textMuted)
 
             TextField("Search friends...", text: $searchQuery)
-                .font(.system(size: 14))
+                .font(ClearSplitTheme.Typography.subheadline)
                 .textInputAutocapitalization(.never)
                 .disableAutocorrection(true)
         }
@@ -138,8 +138,8 @@ struct FriendsTabView: View {
     private var addFriendForm: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Add New Friend")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
 
             HStack(spacing: 8) {
                 inputTypeButton(.email, title: "Email / Username")
@@ -153,7 +153,7 @@ struct FriendsTabView: View {
                 inputType == .email ? "Enter email or username" : "Enter user ID",
                 text: $newFriendInput
             )
-            .font(.system(size: 14))
+            .font(ClearSplitTheme.Typography.subheadline)
             .padding(10)
             .background(Color.cardInset)
             .overlay(
@@ -169,8 +169,8 @@ struct FriendsTabView: View {
                     ? "Enter your friend's email address or username"
                     : "Enter your friend's user ID"
             )
-            .font(.system(size: 12))
-            .foregroundColor(.gray500)
+            .font(ClearSplitTheme.Typography.caption)
+            .foregroundColor(.textTertiary)
 
             HStack(spacing: 8) {
                 Button(action: sendFriendRequest) {
@@ -180,16 +180,16 @@ struct FriendsTabView: View {
                                 .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         } else {
                             Text("Send Request")
-                                .font(.system(size: 14, weight: .medium))
+                                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
                         }
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.textOnBrand)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
                         sanitizedNewFriendInput.isEmpty || viewModel.isSubmittingRequest
-                            ? Color.gray300
-                            : Color.blue600
+                            ? Color.interactiveDisabled
+                            : Color.brandPrimary
                     )
                     .cornerRadius(8)
                 }
@@ -202,8 +202,8 @@ struct FriendsTabView: View {
                     }
                 }) {
                     Text("Cancel")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray700)
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                        .foregroundColor(.textSecondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
                         .background(Color.cardBackground)
@@ -224,8 +224,8 @@ struct FriendsTabView: View {
         HStack(spacing: 12) {
             ProgressView()
             Text("Loading friends...")
-                .font(.system(size: 14))
-                .foregroundColor(.gray600)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textSecondary)
             Spacer()
         }
         .padding(20)
@@ -235,8 +235,8 @@ struct FriendsTabView: View {
     private var friendRequestsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Friend Requests")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(friendRequests) { request in
@@ -257,15 +257,15 @@ struct FriendsTabView: View {
         return HStack(alignment: .top, spacing: 12) {
             Image(systemName: "paperplane.fill")
                 .font(.system(size: 16))
-                .foregroundColor(.blue700)
+                .foregroundColor(.brandPrimaryPressed)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Pending requests: \(viewModel.outgoingRequests.count)")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.semibold))
                     .foregroundColor(.blue800)
                 Text(names)
-                    .font(.system(size: 13))
-                    .foregroundColor(.blue700)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.brandPrimaryPressed)
                     .lineLimit(2)
             }
 
@@ -284,14 +284,14 @@ struct FriendsTabView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("My Friends")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.sectionTitle)
+                    .foregroundColor(.textPrimary)
 
                 Spacer()
 
                 Text("\(filteredFriends.count) friends")
-                    .font(.system(size: 14))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.subheadline)
+                    .foregroundColor(.textTertiary)
             }
 
             if filteredFriends.isEmpty {
@@ -300,12 +300,12 @@ struct FriendsTabView: View {
                         .font(.system(size: 42))
                         .foregroundColor(.gray300)
                     Text("No friends found")
-                        .font(.system(size: 15))
-                        .foregroundColor(.gray500)
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                        .foregroundColor(.textTertiary)
                     if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text("Try a different search")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray400)
+                            .font(ClearSplitTheme.Typography.caption)
+                            .foregroundColor(.textMuted)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -340,7 +340,7 @@ struct FriendsTabView: View {
                 .foregroundColor(.blue800)
 
             Text("Add friends to easily create groups and split expenses together")
-                .font(.system(size: 14))
+                .font(ClearSplitTheme.Typography.subheadline)
                 .foregroundColor(.blue800)
 
             Spacer(minLength: 0)
@@ -366,8 +366,8 @@ struct FriendsTabView: View {
             }
         }) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(inputType == type ? .blue600 : .gray500)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                .foregroundColor(inputType == type ? .brandPrimary : .textTertiary)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
                 .background(inputType == type ? Color.cardBackground : Color.clear)
@@ -454,7 +454,7 @@ struct FriendDetailSheet: View {
                         Circle()
                             .fill(
                                 LinearGradient(
-                                    colors: [.blue500, .blue700],
+                                    colors: [.brandPrimary, .brandPrimaryPressed],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
@@ -462,17 +462,17 @@ struct FriendDetailSheet: View {
                             .frame(width: 80, height: 80)
                             .overlay(
                                 Text(String(friend.name.prefix(1)))
-                                    .font(.system(size: 32, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .font(.title.weight(.medium))
+                                    .foregroundColor(.textOnBrand)
                             )
 
                         Text(friend.name)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.gray900)
+                            .font(ClearSplitTheme.Typography.title)
+                            .foregroundColor(.textPrimary)
 
                         Text(friend.handle)
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray500)
+                            .font(ClearSplitTheme.Typography.subheadline)
+                            .foregroundColor(.textTertiary)
                     }
                     .padding(.top, 8)
 
@@ -495,8 +495,8 @@ struct FriendDetailSheet: View {
                             dismiss()
                         }) {
                             Text("Close")
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.gray700)
+                                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                                .foregroundColor(.textSecondary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
                                 .background(Color.cardBackground)
@@ -515,9 +515,9 @@ struct FriendDetailSheet: View {
                                 Image(systemName: "person.fill.xmark")
                                     .font(.system(size: 14))
                                 Text("Remove Friend")
-                                    .font(.system(size: 15, weight: .medium))
+                                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
                             }
-                            .foregroundColor(.red600)
+                            .foregroundColor(.danger)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                             .background(Color.cardBackground)
@@ -544,16 +544,16 @@ struct FriendDetailSheet: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(.gray500)
+                .foregroundColor(.textTertiary)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
                 Text(value)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textPrimary)
             }
 
             Spacer()
@@ -572,7 +572,7 @@ struct FriendRow: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [.blue500, .blue700],
+                        colors: [.brandPrimary, .brandPrimaryPressed],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -580,24 +580,24 @@ struct FriendRow: View {
                 .frame(width: 40, height: 40)
                 .overlay(
                     Text(String(friend.name.prefix(1)))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.textOnBrand)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(friend.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textPrimary)
                 Text(friend.handle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
 
             Spacer()
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.gray400)
+                .foregroundColor(.textMuted)
         }
         .padding(.vertical, 8)
         .contentShape(Rectangle())
@@ -614,7 +614,7 @@ struct FriendRequestRow: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [Color(hex: "8B5CF6"), Color(hex: "6366F1")],
+                        colors: [Color.brandPrimary, Color.brandPrimaryPressed],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -622,17 +622,17 @@ struct FriendRequestRow: View {
                 .frame(width: 40, height: 40)
                 .overlay(
                     Text(String(request.name.prefix(1)))
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.textOnBrand)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(request.name)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textPrimary)
                 Text(request.handle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
 
             Spacer()
@@ -641,9 +641,9 @@ struct FriendRequestRow: View {
                 Button(action: onAccept) {
                     Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color(hex: "059669"))
+                        .foregroundColor(.success)
                         .frame(width: 32, height: 32)
-                        .background(Color(hex: "D1FAE5"))
+                        .background(Color.successSurface)
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
@@ -651,9 +651,9 @@ struct FriendRequestRow: View {
                 Button(action: onReject) {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.red600)
+                        .foregroundColor(.danger)
                         .frame(width: 32, height: 32)
-                        .background(Color(hex: "FEE2E2"))
+                        .background(Color.dangerSurface)
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)

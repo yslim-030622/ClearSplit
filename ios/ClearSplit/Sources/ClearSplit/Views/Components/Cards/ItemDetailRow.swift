@@ -9,32 +9,32 @@ struct ItemDetailRow: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
                 // Row 1: Name and Total
                 HStack {
                     Text(item.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.bodyStrong)
+                        .foregroundColor(.textPrimary)
 
                     Spacer()
 
                     Text(formatCurrency(cents: item.totalCents, currency: "USD"))
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.sectionTitle.weight(.bold))
+                        .foregroundColor(.textPrimary)
                 }
 
                 // Row 2: Unit Price × Quantity
                 if let unitPriceCents = item.unitPriceCents {
                     Text("\(formatCurrency(cents: unitPriceCents, currency: "USD")) × \(item.quantity)")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray500)
+                        .font(ClearSplitTheme.Typography.subheadline)
+                        .foregroundColor(.textTertiary)
                 }
 
                 // Row 3: Shared by
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.xs) {
                     Text("Shared by:")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.gray600)
+                        .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+                        .foregroundColor(.textSecondary)
 
                     // Participant Badges
                     HStack(spacing: 8) {
@@ -50,22 +50,22 @@ struct ItemDetailRow: View {
                 // Row 4: Your Share
                 HStack {
                     Text("Your share:")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.gray600)
+                        .font(ClearSplitTheme.Typography.subheadline)
+                        .foregroundColor(.textSecondary)
 
                     Spacer()
 
                     Text(formatCurrency(cents: userShareCents, currency: "USD"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.bodyStrong)
+                        .foregroundColor(.textPrimary)
                 }
             }
-            .padding(16)
+            .padding(ClearSplitTheme.Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.gray50)
-            .cornerRadius(12)
+            .background(Color.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                     .stroke(Color.gray200, lineWidth: 1)
             )
         }

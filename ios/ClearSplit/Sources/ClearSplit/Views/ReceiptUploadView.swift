@@ -19,7 +19,7 @@ struct ReceiptUploadView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.gray50
+                Color.pageBackground
                     .ignoresSafeArea()
 
                 ScrollView {
@@ -54,14 +54,14 @@ struct ReceiptUploadView: View {
                     Button(action: onBack) {
                         Image(systemName: "arrow.left")
                             .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.gray900)
+                            .foregroundColor(.textPrimary)
                     }
                 }
 
                 ToolbarItem(placement: .principal) {
                     Text("Upload Receipt")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.sectionTitle)
+                        .foregroundColor(.textPrimary)
                 }
             }
             .sheet(isPresented: $showPhotoPicker) {

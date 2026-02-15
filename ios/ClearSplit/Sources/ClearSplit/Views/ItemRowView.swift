@@ -27,9 +27,9 @@ struct ItemRowView: View {
                 viewMode
             }
         }
-        .background(Color(UIColor.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+        .background(Color.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+        .applyElevation(.low)
         .onAppear {
             editName = item.name
             editPrice = String(format: "%.2f", item.price)
@@ -42,18 +42,18 @@ struct ItemRowView: View {
         HStack(alignment: .top, spacing: 12) {
             // Index Badge
             Text("\(index)")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(.blue)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.semibold))
+                .foregroundColor(.brandPrimary)
                 .frame(width: 32, height: 32)
-                .background(Color.blue.opacity(0.1))
+                .background(Color.brandSubtle)
                 .clipShape(Circle())
             
             VStack(alignment: .leading, spacing: 4) {
                 // Item Name
                 HStack {
                     Text(item.name)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.primary)
+                        .font(ClearSplitTheme.Typography.bodyStrong)
+                        .foregroundColor(.textPrimary)
                     
                     Spacer()
                     
@@ -62,7 +62,7 @@ struct ItemRowView: View {
                         Button(action: onEdit) {
                             Image(systemName: "pencil")
                                 .font(.system(size: 14))
-                                .foregroundColor(.blue)
+                                .foregroundColor(.brandPrimary)
                                 .frame(width: 32, height: 32)
                         }
                         .accessibilityLabel("Edit \(item.name)")
@@ -70,7 +70,7 @@ struct ItemRowView: View {
                         Button(action: onDelete) {
                             Image(systemName: "trash")
                                 .font(.system(size: 14))
-                                .foregroundColor(.red)
+                                .foregroundColor(.danger)
                                 .frame(width: 32, height: 32)
                         }
                         .accessibilityLabel("Delete \(item.name)")
@@ -80,15 +80,15 @@ struct ItemRowView: View {
                 // Price Details
                 HStack(spacing: 4) {
                     Text("$\(item.price, specifier: "%.2f") × \(item.quantity)")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                        .font(ClearSplitTheme.Typography.subheadline)
+                        .foregroundColor(.textTertiary)
                     
                     Text("•")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.textTertiary)
                     
                     Text("$\(item.totalPrice, specifier: "%.2f")")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.primary)
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.semibold))
+                        .foregroundColor(.textPrimary)
                 }
                 
                 // Confidence Badge
@@ -117,8 +117,8 @@ struct ItemRowView: View {
             // Item Name
             VStack(alignment: .leading, spacing: 4) {
                 Text("Item Name")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary)
+                    .font(ClearSplitTheme.Typography.caption.weight(.medium))
+                    .foregroundColor(.textTertiary)
                 
                 TextField("Item name", text: $editName)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -129,31 +129,31 @@ struct ItemRowView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Price")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(ClearSplitTheme.Typography.caption.weight(.medium))
+                        .foregroundColor(.textTertiary)
                     
                     HStack {
                         Text("$")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(.textTertiary)
                         TextField("0.00", text: $editPrice)
                             .keyboardType(.decimalPad)
                             .focused($focusedField, equals: .price)
                     }
                     .padding(8)
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(8)
+                    .background(Color.cardInset)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Quantity")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .font(ClearSplitTheme.Typography.caption.weight(.medium))
+                        .foregroundColor(.textTertiary)
                     
                     TextField("1", text: $editQuantity)
                         .keyboardType(.numberPad)
                         .padding(8)
-                        .background(Color(UIColor.systemGray6))
-                        .cornerRadius(8)
+                        .background(Color.cardInset)
+                        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                         .focused($focusedField, equals: .quantity)
                 }
             }
@@ -175,13 +175,13 @@ struct ItemRowView: View {
                         Image(systemName: "checkmark")
                             .font(.system(size: 14))
                         Text("Save")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(.textOnBrand)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
-                    .background(Color.blue)
-                    .cornerRadius(8)
+                    .background(Color.brandPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                 }
                 
                 Button(action: {
@@ -192,13 +192,13 @@ struct ItemRowView: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 14))
                         Text("Cancel")
-                            .font(.system(size: 15, weight: .medium))
+                            .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
                     }
-                    .foregroundColor(.primary)
+                    .foregroundColor(.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(8)
+                    .background(Color.cardInset)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                 }
             }
         }
@@ -214,17 +214,17 @@ struct ItemRowView: View {
     // MARK: - Helper Properties
     private var confidenceBackgroundColor: Color {
         switch item.confidence {
-        case .high: return Color.green.opacity(0.15)
-        case .medium: return Color.yellow.opacity(0.15)
-        case .low: return Color.orange.opacity(0.15)
+        case .high: return Color.successSurface
+        case .medium: return Color.warningSurface
+        case .low: return Color.dangerSurface
         }
     }
     
     private var confidenceForegroundColor: Color {
         switch item.confidence {
-        case .high: return Color.green.opacity(0.9)
-        case .medium: return Color.yellow.opacity(0.9)
-        case .low: return Color.orange.opacity(0.9)
+        case .high: return Color.success
+        case .medium: return Color.warning
+        case .low: return Color.danger
         }
     }
 }
@@ -268,6 +268,6 @@ struct ItemRowView_Previews: PreviewProvider {
             )
         }
         .padding()
-        .background(Color(UIColor.systemGroupedBackground))
+        .background(Color.pageBackground)
     }
 }

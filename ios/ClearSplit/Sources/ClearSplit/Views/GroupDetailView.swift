@@ -239,10 +239,10 @@ struct GroupDetailView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "person.2")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(Color(hex: "4B5563"))
+                            .foregroundColor(Color.textSecondary)
                         Text("\(title) (\(members.count))")
                             .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(Color(hex: "111827"))
+                            .foregroundColor(Color.textPrimary)
                             .tracking(-0.3)
                     }
                     
@@ -258,7 +258,7 @@ struct GroupDetailView: View {
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color(hex: "2563EB"))
+                        .background(Color.brandPrimary)
                         .cornerRadius(8)
                     }
                     .buttonStyle(ScaleButtonStyle())
@@ -270,10 +270,10 @@ struct GroupDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No members yet")
                             .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(Color(hex: "4B5563"))
+                            .foregroundColor(Color.textSecondary)
                         Text("Invite your roommates to start splitting expenses.")
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
+                            .foregroundColor(Color.textTertiary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 16)
@@ -331,12 +331,12 @@ struct GroupDetailView: View {
         
         private var avatarColor: (start: Color, end: Color) {
             let colors: [(Color, Color)] = [
-                (Color(hex: "60A5FA"), Color(hex: "2563EB")), // Blue
-                (Color(hex: "C084FC"), Color(hex: "9333EA")), // Purple
-                (Color(hex: "4ADE80"), Color(hex: "16A34A")), // Green
-                (Color(hex: "FB923C"), Color(hex: "EA580C")), // Orange
-                (Color(hex: "F472B6"), Color(hex: "DB2777")), // Pink
-                (Color(hex: "818CF8"), Color(hex: "4F46E5"))  // Indigo
+                (Color(hex: "60A5FA"), Color.brandPrimary),
+                (Color(hex: "38BDF8"), Color(hex: "0284C7")),
+                (Color(hex: "4ADE80"), Color.success),
+                (Color(hex: "14B8A6"), Color(hex: "0F766E")),
+                (Color(hex: "818CF8"), Color(hex: "4F46E5")),
+                (Color(hex: "64748B"), Color(hex: "334155"))
             ]
             // Use member ID to consistently assign colors
             let index = abs(member.id.hashValue) % colors.count
@@ -366,16 +366,16 @@ struct GroupDetailView: View {
                     HStack(spacing: 8) {
                         Text(isCurrentUser ? "You" : displayName)
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color(hex: "111827"))
+                            .foregroundColor(Color.textPrimary)
                             .lineLimit(1)
                         
                         if isCurrentUser {
                             Text("You")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(Color(hex: "1D4ED8"))
+                                .foregroundColor(Color.brandPrimaryPressed)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
-                                .background(Color(hex: "DBEAFE"))
+                                .background(Color.brandSurface)
                                 .cornerRadius(8)
                         }
                     }
@@ -383,7 +383,7 @@ struct GroupDetailView: View {
                     if let email = email {
                         Text(email)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
+                            .foregroundColor(Color.textTertiary)
                             .lineLimit(1)
                     }
                 }
@@ -395,9 +395,9 @@ struct GroupDetailView: View {
                     Button(action: onRemove) {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(isHovered ? Color(hex: "DC2626") : Color(hex: "9CA3AF"))
+                            .foregroundColor(isHovered ? Color.danger : Color.textMuted)
                             .frame(width: 28, height: 28)
-                            .background(isHovered ? Color(hex: "FEF2F2") : Color.clear)
+                            .background(isHovered ? Color.dangerSurface : Color.clear)
                             .cornerRadius(8)
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -460,12 +460,12 @@ struct GroupDetailView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Add Member")
                                     .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(Color(hex: "111827"))
+                                    .foregroundColor(Color.textPrimary)
                                     .tracking(-0.4)
                                 
                                 Text("Search for a user by username to add them to \(groupName).")
                                     .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(Color(hex: "4B5563"))
+                                    .foregroundColor(Color.textSecondary)
                                     .lineSpacing(4)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -475,19 +475,19 @@ struct GroupDetailView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Username")
                                     .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(Color(hex: "111827"))
+                                    .foregroundColor(Color.textPrimary)
                                 
                                 HStack(spacing: 8) {
                                     TextField("", text: $searchUserId)
                                         .textFieldStyle(.plain)
                                         .font(.system(size: 16, weight: .regular))
-                                        .foregroundColor(Color(hex: "111827"))
+                                        .foregroundColor(Color.textPrimary)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
                                         .background(isInputFocused ? Color.cardBackground : Color.cardInset)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 8)
-                                                .stroke(isInputFocused ? Color(hex: "2563EB") : Color.borderLight, lineWidth: isInputFocused ? 2 : 1)
+                                                .stroke(isInputFocused ? Color.brandPrimary : Color.borderLight, lineWidth: isInputFocused ? 2 : 1)
                                         )
                                         .disabled(searchState == .searching)
                                         .focused($isInputFocused)
@@ -519,7 +519,7 @@ struct GroupDetailView: View {
                                         .foregroundColor(.white)
                                         .padding(.horizontal, 12)
                                         .frame(height: 40)
-                                        .background(canSearch ? Color(hex: "2563EB") : Color(hex: "D1D5DB"))
+                                        .background(canSearch ? Color.brandPrimary : Color.interactiveDisabled)
                                         .cornerRadius(8)
                                     }
                                     .disabled(!canSearch)
@@ -561,13 +561,13 @@ struct GroupDetailView: View {
                             Button(action: onDismiss) {
                                 Text("Cancel")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(Color(hex: "374151"))
+                                    .foregroundColor(Color.textSecondary)
                                     .padding(.horizontal, 16)
                                     .frame(height: 40)
                                     .background(Color.white)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color(hex: "D1D5DB"), lineWidth: 1)
+                                            .stroke(Color.interactiveDisabled, lineWidth: 1)
                                     )
                                     .cornerRadius(8)
                             }
@@ -579,7 +579,7 @@ struct GroupDetailView: View {
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 16)
                                     .frame(height: 40)
-                                    .background(canAdd ? Color(hex: "2563EB") : Color(hex: "D1D5DB"))
+                                    .background(canAdd ? Color.brandPrimary : Color.interactiveDisabled)
                                     .cornerRadius(8)
                             }
                             .disabled(!canAdd)
@@ -691,7 +691,7 @@ struct GroupDetailView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Color(hex: "DC2626"))
+                    .foregroundColor(Color.danger)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("User Not Found")
@@ -700,15 +700,15 @@ struct GroupDetailView: View {
                     
                     Text("No user exists with username \"\(searchUserId)\". Please check and try again.")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Color(hex: "B91C1C"))
+                        .foregroundColor(Color.danger)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color(hex: "FEF2F2"))
+            .background(Color.dangerSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(hex: "FECACA"), lineWidth: 1)
+                    .stroke(Color.red300, lineWidth: 1)
             )
             .cornerRadius(12)
         }
@@ -721,7 +721,7 @@ struct GroupDetailView: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Color(hex: "D97706"))
+                    .foregroundColor(Color.warning)
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Already a Member")
@@ -735,7 +735,7 @@ struct GroupDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color(hex: "FFFBEB"))
+            .background(Color.warningSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color(hex: "FDE68A"), lineWidth: 1)
@@ -752,7 +752,7 @@ struct GroupDetailView: View {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(Color(hex: "16A34A"))
+                        .foregroundColor(Color.success)
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text("User Found")
@@ -781,26 +781,26 @@ struct GroupDetailView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(user.displayName)
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(Color(hex: "111827"))
+                            .foregroundColor(Color.textPrimary)
                             .lineLimit(1)
                         
                         Text(user.email)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
+                            .foregroundColor(Color.textTertiary)
                             .lineLimit(1)
                         
                         Text("ID: \(user.username)")
                             .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(Color(hex: "9CA3AF"))
+                            .foregroundColor(Color.textMuted)
                     }
                     
                     Spacer()
                 }
                 .padding(12)
-                .background(Color.white)
+                .background(Color.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color(hex: "E5E7EB"), lineWidth: 1)
+                        .stroke(Color.borderMedium, lineWidth: 1)
                 )
                 .cornerRadius(8)
                 .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
@@ -817,12 +817,12 @@ struct GroupDetailView: View {
         
         private func avatarGradient(for userId: String) -> LinearGradient {
             let colors: [(Color, Color)] = [
-                (Color(hex: "60A5FA"), Color(hex: "2563EB")), // Blue
-                (Color(hex: "C084FC"), Color(hex: "9333EA")), // Purple
-                (Color(hex: "4ADE80"), Color(hex: "16A34A")), // Green
-                (Color(hex: "FB923C"), Color(hex: "EA580C")), // Orange
-                (Color(hex: "F472B6"), Color(hex: "DB2777")), // Pink
-                (Color(hex: "818CF8"), Color(hex: "4F46E5"))  // Indigo
+                (Color(hex: "60A5FA"), Color.brandPrimary),
+                (Color(hex: "38BDF8"), Color(hex: "0284C7")),
+                (Color(hex: "4ADE80"), Color.success),
+                (Color(hex: "14B8A6"), Color(hex: "0F766E")),
+                (Color(hex: "818CF8"), Color(hex: "4F46E5")),
+                (Color(hex: "64748B"), Color(hex: "334155"))
             ]
             
             let hash = abs(userId.hashValue)

@@ -7,20 +7,15 @@ struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(Color.cardBackground)
-            .cornerRadius(16)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                     .stroke(
                         isHovered ? Color.borderStrong : Color.borderMedium,
                         lineWidth: isHovered ? 1.5 : 1
                     )
             )
-            .shadow(
-                color: Color.black.opacity(isHovered ? 0.08 : 0.05),
-                radius: isHovered ? 8 : 4,
-                x: 0,
-                y: isHovered ? 3 : 2
-            )
+            .applyElevation(isHovered ? .high : .low)
     }
 }
 
@@ -29,17 +24,12 @@ struct SectionStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(Color.sectionBackground)
-            .cornerRadius(16)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                     .stroke(Color.borderMedium, lineWidth: 1)
             )
-            .shadow(
-                color: Color.black.opacity(0.05),
-                radius: 4,
-                x: 0,
-                y: 2
-            )
+            .applyElevation(.low)
     }
 }
 
@@ -50,20 +40,15 @@ struct ItemCardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(Color.cardBackground)
-            .cornerRadius(12)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                     .stroke(
                         isHovered ? Color.borderStrong : Color.borderMedium,
                         lineWidth: 1
                     )
             )
-            .shadow(
-                color: Color.black.opacity(isHovered ? 0.08 : 0.04),
-                radius: isHovered ? 6 : 3,
-                x: 0,
-                y: isHovered ? 2 : 1
-            )
+            .applyElevation(isHovered ? .medium : .low)
     }
 }
 
@@ -75,13 +60,38 @@ struct PillStyle: ViewModifier {
         content
             .background(
                 isCurrentUser
-                    ? Color(red: 0.231, green: 0.510, blue: 0.965).opacity(0.1)
+                    ? Color.brandPrimary.opacity(0.12)
                     : Color.cardInset
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm)
                     .stroke(Color.borderLight, lineWidth: 1)
             )
+    }
+}
+
+// MARK: - Input Field Style
+struct AppInputFieldStyle: ViewModifier {
+    var isFocused: Bool
+    var hasError: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(hasError ? Color.dangerSurface : (isFocused ? Color.cardBackground : Color.cardInset))
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+                    .stroke(borderColor, lineWidth: isFocused || hasError ? ClearSplitTheme.Border.focus : ClearSplitTheme.Border.thin)
+            )
+    }
+
+    private var borderColor: Color {
+        if hasError {
+            return .red300
+        }
+        return isFocused ? .brandPrimary : .borderLight
     }
 }
 
@@ -101,5 +111,9 @@ extension View {
 
     func pillStyle(isCurrentUser: Bool = false) -> some View {
         modifier(PillStyle(isCurrentUser: isCurrentUser))
+    }
+
+    func appInputFieldStyle(isFocused: Bool = false, hasError: Bool = false) -> some View {
+        modifier(AppInputFieldStyle(isFocused: isFocused, hasError: hasError))
     }
 }

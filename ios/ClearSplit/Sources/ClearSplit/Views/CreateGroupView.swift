@@ -12,7 +12,7 @@ struct CreateGroupView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "F0F4F8")
+            Color.pageBackground
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -76,9 +76,9 @@ struct CreateGroupView: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .semibold))
                     Text("Back")
-                        .font(.system(size: 16))
+                        .font(ClearSplitTheme.Typography.body)
                 }
-                .foregroundColor(Color(hex: "374151"))
+                .foregroundColor(.textSecondary)
                 .padding(.vertical, 8)
             }
             .buttonStyle(.plain)
@@ -96,13 +96,13 @@ struct CreateGroupView: View {
                 RoundedRectangle(cornerRadius: 18)
                     .fill(
                         LinearGradient(
-                            colors: [Color(hex: "3B82F6"), Color(hex: "2563EB")],
+                            colors: [Color.brandPrimary, Color.brandPrimaryPressed],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 64, height: 64)
-                    .shadow(color: Color(hex: "2563EB").opacity(0.15), radius: 12, x: 0, y: 4)
+                    .applyElevation(.medium)
 
                 VStack(spacing: 4) {
                     HStack(spacing: 4) {
@@ -125,13 +125,13 @@ struct CreateGroupView: View {
             }
 
             Text("Create New Group")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(Color(hex: "111827"))
+                .font(ClearSplitTheme.Typography.hero)
+                .foregroundColor(.textPrimary)
                 .tracking(-0.5)
 
             Text("Start splitting expenses with your friends")
-                .font(.system(size: 16))
-                .foregroundColor(Color(hex: "6B7280"))
+                .font(ClearSplitTheme.Typography.body)
+                .foregroundColor(.textTertiary)
                 .multilineTextAlignment(.center)
         }
     }
@@ -140,18 +140,18 @@ struct CreateGroupView: View {
         VStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Group Name")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(Color(hex: "374151"))
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textSecondary)
 
                 TextField("e.g., Apartment 4B", text: $viewModel.groupName)
-                    .font(.system(size: 16))
+                    .font(ClearSplitTheme.Typography.body)
                     .padding(14)
-                    .background(isTextFieldFocused ? Color.white : Color(hex: "F9FAFB"))
-                    .cornerRadius(10)
+                    .background(isTextFieldFocused ? Color.cardBackground : Color.cardInset)
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm + 2))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm + 2)
                             .strokeBorder(
-                                isTextFieldFocused ? Color(hex: "2563EB") : Color.clear,
+                                isTextFieldFocused ? Color.brandPrimary : Color.clear,
                                 lineWidth: 2
                             )
                     )
@@ -175,28 +175,28 @@ struct CreateGroupView: View {
                             .scaleEffect(1.1)
                     } else {
                         Text("Create Group")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(ClearSplitTheme.Typography.bodyStrong)
                     }
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.textOnBrand)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(
                     viewModel.canCreate
                     ? LinearGradient(
-                        colors: [Color(hex: "2563EB"), Color(hex: "1D4ED8")],
+                        colors: [Color.brandPrimary, Color.brandPrimaryPressed],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                     : LinearGradient(
-                        colors: [Color(hex: "D1D5DB"), Color(hex: "D1D5DB")],
+                        colors: [Color.interactiveDisabled, Color.interactiveDisabled],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .cornerRadius(12)
+                .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
                 .shadow(
-                    color: viewModel.canCreate ? Color(hex: "2563EB").opacity(0.2) : Color.clear,
+                    color: viewModel.canCreate ? Color.brandPrimary.opacity(0.2) : Color.clear,
                     radius: 8,
                     x: 0,
                     y: 4
@@ -220,9 +220,9 @@ struct CreateGroupView: View {
         }
         .padding(24)
         .frame(maxWidth: 342)
-        .background(Color.white)
-        .cornerRadius(16)
-        .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
+        .background(Color.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+        .applyElevation(.medium)
     }
 
     private func handleBack() {
@@ -327,11 +327,11 @@ private struct LoadingOverlay: View {
             VStack(spacing: 16) {
                 ProgressView()
                     .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    .progressViewStyle(CircularProgressViewStyle(tint: .textOnBrand))
 
                 Text("Creating Group...")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.white)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textOnBrand)
             }
             .padding(32)
             .background(

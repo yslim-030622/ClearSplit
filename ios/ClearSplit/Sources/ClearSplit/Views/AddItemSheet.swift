@@ -86,12 +86,12 @@ struct AddItemSheet: View {
                     // Error Message
                     if let errorMessage = errorMessage {
                         Text(errorMessage)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(.red600)
+                            .font(ClearSplitTheme.Typography.subheadline)
+                            .foregroundColor(.danger)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red50)
-                            .cornerRadius(8)
+                            .background(Color.dangerSurface)
+                            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                     }
 
                     Spacer()
@@ -103,8 +103,8 @@ struct AddItemSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("Add Item")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.gray900)
+                        .font(ClearSplitTheme.Typography.sectionTitle)
+                        .foregroundColor(.textPrimary)
                 }
 
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -116,15 +116,15 @@ struct AddItemSheet: View {
                         }
                     }) {
                         Text("Cancel")
-                            .foregroundColor(.blue600)
+                            .foregroundColor(.brandPrimary)
                     }
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { Task { await saveItem() } }) {
                         Text("Add")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(isValid ? .blue600 : .gray400)
+                            .font(ClearSplitTheme.Typography.bodyStrong)
+                            .foregroundColor(isValid ? .brandPrimary : .textMuted)
                     }
                     .disabled(!isValid || isSaving)
                 }

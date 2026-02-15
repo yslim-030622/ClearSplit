@@ -96,15 +96,15 @@ struct GroupsListView: View {
             VStack(spacing: 16) {
                 Image(systemName: "person.3")
                     .font(.system(size: 64))
-                    .foregroundColor(Color(hex: "D1D5DB"))
+                    .foregroundColor(.textMuted)
 
                 Text("No groups yet")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(Color(hex: "4B5563"))
+                    .font(ClearSplitTheme.Typography.title)
+                    .foregroundColor(.textSecondary)
 
                 Text("Create a group to start splitting expenses")
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(Color(hex: "6B7280"))
+                    .font(ClearSplitTheme.Typography.body)
+                    .foregroundColor(.textTertiary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -155,23 +155,23 @@ struct GroupsListView: View {
         Button(action: { showCreateGroup = true }) {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.body.weight(.semibold))
 
                 Text("Create New Group")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(ClearSplitTheme.Typography.bodyStrong)
             }
-            .foregroundColor(.white)
+            .foregroundColor(.textOnBrand)
             .frame(maxWidth: .infinity)
             .frame(height: 54)
             .background(
                 LinearGradient(
-                    colors: [Color.blue600, Color.blue700],
+                    colors: [Color.brandPrimary, Color.brandPrimaryPressed],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
             )
-            .cornerRadius(14)
-            .shadow(color: Color.blue600.opacity(0.25), radius: 10, y: 3)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .applyElevation(.medium)
         }
         .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
         .padding(.bottom, 16)
@@ -210,20 +210,20 @@ struct GroupCard: View {
                 // Left: Group info
                 VStack(alignment: .leading, spacing: 6) {
                     Text(group.name)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(Color(hex: "111827"))
+                        .font(ClearSplitTheme.Typography.sectionTitle)
+                        .foregroundColor(.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     
                     HStack(spacing: 4) {
                         Image(systemName: "person.2")
                             .renderingMode(.template)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "6B7280"))
+                            .font(.subheadline)
+                            .foregroundColor(.textTertiary)
                         
                         Text(memberLabel)
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "4B5563"))
+                            .font(ClearSplitTheme.Typography.subheadline)
+                            .foregroundColor(.textSecondary)
                     }
                 }
                 
@@ -234,25 +234,25 @@ struct GroupCard: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         if !isSettled {
                             Text("Your balance")
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundColor(Color(hex: "6B7280"))
+                                .font(ClearSplitTheme.Typography.caption)
+                                .foregroundColor(.textTertiary)
                         }
                         
                         if isSettled {
                             Text("All settled up")
-                                .font(.system(size: 15, weight: .regular))
-                                .foregroundColor(Color(hex: "6B7280"))
+                                .font(ClearSplitTheme.Typography.subheadline)
+                                .foregroundColor(.textTertiary)
                         } else {
                             Text(balanceText)
-                                .font(.system(size: 17, weight: .semibold))
+                                .font(ClearSplitTheme.Typography.sectionTitle)
                                 .foregroundColor(balanceColor)
                         }
                     }
                     
                     // Chevron
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(Color(hex: "9CA3AF"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.textMuted)
                 }
             }
             .padding(16)
@@ -291,7 +291,7 @@ struct GroupCard: View {
     }
     
     private var balanceColor: Color {
-        userBalance > 0 ? Color(hex: "16A34A") : Color(hex: "DC2626")
+        userBalance > 0 ? .success : .danger
     }
 
     private var memberLabel: String {
@@ -304,11 +304,11 @@ struct GroupCardSkeleton: View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.gray200)
                     .frame(width: 120, height: 17)
                 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "F3F4F6"))
+                    .fill(Color.gray100)
                     .frame(width: 80, height: 14)
             }
             
@@ -316,11 +316,11 @@ struct GroupCardSkeleton: View {
             
             VStack(alignment: .trailing, spacing: 2) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "F3F4F6"))
+                    .fill(Color.gray100)
                     .frame(width: 70, height: 12)
                 
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(hex: "E5E7EB"))
+                    .fill(Color.gray200)
                     .frame(width: 60, height: 17)
             }
         }
