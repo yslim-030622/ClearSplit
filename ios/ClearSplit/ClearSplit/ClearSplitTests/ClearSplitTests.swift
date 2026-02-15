@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import ClearSplitCore
+@testable import ClearSplitCore
 
 private final class MockURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -195,6 +195,68 @@ final class ClearSplitTests: XCTestCase {
         let health = try await client.fetchHealth()
 
         XCTAssertEqual(health.status, "ok")
+    }
+
+    func testComputeGroupsInCommonCountsEachFriendAcrossGroups() {
+        let now = Date(timeIntervalSince1970: 0)
+        let currentUserId = UUID()
+        let friendA = UUID()
+        let friendB = UUID()
+        let friendC = UUID()
+
+        let group1 = Group(
+            id: UUID(),
+            name: "Trip",
+            currency: "USD",
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+            userMembershipId: UUID()
+        )
+        let group2 = Group(
+            id: UUID(),
+            name: "House",
+            currency: "USD",
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+            userMembershipId: UUID()
+        )
+        let group3 = Group(
+            id: UUID(),
+            name: "Project",
+            currency: "USD",
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+            userMembershipId: UUID()
+        )
+
+        let membershipsByGroupId: [UUID: [Membership]] = [
+            group1.id: [
+                Membership(id: UUID(), groupId: group1.id, userId: currentUserId, role: "owner", createdAt: now, user: nil),
+                Membership(id: UUID(), groupId: group1.id, userId: friendA, role: "member", createdAt: now, user: nil),
+                Membership(id: UUID(), groupId: group1.id, userId: friendB, role: "member", createdAt: now, user: nil),
+            ],
+            group2.id: [
+                Membership(id: UUID(), groupId: group2.id, userId: currentUserId, role: "owner", createdAt: now, user: nil),
+                Membership(id: UUID(), groupId: group2.id, userId: friendA, role: "member", createdAt: now, user: nil),
+            ],
+            group3.id: [
+                Membership(id: UUID(), groupId: group3.id, userId: currentUserId, role: "owner", createdAt: now, user: nil),
+                Membership(id: UUID(), groupId: group3.id, userId: friendB, role: "member", createdAt: now, user: nil),
+            ],
+        ]
+
+        let counts = FriendsViewModel.computeGroupsInCommon(
+            friendUserIds: [friendA, friendB, friendC],
+            groups: [group1, group2, group3],
+            membershipsByGroupId: membershipsByGroupId
+        )
+
+        XCTAssertEqual(counts[friendA], 2)
+        XCTAssertEqual(counts[friendB], 2)
+        XCTAssertEqual(counts[friendC], 0)
     }
 
     private func makeDecoder() -> JSONDecoder {
