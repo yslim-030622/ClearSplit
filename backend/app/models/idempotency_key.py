@@ -21,7 +21,7 @@ class IdempotencyKey(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default="uuid_generate_v4()",
+        server_default="gen_random_uuid()",
     )
     endpoint: Mapped[str] = mapped_column(Text(), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(

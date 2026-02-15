@@ -67,6 +67,12 @@ pytest -m "not e2e" -v --durations=20
 pytest -v --durations=30
 ```
 
+Health endpoints:
+
+- `GET /health/live`: process liveness probe.
+- `GET /health/ready`: dependency readiness probe (returns `503` when degraded).
+- `GET /health`: backward-compatible alias of readiness.
+
 ## Branching and PR Rules
 
 1. Branch from `develop` or `main` with scoped name (for example: `backend/<topic>`).
@@ -87,7 +93,18 @@ CI uses placeholders for test env values:
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 
-If production deployment or real cloud integrations are added later, inject secrets via GitHub Actions Secrets only.
+For Azure staging deployment, GitHub Actions uses OIDC (no static Azure client secret). Configure:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `ACR_LOGIN_SERVER`
+- `ACA_APP_NAME`
+- `ACA_MIGRATION_JOB`
+
+Runtime app secrets should be stored in Azure Container Apps secrets (or Key Vault), not in workflow files.
 
 ## Troubleshooting CI Failures
 
@@ -110,4 +127,3 @@ If production deployment or real cloud integrations are added later, inject secr
 3. Archive build failure (`backend-archive-main`)
 - Reproduce locally:
   - `docker build -t clearsplit-backend:local ./backend`
-

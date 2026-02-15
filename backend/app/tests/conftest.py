@@ -12,15 +12,23 @@ from sqlalchemy.pool import NullPool
 
 from app.auth.password import hash_password
 from app.core.config import get_settings
+from app.db.connect_args import build_asyncpg_engine_config, normalize_env_name
 from app.db.session import get_session
 from app.main import app
 from app.models.user import User
 
+settings = get_settings()
+engine_url, engine_connect_args = build_asyncpg_engine_config(
+    settings.get_database_url(),
+    env_name=normalize_env_name(settings.env),
+    connect_timeout_seconds=settings.db_connect_timeout_seconds,
+)
 
 test_engine = create_async_engine(
-    get_settings().get_database_url(),
+    engine_url,
     echo=False,
     poolclass=NullPool,
+    connect_args=engine_connect_args,
 )
 
 
@@ -97,7 +105,7 @@ def stub_receipt_storage(monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
     def fake_create_presigned_get_url(storage_key: str) -> str:
         return f"https://test-storage.local/{storage_key}"
 
-    def fake_delete_receipt(storage_key: str) -> None:
+    async def fake_delete_receipt(storage_key: str) -> None:
         stored_receipts.pop(storage_key, None)
 
     monkeypatch.setattr(shopping_service.receipt_storage, "save_receipt", fake_save_receipt)

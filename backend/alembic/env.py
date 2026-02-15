@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import os
 from logging.config import fileConfig
-from typing import Optional
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.core.config import get_settings
 from app.db import Base
+from app.db.connect_args import build_asyncpg_engine_config, normalize_env_name
 from app.models import *  # noqa: F403, F401
 
 # this is the Alembic Config object, which provides
@@ -21,8 +21,19 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.get_database_url())
+database_url = os.getenv("DATABASE_URL", "").strip() or config.get_main_option("sqlalchemy.url")
+if not database_url:
+    raise RuntimeError(
+        "DATABASE_URL must be set before running Alembic migrations."
+    )
+config.set_main_option("sqlalchemy.url", database_url)
+
+env_name = normalize_env_name(os.getenv("ENV"))
+timeout_raw = os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "10")
+try:
+    connect_timeout_seconds = float(timeout_raw)
+except ValueError:
+    connect_timeout_seconds = 10.0
 
 
 def run_migrations_offline() -> None:
@@ -46,10 +57,17 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    engine_url, connect_args = build_asyncpg_engine_config(
+        database_url,
+        env_name=env_name,
+        connect_timeout_seconds=connect_timeout_seconds,
+    )
+    config.set_main_option("sqlalchemy.url", engine_url)
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
