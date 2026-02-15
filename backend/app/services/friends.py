@@ -8,6 +8,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import normalize_identifier
 from app.models.friendship import Friendship, FriendshipStatus
 from app.models.user import User
 
@@ -47,7 +48,7 @@ async def _resolve_target_user(
     if to_user_id is not None:
         return await _get_user_or_404(session, to_user_id)
 
-    normalized = (identifier or "").strip()
+    normalized = normalize_identifier(identifier or "")
     if not normalized:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -68,7 +69,10 @@ async def _resolve_target_user(
 
     result = await session.execute(
         select(User).where(
-            or_(User.username == normalized, User.email == normalized)
+            or_(
+                func.lower(User.username) == normalized,
+                func.lower(User.email) == normalized,
+            )
         )
     )
     user = result.scalar_one_or_none()

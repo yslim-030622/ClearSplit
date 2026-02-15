@@ -22,7 +22,7 @@ def upgrade() -> None:
     """Create receipt_extracted_items table."""
     op.create_table(
         'receipt_extracted_items',
-        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=sa.text('uuid_generate_v4()'), nullable=False),
+        sa.Column('id', postgresql.UUID(as_uuid=True), server_default=sa.text('gen_random_uuid()'), nullable=False),
         sa.Column('receipt_upload_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('name', sa.Text(), nullable=False),
         sa.Column('quantity', sa.Integer(), nullable=False, server_default='1'),

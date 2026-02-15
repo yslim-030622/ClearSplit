@@ -20,7 +20,7 @@ def upgrade() -> None:
     # Create shopping_sessions table
     op.create_table(
         "shopping_sessions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("group_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("shopping_date", sa.Date()),
@@ -33,7 +33,7 @@ def upgrade() -> None:
     # Create shopping_session_participants table
     op.create_table(
         "shopping_session_participants",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("membership_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text("now()")),
@@ -44,7 +44,7 @@ def upgrade() -> None:
     # Create receipt_uploads table
     op.create_table(
         "receipt_uploads",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("storage_key", sa.Text(), nullable=False),
         sa.Column("content_type", sa.String(length=100), nullable=False),
@@ -55,7 +55,7 @@ def upgrade() -> None:
     # Create shopping_items table
     op.create_table(
         "shopping_items",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("session_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("quantity", sa.Integer(), nullable=False, server_default=sa.text("1")),
@@ -71,7 +71,7 @@ def upgrade() -> None:
     # Create shopping_item_splits table
     op.create_table(
         "shopping_item_splits",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("uuid_generate_v4()")),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("item_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("membership_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("share_cents", sa.BigInteger(), nullable=False),
