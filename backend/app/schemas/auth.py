@@ -1,6 +1,5 @@
 """Authentication schemas."""
 
-from uuid import UUID
 
 from pydantic import EmailStr, Field
 

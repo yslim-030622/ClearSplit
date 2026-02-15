@@ -14,11 +14,9 @@ from app.models.expense_split import ExpenseSplit
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
 from app.models.settlement import (
-    Settlement,
     SettlementBatch,
     SettlementPayment,
     SettlementPaymentStatus,
-    SettlementStatus,
 )
 from app.models.shopping_item import ShoppingItem
 from app.models.shopping_item_split import ShoppingItemSplit

@@ -13,13 +13,11 @@ from app.core.idempotency import (
     store_idempotency_response,
 )
 from app.db.session import get_session
-from app.models.expense import Expense
 from app.models.membership import Membership
 from app.models.user import User
 from app.schemas.expense import ExpenseCreateEqualSplit, ExpenseRead, ExpenseSplitRead
 from app.services.expense import (
     create_expense_with_equal_splits,
-    get_expense_by_id,
     get_group_expenses,
 )
 from app.services.group import require_membership

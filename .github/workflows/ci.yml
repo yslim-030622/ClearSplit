@@ -18,7 +18,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.11"
+  PYTHON_VERSION: "3.13"
+  MIN_COVERAGE_PR: "78"
+  MIN_COVERAGE_MAIN: "80"
   ENV: test
   DATABASE_URL: postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
   JWT_SECRET: test-secret-key-for-ci-only-not-for-production-minimum-32-chars
@@ -53,9 +55,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Run lint gate (syntax + undefined names)
+      - name: Run lint gate (full Ruff checks)
         run: |
-          ruff check app app/tests --select=E9,F63,F7,F82
+          ruff check app app/tests
 
   backend-migrations:
     name: Backend Migrations
@@ -148,6 +150,7 @@ jobs:
           pytest -m "not e2e" \
             --junitxml=artifacts/junit.xml \
             --cov=app \
+            --cov-fail-under=${MIN_COVERAGE_PR} \
             --cov-report=xml:artifacts/coverage.xml \
             --cov-report=term-missing \
             --durations=20 \
@@ -212,6 +215,7 @@ jobs:
           pytest \
             --junitxml=artifacts/junit.xml \
             --cov=app \
+            --cov-fail-under=${MIN_COVERAGE_MAIN} \
             --cov-report=xml:artifacts/coverage.xml \
             --cov-report=term-missing \
             --durations=30 \

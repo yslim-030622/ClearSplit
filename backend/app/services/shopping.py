@@ -140,6 +140,7 @@ def _touch_session_after_financial_mutation(shopping_session: ShoppingSession) -
     if shopping_session.status == ShoppingSessionStatus.SETTLED:
         shopping_session.status = ShoppingSessionStatus.ACTIVE
         shopping_session.settled_at = None
+        shopping_session.finalized_at = None
 
 
 async def can_manage_item(
