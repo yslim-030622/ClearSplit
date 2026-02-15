@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUNDLE_GEMFILE: ios/ClearSplit/Gemfile
+  BUNDLE_GEMFILE: ${{ github.workspace }}/ios/ClearSplit/Gemfile
   LANG: en_US.UTF-8
   LC_ALL: en_US.UTF-8
 
