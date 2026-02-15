@@ -26,6 +26,9 @@ jobs:
     name: Build and Push Image
     runs-on: ubuntu-latest
     environment: staging
+    permissions:
+      id-token: write
+      contents: read
     outputs:
       image: ${{ steps.image.outputs.image }}
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
@@ -162,6 +165,9 @@ jobs:
     needs: [build-and-push]
     runs-on: ubuntu-latest
     environment: staging
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Azure login (OIDC)
@@ -330,6 +336,9 @@ jobs:
     environment:
       name: staging
       url: ${{ steps.deploy.outputs.url }}
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Azure login (OIDC)
