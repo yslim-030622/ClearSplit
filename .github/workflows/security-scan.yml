@@ -46,7 +46,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version-file: backend/.python-version
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
@@ -81,7 +81,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version-file: backend/.python-version
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
@@ -94,7 +94,7 @@ jobs:
           bandit -r app/ -f json -o bandit-report.json || true
 
       - name: Upload bandit results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bandit-report
