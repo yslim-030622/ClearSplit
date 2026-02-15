@@ -219,27 +219,27 @@ jobs:
             --name "$JOB" \
             --secrets "database-url=${MIGRATION_DATABASE_URL}" >/dev/null
 
-	          run_job_and_wait() {
-	            local command="$1"
-	            shift
-	            local args_flags=()
-	            local execution_name=""
-	            local status=""
+          run_job_and_wait() {
+            local command="$1"
+            shift
+            local args_flags=()
+            local execution_name=""
+            local status=""
 
-	            # Azure CLI argument parsing treats tokens starting with "-" as options,
-	            # even when they are meant to be container args (e.g. python "-c").
-	            # Use --args=<value> form to force them to be parsed as values.
-	            for arg in "$@"; do
-	              args_flags+=(--args="$arg")
-	            done
-	
-	            az containerapp job update \
-	              --resource-group "$RG" \
-	              --name "$JOB" \
-	              --image "$IMAGE" \
-	              --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
-	              --command "$command" \
-	              "${args_flags[@]}" >/dev/null
+            # Azure CLI argument parsing treats tokens starting with "-" as options,
+            # even when they are meant to be container args (e.g. python "-c").
+            # Use --args=<value> form to force them to be parsed as values.
+            for arg in "$@"; do
+              args_flags+=(--args="$arg")
+            done
+
+            az containerapp job update \
+              --resource-group "$RG" \
+              --name "$JOB" \
+              --image "$IMAGE" \
+              --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
+              --command "$command" \
+              "${args_flags[@]}" >/dev/null
 
             execution_name=$(az containerapp job start \
               --resource-group "$RG" \
