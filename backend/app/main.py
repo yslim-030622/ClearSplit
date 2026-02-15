@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request, status
@@ -46,6 +47,26 @@ local_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+
+def _validate_non_local_cors_origins(origins: list[str]) -> None:
+    invalid: list[str] = []
+    for origin in origins:
+        parsed = urlparse(origin)
+        has_invalid_path_bits = any([parsed.path not in {"", "/"}, parsed.params, parsed.query, parsed.fragment])
+        is_https_origin = parsed.scheme == "https" and bool(parsed.netloc)
+        if not is_https_origin or has_invalid_path_bits:
+            invalid.append(origin)
+
+    if invalid:
+        invalid_values = ", ".join(invalid)
+        raise RuntimeError(
+            "Invalid CORS_ORIGINS value(s) for non-local environment: "
+            f"{invalid_values}. Use comma-separated HTTPS origins only "
+            "(e.g. https://app.example.com)."
+        )
+
+
 if env_name in {"local", "test"}:
     cors_origins = sorted(set(local_origins + settings.get_cors_origins()))
     allow_credentials = False
@@ -56,6 +77,7 @@ else:
             "CORS_ORIGINS must be configured in non-local environments. "
             "Use a comma-separated list of trusted https origins."
         )
+    _validate_non_local_cors_origins(cors_origins)
     allow_credentials = True
 
 app.add_middleware(

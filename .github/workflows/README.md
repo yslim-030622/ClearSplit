@@ -11,50 +11,61 @@ Triggers:
 - Manual dispatch
 
 Jobs:
-- `Backend Lint` (PR + main): full `ruff check app app/tests`
+- `Backend Lint` (PR + main): `ruff check app app/tests`
 - `Backend Migrations` (PR + main): `alembic upgrade -> downgrade base -> upgrade`
-- `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + junit + coverage (fail-under 78%)
-- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e` + coverage (fail-under 80%)
+- `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + JUnit + coverage (fail-under 78%)
+- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e` (fail-under 80%)
 - `Backend Archive Build (Main)` (main only): Docker archive build verification
 
-Artifacts:
-- `backend-pr-artifacts`: `pytest.log`, `junit.xml`, `coverage.xml`, `.coverage`
-- `backend-main-test-artifacts`: full-suite test outputs + coverage
-- `backend-main-build-artifacts`: Docker image inspect metadata
-
-### `ios-pr-checks.yml` - iOS PR Quality Gates
+### `docker.yml` - Docker Build & Push to GHCR
 Triggers:
-- Pull requests targeting `main`, `develop` with iOS/workflow changes
-
-Jobs:
-- `lint` through `bundle exec fastlane ios lint`
-- `build-and-unit` through `bundle exec fastlane ios build_ci` and `unit_tests_ci`
-
-Artifacts:
-- iOS logs and `.xcresult` from `ios/ClearSplit/.build`
-- coverage summary in GitHub Step Summary
-
-### `ios-main-checks.yml` - iOS Main Validation + Optional TestFlight
-Triggers:
-- Push to `main` with iOS/workflow changes
+- Push to `main`
+- Tags `v*`
 - Manual dispatch
-
-Jobs:
-- `full-validation`: lint + build + unit + UI smoke + unsigned archive
-- `testflight` (manual/optional): TestFlight upload when secrets are present
-
-### `docker.yml` - Docker Build & Push
-Triggers:
-- Push to `main`, tags `v*`, manual
 
 ### `security-scan.yml` - Security Scanning
 Triggers:
 - Push/PR to `main`, `develop`
 - Weekly schedule
 
-### `deploy-staging.yml` - Staging Deployment Template
+### `deploy-staging.yml` - Azure Container Apps Staging Deployment (OIDC)
 Triggers:
-- Push to `main`, manual
+- `Backend CI` workflow completed successfully on `main` (`workflow_run`)
+- Manual dispatch
+
+Jobs:
+- Build and push backend image to ACR
+- Trigger ACA migration job (`python -m alembic upgrade head`) and wait for completion
+- Deploy new ACA revision
+- Verify `/health/live` and `/health/ready`
+- Roll back to previous image automatically if health verification fails
+
+Required repository or environment variables:
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `ACR_LOGIN_SERVER`
+- `ACA_APP_NAME`
+- `ACA_MIGRATION_JOB`
+
+Required permissions:
+- `id-token: write` for OIDC
+- `contents: read`
+
+Notes:
+- No `AZURE_CREDENTIALS` secret is required.
+- Runtime secrets (for app config) should be managed in Azure Container Apps secrets or Key Vault.
+
+### `ios-pr-checks.yml` - iOS PR Quality Gates
+Triggers:
+- Pull requests targeting `main`, `develop` with iOS/workflow changes
+
+### `ios-main-checks.yml` - iOS Main Validation + Optional TestFlight
+Triggers:
+- Push to `main` with iOS/workflow changes
+- Manual dispatch
 
 ## Local Equivalents
 

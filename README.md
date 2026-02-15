@@ -8,7 +8,7 @@ The backend is the source of truth for auth, groups, expenses, settlements, shop
 - `backend/`: FastAPI app, SQLAlchemy models, Alembic migrations, tests.
 - `ios/`: SwiftUI app (`ClearSplitCore`) with MVVM, API client, and Keychain token storage.
 - `docs/`: project documentation index, architecture notes, dependency map, and implementation references.
-- `.github/workflows/`: CI, security scanning, Docker build, staging deploy template.
+- `.github/workflows/`: CI, security scanning, Docker build, and Azure Container Apps staging deploy.
 - `scripts/`: local helper scripts for security checks and S3 smoke testing.
 
 ## Core Capabilities
@@ -33,6 +33,7 @@ Set at least:
 - `JWT_SECRET`
 - `S3_BUCKET_NAME`
 - `AWS_REGION`
+- `CORS_ORIGINS`
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 
@@ -56,7 +57,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 Health check:
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/health/live
+curl http://127.0.0.1:8000/health/ready
 ```
 
 ### 4. Run iOS app
@@ -122,6 +124,7 @@ cd ios/ClearSplit
 Pipeline architecture (GitHub Actions):
 - Stage 1 (PR): lint (`ruff` fatal rules), migration validation, non-e2e tests with coverage and JUnit artifacts.
 - Stage 2 (main): full backend suite (includes `e2e` smoke), then Docker archive build validation.
+- Stage 3 (staging deploy): OIDC-based Azure Container Apps deployment workflow with migration job + health verification.
 
 Why these stages exist:
 - PR checks stay fast and focused on actionable failures.
