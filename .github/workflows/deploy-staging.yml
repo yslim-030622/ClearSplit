@@ -279,70 +279,9 @@ jobs:
             return 1
           }
 
-          DUPLICATE_CHECK_CODE=$(cat <<'PY'
-          import asyncio
-          import os
-          import asyncpg
-
-          EMAIL_DUP_SQL = """
-          SELECT COUNT(*)::int
-          FROM (
-              SELECT lower(email)
-              FROM users
-              GROUP BY lower(email)
-              HAVING COUNT(*) > 1
-          ) duplicates;
-          """
-
-          USERNAME_DUP_SQL = """
-          SELECT COUNT(*)::int
-          FROM (
-              SELECT lower(username)
-              FROM users
-              GROUP BY lower(username)
-              HAVING COUNT(*) > 1
-          ) duplicates;
-          """
-
-          async def main() -> None:
-              dsn = os.getenv("DATABASE_URL", "").strip()
-              if not dsn:
-                  raise SystemExit("DATABASE_URL is not configured in migration job env")
-              if dsn.startswith("postgresql+asyncpg://"):
-                  dsn = "postgresql://" + dsn.split("://", 1)[1]
-              if not dsn.startswith(("postgresql://", "postgres://")):
-                  raise SystemExit(
-                      "DATABASE_URL must use postgresql:// or postgresql+asyncpg:// for precheck"
-                  )
-
-              conn = await asyncpg.connect(dsn)
-              try:
-                  users_exists = await conn.fetchval(
-                      "SELECT to_regclass('public.users') IS NOT NULL;"
-                  )
-                  if not users_exists:
-                      print("users table not found; skipping duplicate precheck")
-                      return
-
-                  duplicate_emails = await conn.fetchval(EMAIL_DUP_SQL)
-                  duplicate_usernames = await conn.fetchval(USERNAME_DUP_SQL)
-              finally:
-                  await conn.close()
-
-              if duplicate_emails or duplicate_usernames:
-                  raise SystemExit(
-                      "Duplicate normalized identities detected before migration "
-                      f"(email={duplicate_emails}, username={duplicate_usernames})."
-                  )
-
-              print("Duplicate identity precheck passed")
-
-          asyncio.run(main())
-          PY
-          )
-
-          run_job_and_wait python "-c" "$DUPLICATE_CHECK_CODE"
-          run_job_and_wait python "-m" "alembic" "upgrade" "head"
+          # Keep job args free of leading-dash tokens to avoid Azure CLI parsing issues.
+          run_job_and_wait python "app/scripts/migration_precheck.py"
+          run_job_and_wait alembic "upgrade" "head"
 
   deploy:
     name: Deploy Container App
