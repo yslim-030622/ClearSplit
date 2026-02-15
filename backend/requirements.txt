@@ -16,3 +16,7 @@ greenlet>=3.0.0
 boto3>=1.34.0
 pytesseract==0.3.10
 Pillow>=12.1.1
+
+# Explicitly pin packaging libs to patched versions (Trivy gate).
+jaraco.context>=6.1.0
+wheel>=0.46.2
