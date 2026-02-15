@@ -1,8 +1,8 @@
 """Tests for shopping endpoints."""
 
 import io
-import uuid
-from datetime import date
+from datetime import date, datetime, timezone
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.jwt import create_access_token
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
+from app.models.shopping_session import ShoppingSession, ShoppingSessionStatus
 from app.tests.conftest import create_test_user
 
 
@@ -1040,6 +1041,127 @@ async def test_finalize_shopping_session(client: AsyncClient, session: AsyncSess
     assert finalize_response.status_code == 200, finalize_response.text
     assert finalize_response.json()["status"] == "finalized"
     assert finalize_response.json()["finalized_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_reactivating_session_clears_timestamps(
+    client: AsyncClient, session: AsyncSession
+):
+    """Manual ACTIVE status transition clears stale settlement/finalization timestamps."""
+    user = create_test_user(email="reactivate@example.com", username="reactivate")
+    session.add(user)
+    await session.flush()
+
+    group = Group(name="Reactivation Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership = Membership(group_id=group.id, user_id=user.id, role=MembershipRole.OWNER)
+    session.add(membership)
+    await session.flush()
+
+    token = create_access_token(user.id, user.email)
+    create_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Reactivation Target", "paid_by": str(membership.id)},
+    )
+    session_id = create_response.json()["id"]
+
+    finalized = await client.post(
+        f"/shopping-sessions/{session_id}/finalize",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert finalized.status_code == 200, finalized.text
+    assert finalized.json()["status"] == "finalized"
+    assert finalized.json()["finalized_at"] is not None
+
+    reactivated = await client.patch(
+        f"/shopping-sessions/{session_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"status": "active"},
+    )
+    assert reactivated.status_code == 200, reactivated.text
+    assert reactivated.json()["status"] == "active"
+    assert reactivated.json()["settled_at"] is None
+    assert reactivated.json()["finalized_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_item_update_reopens_settled_session_and_clears_timestamps(
+    client: AsyncClient, session: AsyncSession
+):
+    """Editing items should reopen settled sessions and clear stale timestamps."""
+    user = create_test_user(email="settled-item-edit@example.com", username="settleditem")
+    session.add(user)
+    await session.flush()
+
+    group = Group(name="Settled Reopen Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership = Membership(group_id=group.id, user_id=user.id, role=MembershipRole.OWNER)
+    session.add(membership)
+    await session.flush()
+
+    token = create_access_token(user.id, user.email)
+    create_response = await client.post(
+        f"/groups/{group.id}/shopping-sessions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Settled Session", "paid_by": str(membership.id)},
+    )
+    session_id = create_response.json()["id"]
+
+    participants_response = await client.put(
+        f"/shopping-sessions/{session_id}/participants",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"participant_membership_ids": [str(membership.id)]},
+    )
+    assert participants_response.status_code == 200, participants_response.text
+
+    item_response = await client.post(
+        f"/shopping-sessions/{session_id}/items",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Milk", "total_cents": 399},
+    )
+    assert item_response.status_code == 201, item_response.text
+    item_id = item_response.json()["id"]
+
+    finalized = await client.post(
+        f"/shopping-sessions/{session_id}/finalize",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert finalized.status_code == 200, finalized.text
+    assert finalized.json()["finalized_at"] is not None
+
+    shopping_session = await session.get(ShoppingSession, UUID(session_id))
+    assert shopping_session is not None
+    now = datetime.now(tz=timezone.utc)
+    shopping_session.status = ShoppingSessionStatus.SETTLED
+    shopping_session.settled_at = now
+    if shopping_session.finalized_at is None:
+        shopping_session.finalized_at = now
+    await session.commit()
+
+    updated_item = await client.patch(
+        f"/items/{item_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Milk Updated",
+            "quantity": 1,
+            "total_cents": 450,
+        },
+    )
+    assert updated_item.status_code == 200, updated_item.text
+
+    refreshed = await client.get(
+        f"/shopping-sessions/{session_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["status"] == "active"
+    assert refreshed.json()["settled_at"] is None
+    assert refreshed.json()["finalized_at"] is None
 
 
 @pytest.mark.asyncio

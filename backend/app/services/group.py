@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.group import Group
 from app.models.membership import Membership, MembershipRole
-from app.models.user import User
 
 
 async def get_user_membership(

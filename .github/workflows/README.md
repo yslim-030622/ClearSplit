@@ -11,10 +11,10 @@ Triggers:
 - Manual dispatch
 
 Jobs:
-- `Backend Lint` (PR + main): `ruff` fatal checks (`E9,F63,F7,F82`)
+- `Backend Lint` (PR + main): full `ruff check app app/tests`
 - `Backend Migrations` (PR + main): `alembic upgrade -> downgrade base -> upgrade`
-- `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + coverage + junit
-- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e`
+- `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + junit + coverage (fail-under 78%)
+- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e` + coverage (fail-under 80%)
 - `Backend Archive Build (Main)` (main only): Docker archive build verification
 
 Artifacts:
@@ -84,4 +84,3 @@ For backend PR protection:
 For `main` push confidence:
 - `Backend Tests (Main Full Suite)`
 - `Backend Archive Build (Main)`
-
