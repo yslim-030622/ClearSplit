@@ -18,7 +18,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.13"
   MIN_COVERAGE_PR: "78"
   MIN_COVERAGE_MAIN: "80"
   ENV: test
@@ -46,7 +45,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: backend/.python-version
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
@@ -54,6 +53,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Print runtime context
+        run: |
+          python --version
+          pip --version
+          pytest --version
 
       - name: Run lint gate (full Ruff checks)
         run: |
@@ -86,7 +91,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: backend/.python-version
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
@@ -94,6 +99,39 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Print runtime context
+        run: |
+          python --version
+          pip --version
+          pytest --version
+
+      - name: Wait for Postgres readiness
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+          import time
+          import asyncpg
+
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1)
+          deadline = time.time() + 60
+
+          async def wait_for_db() -> None:
+              while True:
+                  try:
+                      conn = await asyncpg.connect(dsn)
+                      await conn.close()
+                      print("Postgres is ready")
+                      return
+                  except Exception as exc:
+                      if time.time() >= deadline:
+                          raise SystemExit(f"Postgres did not become ready in time: {exc}")
+                      print(f"Waiting for Postgres: {exc}")
+                      await asyncio.sleep(2)
+
+          asyncio.run(wait_for_db())
+          PY
 
       - name: Validate migrations from clean DB
         run: |
@@ -130,7 +168,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: backend/.python-version
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
@@ -138,6 +176,39 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Print runtime context
+        run: |
+          python --version
+          pip --version
+          pytest --version
+
+      - name: Wait for Postgres readiness
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+          import time
+          import asyncpg
+
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1)
+          deadline = time.time() + 60
+
+          async def wait_for_db() -> None:
+              while True:
+                  try:
+                      conn = await asyncpg.connect(dsn)
+                      await conn.close()
+                      print("Postgres is ready")
+                      return
+                  except Exception as exc:
+                      if time.time() >= deadline:
+                          raise SystemExit(f"Postgres did not become ready in time: {exc}")
+                      print(f"Waiting for Postgres: {exc}")
+                      await asyncio.sleep(2)
+
+          asyncio.run(wait_for_db())
+          PY
 
       - name: Run migrations
         run: |
@@ -195,7 +266,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version-file: backend/.python-version
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
@@ -203,6 +274,39 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+
+      - name: Print runtime context
+        run: |
+          python --version
+          pip --version
+          pytest --version
+
+      - name: Wait for Postgres readiness
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+          import time
+          import asyncpg
+
+          dsn = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://", 1)
+          deadline = time.time() + 60
+
+          async def wait_for_db() -> None:
+              while True:
+                  try:
+                      conn = await asyncpg.connect(dsn)
+                      await conn.close()
+                      print("Postgres is ready")
+                      return
+                  except Exception as exc:
+                      if time.time() >= deadline:
+                          raise SystemExit(f"Postgres did not become ready in time: {exc}")
+                      print(f"Waiting for Postgres: {exc}")
+                      await asyncio.sleep(2)
+
+          asyncio.run(wait_for_db())
+          PY
 
       - name: Run migrations
         run: |
