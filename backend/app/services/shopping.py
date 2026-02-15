@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 import warnings
 from datetime import date, datetime, timezone
 from io import BytesIO
-from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 import boto3
-from dotenv import load_dotenv
 from fastapi import HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select
@@ -172,13 +171,6 @@ async def can_manage_item(
 # Storage abstraction (S3)
 # ============================================================================
 
-# Load .env file to make AWS credentials available to boto3
-# This ensures AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from .env are in environment
-env_path = Path(__file__).parent.parent.parent / ".env"
-if env_path.exists():
-    load_dotenv(env_path)
-
-
 class ReceiptStorage:
     """S3 storage for receipt images."""
 
@@ -187,7 +179,13 @@ class ReceiptStorage:
         self.settings = get_settings()
         # Pillow checks this global while decoding image headers.
         Image.MAX_IMAGE_PIXELS = self.settings.max_receipt_pixels
-        self.s3_client = boto3.client("s3", region_name=self.settings.aws_region)
+        client_kwargs: dict[str, str] = {"region_name": self.settings.aws_region}
+        aws_access_key_id = self.settings.get_aws_access_key_id()
+        aws_secret_access_key = self.settings.get_aws_secret_access_key()
+        if aws_access_key_id and aws_secret_access_key:
+            client_kwargs["aws_access_key_id"] = aws_access_key_id
+            client_kwargs["aws_secret_access_key"] = aws_secret_access_key
+        self.s3_client = boto3.client("s3", **client_kwargs)
         self._allowed_formats: dict[str, tuple[str, str]] = {
             "JPEG": (".jpg", "image/jpeg"),
             "PNG": (".png", "image/png"),
@@ -248,7 +246,8 @@ class ReceiptStorage:
 
         # Upload to S3
         try:
-            self.s3_client.put_object(
+            await asyncio.to_thread(
+                self.s3_client.put_object,
                 Bucket=self.settings.s3_bucket_name,
                 Key=storage_key,
                 Body=content,
@@ -317,10 +316,11 @@ class ReceiptStorage:
                 detail="Failed to generate download URL",
             )
 
-    def delete_receipt(self, storage_key: str) -> None:
+    async def delete_receipt(self, storage_key: str) -> None:
         """Delete a receipt object from S3."""
         try:
-            self.s3_client.delete_object(
+            await asyncio.to_thread(
+                self.s3_client.delete_object,
                 Bucket=self.settings.s3_bucket_name,
                 Key=storage_key,
             )
@@ -714,7 +714,7 @@ async def delete_receipt_upload(
         )
 
     # Delete from S3 first
-    receipt_storage.delete_receipt(receipt.storage_key)
+    await receipt_storage.delete_receipt(receipt.storage_key)
 
     # Delete DB record
     await db.delete(receipt)
@@ -740,7 +740,6 @@ async def extract_items_from_receipt_upload(
     Raises:
         HTTPException: If extraction fails
     """
-    import asyncio
     import logging
     
     from fastapi import HTTPException, status as http_status

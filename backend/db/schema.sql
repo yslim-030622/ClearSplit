@@ -2,23 +2,20 @@
 -- ClearSplit PostgreSQL schema for MVP1
 -- Money stored as BIGINT cents; all timestamps are UTC (timestamptz).
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS citext;
-
 -- Enums
 CREATE TYPE membership_role AS ENUM ('owner', 'member', 'viewer');
 CREATE TYPE settlement_status AS ENUM ('suggested', 'paid', 'voided');
 
 CREATE TABLE users (
-    id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email         citext NOT NULL UNIQUE,
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    email         text NOT NULL UNIQUE,
     password_hash text   NOT NULL,
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE groups (
-    id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text   NOT NULL,
     currency   char(3) NOT NULL DEFAULT 'USD',
     version    integer NOT NULL DEFAULT 1,
@@ -27,7 +24,7 @@ CREATE TABLE groups (
 );
 
 CREATE TABLE memberships (
-    id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id   uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role       membership_role NOT NULL,
@@ -37,7 +34,7 @@ CREATE TABLE memberships (
 );
 
 CREATE TABLE expenses (
-    id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id      uuid NOT NULL,
     title         text   NOT NULL,
     amount_cents  bigint NOT NULL CHECK (amount_cents > 0),
@@ -55,7 +52,7 @@ CREATE TABLE expenses (
 );
 
 CREATE TABLE expense_splits (
-    id             uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     expense_id     uuid NOT NULL,
     group_id       uuid NOT NULL,
     membership_id  uuid NOT NULL,
@@ -68,7 +65,7 @@ CREATE TABLE expense_splits (
 );
 
 CREATE TABLE settlement_batches (
-    id                 uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id           uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     status             settlement_status NOT NULL DEFAULT 'suggested',
     total_settlements  integer NOT NULL DEFAULT 0,
@@ -80,7 +77,7 @@ CREATE TABLE settlement_batches (
 );
 
 CREATE TABLE settlements (
-    id               uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     batch_id         uuid NOT NULL,
     group_id         uuid NOT NULL,
     from_membership  uuid NOT NULL,
@@ -98,7 +95,7 @@ CREATE TABLE settlements (
 );
 
 CREATE TABLE activity_log (
-    id               uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id         uuid REFERENCES groups(id) ON DELETE CASCADE,
     actor_membership uuid REFERENCES memberships(id) ON DELETE SET NULL,
     event_type       text NOT NULL,
@@ -108,7 +105,7 @@ CREATE TABLE activity_log (
 );
 
 CREATE TABLE idempotency_keys (
-    id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     endpoint      text NOT NULL,
     user_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     request_hash  text NOT NULL,
@@ -197,15 +194,15 @@ INSERT INTO expenses (id, group_id, title, amount_cents, currency, paid_by, expe
     ('30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Hotel', 30000, 'USD', '20000000-0000-0000-0000-000000000002', '2024-01-02');
 
 INSERT INTO expense_splits (id, expense_id, group_id, membership_id, share_cents) VALUES
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 4000),
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 4000),
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', 4000),
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 10000),
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 10000),
-    (uuid_generate_v4(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', 10000);
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 4000),
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 4000),
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', 4000),
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 10000),
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', 10000),
+    (gen_random_uuid(), '30000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000003', 10000);
 
 INSERT INTO settlement_batches (id, group_id, status, total_settlements) VALUES
     ('40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'suggested', 1);
 
 INSERT INTO settlements (id, batch_id, group_id, from_membership, to_membership, amount_cents, status) VALUES
-    (uuid_generate_v4(), '40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 9000, 'suggested');
+    (gen_random_uuid(), '40000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000001', 9000, 'suggested');

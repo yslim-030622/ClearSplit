@@ -22,7 +22,7 @@ docker-compose up -d db
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 alembic upgrade head
 ```
 
@@ -75,20 +75,56 @@ swift test
 
 | Workflow | What It Does |
 | --- | --- |
-| `ci.yml` | Main pipeline: backend lint/type/test/migrations + iOS build/test + summary. |
-| `backend-ci.yml` | Focused backend test workflow for `main` PR/push. |
-| `ios-ci.yml` | Focused SwiftPM iOS test workflow. |
-| `security-scan.yml` | Secret scan, dependency scan, code security scan, summary. |
-| `docker.yml` | Build/push backend image to GHCR and run image scan. |
-| `deploy-staging.yml` | Staging deployment template with placeholder health-check/rollback notifications. |
+| `ci.yml` | Backend lint, migration reversibility, PR/main test gates, and archive build on main. |
+| `docker.yml` | Builds and pushes backend image to GHCR with Trivy scan. |
+| `security-scan.yml` | Secret scan, dependency scan, and static security scan. |
+| `deploy-staging.yml` | OIDC-based staging deployment to Azure Container Apps (runs after successful backend CI on `main`; ACR build/push, migration job, deploy, health verification, rollback-on-failure). |
+| `ios-pr-checks.yml` | iOS PR lint/build/unit-test checks. |
+| `ios-main-checks.yml` | iOS main-branch full validation and optional TestFlight flow. |
+
+## Staging Deployment (Azure Container Apps + OIDC)
+
+### Required GitHub Variables
+
+Set these as repository variables or `staging` environment variables:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `ACR_LOGIN_SERVER`
+- `ACA_APP_NAME`
+- `ACA_MIGRATION_JOB`
+
+### Required Azure Configuration
+
+- GitHub federated credential for the deployment app registration.
+- Deployment principal roles:
+  - `AcrPush` on ACR.
+  - `Container Apps Contributor` on the staging resource group.
+- Container App runtime secrets configured in ACA or Key Vault:
+  - `DATABASE_URL`
+  - `JWT_SECRET`
+  - `S3_BUCKET_NAME`
+  - Optional static AWS keys only when not using identity-based auth.
+
+### Deployment Flow
+
+1. Build backend image and push to ACR.
+2. Update and execute ACA migration job.
+3. Update staging Container App image to new tag.
+4. Verify `GET /health/live` and `GET /health/ready` return HTTP 200.
+5. If health verification fails, roll back to the previously deployed image and fail the workflow.
 
 ## Runtime Dependencies Checklist
 
 Before running end-to-end shopping and receipt flows, verify:
 
 - PostgreSQL is reachable via `DATABASE_URL`
+- `DATABASE_URL` includes TLS settings for managed PostgreSQL environments
 - JWT settings are configured
-- S3 bucket and AWS credentials are valid
+- S3 bucket and credentials/identity are valid
 - Tesseract is available (for OCR paths)
 
 ## Operational Advice

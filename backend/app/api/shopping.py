@@ -325,7 +325,7 @@ async def delete_shopping_session(
     # Delete receipts from S3 and DB
     for receipt in shopping_session.receipts:
         try:
-            receipt_storage.delete_receipt(receipt.storage_key)
+            await receipt_storage.delete_receipt(receipt.storage_key)
         except Exception as e:
             # Log but don't fail - orphaned S3 objects can be cleaned up later
             logger.warning("Failed deleting receipt key=%s from storage: %s", receipt.storage_key, e)
