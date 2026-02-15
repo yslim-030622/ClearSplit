@@ -6,14 +6,17 @@ final class FriendsViewModel: ObservableObject {
     @Published var friends: [Friendship] = []
     @Published var incomingRequests: [Friendship] = []
     @Published var outgoingRequests: [Friendship] = []
+    @Published private(set) var groupsInCommonByUserId: [UUID: Int] = [:]
     @Published var isLoading = false
     @Published var isSubmittingRequest = false
     @Published var errorMessage: String?
 
     private let appState: AppState
+    private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
         self.appState = appState
+        observeGroupMembershipUpdates()
     }
 
     func load() async {
@@ -119,6 +122,71 @@ final class FriendsViewModel: ObservableObject {
         }
         incomingRequests = incomingList.sorted { $0.createdAt > $1.createdAt }
         outgoingRequests = outgoingList.sorted { $0.createdAt > $1.createdAt }
+        recomputeGroupsInCommon()
+        await loadGroupMembershipsForCommonCounts()
+        recomputeGroupsInCommon()
+    }
+
+    private func observeGroupMembershipUpdates() {
+        Publishers.CombineLatest(appState.$groups, appState.$membershipsByGroupId)
+            .sink { [weak self] _, _ in
+                self?.recomputeGroupsInCommon()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func loadGroupMembershipsForCommonCounts() async {
+        guard !friends.isEmpty else {
+            groupsInCommonByUserId = [:]
+            return
+        }
+
+        do {
+            try await appState.loadGroups()
+        } catch where isCancellationError(error) {
+            return
+        } catch {
+            return
+        }
+
+        for group in appState.groups where appState.membershipsByGroupId[group.id] == nil {
+            do {
+                try await appState.loadMembers(groupId: group.id)
+            } catch where isCancellationError(error) {
+                return
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private func recomputeGroupsInCommon() {
+        let friendUserIds = Set(friends.map(\.friend.id))
+        groupsInCommonByUserId = Self.computeGroupsInCommon(
+            friendUserIds: friendUserIds,
+            groups: appState.groups,
+            membershipsByGroupId: appState.membershipsByGroupId
+        )
+    }
+
+    nonisolated static func computeGroupsInCommon(
+        friendUserIds: Set<UUID>,
+        groups: [Group],
+        membershipsByGroupId: [UUID: [Membership]]
+    ) -> [UUID: Int] {
+        guard !friendUserIds.isEmpty else { return [:] }
+
+        var counts = Dictionary(uniqueKeysWithValues: friendUserIds.map { ($0, 0) })
+
+        for group in groups {
+            guard let memberships = membershipsByGroupId[group.id] else { continue }
+            let memberUserIds = Set(memberships.map(\.userId))
+            for friendUserId in friendUserIds where memberUserIds.contains(friendUserId) {
+                counts[friendUserId, default: 0] += 1
+            }
+        }
+
+        return counts
     }
 
     private func readableErrorMessage(from error: Error, fallback: String) -> String {

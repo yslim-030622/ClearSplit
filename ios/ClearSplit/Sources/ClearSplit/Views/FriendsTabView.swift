@@ -10,7 +10,7 @@ struct FriendsTabView: View {
     @State private var showAddFriend = false
     @State private var inputType: FriendInputType = .email
     @State private var newFriendInput = ""
-    @State private var selectedFriend: Friend?
+    @State private var selectedFriendID: UUID?
 
     init(appState: AppState) {
         _viewModel = StateObject(wrappedValue: FriendsViewModel(appState: appState))
@@ -21,7 +21,12 @@ struct FriendsTabView: View {
     }
 
     private var allFriends: [Friend] {
-        viewModel.friends.map(Friend.init(friendship:))
+        viewModel.friends.map { friendship in
+            Friend(
+                friendship: friendship,
+                groupsInCommon: viewModel.groupsInCommonByUserId[friendship.friend.id]
+            )
+        }
     }
 
     private var filteredFriends: [Friend] {
@@ -32,6 +37,11 @@ struct FriendsTabView: View {
             friend.name.localizedCaseInsensitiveContains(trimmed) ||
                 friend.handle.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    private var selectedFriend: Friend? {
+        guard let selectedFriendID else { return nil }
+        return allFriends.first(where: { $0.id == selectedFriendID })
     }
 
     var body: some View {
@@ -314,7 +324,7 @@ struct FriendsTabView: View {
                 VStack(spacing: 12) {
                     ForEach(filteredFriends) { friend in
                         Button(action: {
-                            selectedFriend = friend
+                            selectedFriendID = friend.id
                             triggerImpactFeedback()
                         }) {
                             FriendRow(friend: friend)
@@ -326,9 +336,16 @@ struct FriendsTabView: View {
         }
         .padding(20)
         .cardStyle()
-        .sheet(item: $selectedFriend) { friend in
-            FriendDetailSheet(friend: friend) { target in
-                removeFriend(target)
+        .sheet(
+            isPresented: Binding(
+                get: { selectedFriendID != nil },
+                set: { if !$0 { selectedFriendID = nil } }
+            )
+        ) {
+            if let friend = selectedFriend {
+                FriendDetailSheet(friend: friend) { target in
+                    removeFriend(target)
+                }
             }
         }
     }
@@ -486,7 +503,7 @@ struct FriendDetailSheet: View {
                         detailInfoRow(
                             icon: "person.2",
                             title: "Groups in Common",
-                            value: "\(friend.groupsInCommon ?? 0)"
+                            value: friend.groupsInCommon.map(String.init) ?? "Loading..."
                         )
                     }
 
@@ -678,14 +695,14 @@ struct Friend: Identifiable, Equatable {
     let joinedDate: String?
     let groupsInCommon: Int?
 
-    init(friendship: Friendship) {
+    init(friendship: Friendship, groupsInCommon: Int? = nil) {
         id = friendship.id
         userId = friendship.friend.id
         username = friendship.friend.username
         name = friendship.friend.displayName
         handle = friendship.friend.handle
         joinedDate = Self.monthYearFormatter.string(from: friendship.createdAt)
-        groupsInCommon = nil
+        self.groupsInCommon = groupsInCommon
     }
 }
 
