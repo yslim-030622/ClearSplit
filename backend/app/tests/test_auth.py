@@ -5,7 +5,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import create_access_token, decode_token
-from app.main import app
 from app.models.user import User
 from app.tests.conftest import create_test_user
 

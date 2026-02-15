@@ -6,10 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
 from app.auth.dependencies import get_current_user
 from app.db.session import get_session
+from app.models.shopping_session import ShoppingSessionStatus
 from app.models.user import User
 from app.schemas.shopping import (
     ParticipantSetRequest,
@@ -42,9 +41,18 @@ from app.services.shopping import (
     upload_receipt,
     verify_user_is_group_member,
 )
-from app.models.shopping_session import ShoppingSessionStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["shopping"])
+
+
+def _reopen_session_after_settlement(shopping_session) -> None:
+    """Return a settled/finalized session to active after financial changes."""
+
+    shopping_session.status = ShoppingSessionStatus.ACTIVE
+    shopping_session.settled_at = None
+    shopping_session.finalized_at = None
 
 
 # ============================================================================
@@ -231,8 +239,7 @@ async def update_shopping_session(
                 from datetime import datetime, timezone
                 shopping_session.finalized_at = datetime.now(tz=timezone.utc)
         if request.status == ShoppingSessionStatus.ACTIVE:
-            shopping_session.status = ShoppingSessionStatus.ACTIVE
-            shopping_session.settled_at = None
+            _reopen_session_after_settlement(shopping_session)
 
     await db.commit()
 
@@ -293,9 +300,7 @@ async def delete_shopping_session(
     Raises:
         HTTPException: If session not found or user not payer
     """
-    from app.services.shopping import delete_receipt_upload, receipt_storage
     from app.models.shopping_session_participant import ShoppingSessionParticipant
-    from app.models.shopping_item import ShoppingItem
     from app.models.shopping_item_split import ShoppingItemSplit
     from sqlalchemy import select
     
@@ -655,8 +660,7 @@ async def update_item(
         )
 
     if shopping_session.status == ShoppingSessionStatus.SETTLED:
-        shopping_session.status = ShoppingSessionStatus.ACTIVE
-        shopping_session.settled_at = None
+        _reopen_session_after_settlement(shopping_session)
     
     # If total_cents changed, delete existing splits (they're now invalid)
     if item.total_cents != request.total_cents:
@@ -730,8 +734,7 @@ async def delete_item(
         )
 
     if shopping_session.status == ShoppingSessionStatus.SETTLED:
-        shopping_session.status = ShoppingSessionStatus.ACTIVE
-        shopping_session.settled_at = None
+        _reopen_session_after_settlement(shopping_session)
     
     # Delete splits
     result = await db.execute(
@@ -863,7 +866,7 @@ async def extract_items_from_receipt_endpoint(
         )
     
     # Check if items already extracted (idempotency)
-    logger.info(f"[EXTRACT-ITEMS] Checking for existing extracted items")
+    logger.info("[EXTRACT-ITEMS] Checking for existing extracted items")
     result = await db.execute(
         select(ReceiptExtractedItem)
         .where(ReceiptExtractedItem.receipt_upload_id == receipt_upload_id)
@@ -877,7 +880,7 @@ async def extract_items_from_receipt_endpoint(
         return [ReceiptExtractedItemRead.model_validate(item) for item in existing_items]
     
     # Extract items (OCR + parsing + DB save)
-    logger.info(f"[EXTRACT-ITEMS] Starting new extraction")
+    logger.info("[EXTRACT-ITEMS] Starting new extraction")
     extracted_items = await extract_items_from_receipt_upload(db, receipt)
     
     logger.info(f"[EXTRACT-ITEMS] Committing {len(extracted_items)} items to database")

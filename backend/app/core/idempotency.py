@@ -1,9 +1,8 @@
 """Idempotency key handling utilities."""
 
-import json
 from uuid import UUID
 
-from fastapi import HTTPException, Request, status
+from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

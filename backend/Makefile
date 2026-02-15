@@ -1,6 +1,9 @@
-PYTHON ?= python3
-PIP ?= pip3
-PYTEST ?= pytest
+VENV_PYTHON := $(wildcard venv/bin/python)
+
+PYTHON ?= $(if $(VENV_PYTHON),$(VENV_PYTHON),python3)
+PIP ?= $(PYTHON) -m pip
+PYTEST ?= $(PYTHON) -m pytest
+RUFF ?= $(PYTHON) -m ruff
 
 install:
 	$(PIP) install -r requirements.txt
@@ -15,16 +18,16 @@ test:
 	$(PYTEST)
 
 lint-ci:
-	ruff check app app/tests --select=E9,F63,F7,F82
+	$(RUFF) check app app/tests
 
 migrate:
 	alembic upgrade head
 
 test-pr:
-	$(PYTEST) -m "not e2e" -v --durations=20
+	$(PYTEST) -m "not e2e" -v --durations=20 --cov=app --cov-report=term-missing --cov-fail-under=78
 
 test-all:
-	$(PYTEST) -v --durations=30
+	$(PYTEST) -v --durations=30 --cov=app --cov-report=term-missing --cov-fail-under=80
 
 ci-pr: lint-ci test-pr
 
