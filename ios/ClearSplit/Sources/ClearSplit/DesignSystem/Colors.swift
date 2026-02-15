@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - Design System Colors
 
 public extension Color {
+    // MARK: Palette
     static let blue600 = Color(hex: "2563EB")
     static let blue700 = Color(hex: "1D4ED8")
     static let blue500 = Color(hex: "3B82F6")
@@ -27,6 +28,35 @@ public extension Color {
     static let red600 = Color(hex: "DC2626")
     static let red50 = Color(hex: "FEF2F2")
     static let red300 = Color(hex: "FCA5A5")
+    static let amber600 = Color(hex: "D97706")
+    static let amber100 = Color(hex: "FEF3C7")
+    static let green500 = Color(hex: "10B981")
+    static let green100 = Color(hex: "D1FAE5")
+
+    // MARK: Semantic
+    static let brandPrimary = Color.blue600
+    static let brandPrimaryPressed = Color.blue700
+    static let brandSubtle = Color.blue50
+    static let brandSurface = Color.blue100
+
+    static let textPrimary = Color.gray900
+    static let textSecondary = Color.gray700
+    static let textTertiary = Color.gray500
+    static let textMuted = Color.gray400
+    static let textOnBrand = Color.white
+
+    static let success = Color.green600
+    static let successSurface = Color.green100
+    static let warning = Color.amber600
+    static let warningSurface = Color.amber100
+    static let danger = Color.red600
+    static let dangerSurface = Color.red50
+
+    static let interactiveDisabled = Color.gray300
+    static let overlayScrim = Color.black.opacity(0.45)
+
+    static let infoSurface = Color.blue100
+    static let infoBorder = Color.blue200
     
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

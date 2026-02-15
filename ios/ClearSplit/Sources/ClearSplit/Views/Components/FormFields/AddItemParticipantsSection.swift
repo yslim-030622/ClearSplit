@@ -6,40 +6,40 @@ struct AddItemParticipantsSection: View {
     var formErrors: [String: String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
             HStack(spacing: 4) {
                 Text("Who will share this item?")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
                 Text("*")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.red500)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.danger)
             }
 
             if let error = formErrors["participants"] {
                 Text(error)
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.red600)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.danger)
             } else {
                 Text("Select at least one person")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
 
             if participants.isEmpty {
                 Text("No participants available for this session.")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
                     .background(Color.cardInset)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm)
                             .stroke(Color.borderLight, lineWidth: 1)
                     )
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: ClearSplitTheme.Spacing.xs) {
                     ForEach(participants) { participant in
                         AddItemParticipantRow(
                             participant: participant,
@@ -56,13 +56,13 @@ struct AddItemParticipantsSection: View {
                 }
             }
         }
-        .padding(20)
+        .padding(ClearSplitTheme.Spacing.lg)
         .background(Color.sectionBackground)
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                 .stroke(formErrors["participants"] != nil ? Color.red300 : Color.borderMedium, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        .applyElevation(.low)
     }
 }

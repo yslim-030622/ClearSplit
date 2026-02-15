@@ -2,10 +2,10 @@ import SwiftUI
 
 struct ReceiptUploadTips: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
             Text("Tips for Best Results")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.bodyStrong)
+                .foregroundColor(.textPrimary)
 
             VStack(alignment: .leading, spacing: 8) {
                 TipRow(number: 1, text: "Use good lighting")
@@ -14,13 +14,13 @@ struct ReceiptUploadTips: View {
                 TipRow(number: 4, text: "Include the total amount at the bottom")
             }
         }
-        .padding(16)
+        .padding(ClearSplitTheme.Spacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.blue50)
-        .cornerRadius(12)
+        .background(Color.infoSurface)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.blue200, lineWidth: 1)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
+                .stroke(Color.infoBorder, lineWidth: 1)
         )
     }
 }
@@ -32,13 +32,13 @@ struct TipRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text("\(number).")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.blue600)
+                .font(ClearSplitTheme.Typography.subheadline.weight(.semibold))
+                .foregroundColor(.brandPrimary)
                 .frame(width: 20, alignment: .leading)
 
             Text(text)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(.gray700)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textSecondary)
 
             Spacer()
         }

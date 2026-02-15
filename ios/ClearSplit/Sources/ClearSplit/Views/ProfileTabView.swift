@@ -74,7 +74,7 @@ struct ProfileTabView: View {
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [.blue500, .blue700],
+                        colors: [.brandPrimary, .brandPrimaryPressed],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -82,34 +82,34 @@ struct ProfileTabView: View {
                 .frame(width: 96, height: 96)
                 .overlay(
                     Text(currentUser?.initials ?? "?")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(.white)
+                        .font(ClearSplitTheme.Typography.title)
+                        .foregroundColor(.textOnBrand)
                 )
 
             Text(currentUser?.displayName ?? "Unknown User")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.title)
+                .foregroundColor(.textPrimary)
 
             Text("Member since \(joinedDateText)")
-                .font(.system(size: 14))
-                .foregroundColor(.gray500)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textTertiary)
 
             Button(action: {
                 // Profile edit flow can be added here.
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 14))
+                        .font(.subheadline)
                     Text("Edit Profile")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
                 }
-                .foregroundColor(.blue600)
+                .foregroundColor(.brandPrimary)
                 .frame(maxWidth: 200)
                 .padding(.vertical, 10)
                 .background(Color.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.blue600, lineWidth: 1.5)
+                        .stroke(Color.brandPrimary, lineWidth: 1.5)
                 )
                 .cornerRadius(10)
             }
@@ -130,8 +130,8 @@ struct ProfileTabView: View {
     private var accountInfoCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Account Information")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
 
             ProfileInfoRow(
                 icon: "envelope.fill",
@@ -150,17 +150,17 @@ struct ProfileTabView: View {
             HStack(spacing: 12) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(.gray500)
+                    .foregroundColor(.textTertiary)
 
                 Text("Settings")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textPrimary)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(.gray400)
+                    .foregroundColor(.textMuted)
             }
             .padding(16)
             .cardStyle()
@@ -176,9 +176,9 @@ struct ProfileTabView: View {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .font(.system(size: 16))
                 Text("Log Out")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(ClearSplitTheme.Typography.bodyStrong)
             }
-            .foregroundColor(.red600)
+            .foregroundColor(.danger)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 14)
             .background(Color.cardBackground)
@@ -199,11 +199,11 @@ struct ProfileStatCard: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.title)
+                .foregroundColor(.textPrimary)
             Text(label)
-                .font(.system(size: 14))
-                .foregroundColor(.gray500)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textTertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
@@ -229,11 +229,11 @@ struct ProfileInfoRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(.system(size: 12))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
                 Text(value)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textPrimary)
             }
 
             Spacer()

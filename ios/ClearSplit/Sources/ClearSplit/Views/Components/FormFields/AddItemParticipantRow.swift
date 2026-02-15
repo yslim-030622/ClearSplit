@@ -7,7 +7,7 @@ struct AddItemParticipantRow: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 12) {
+            HStack(spacing: ClearSplitTheme.Spacing.sm) {
                 // Checkbox
                 ZStack {
                     RoundedRectangle(cornerRadius: 6)
@@ -15,7 +15,7 @@ struct AddItemParticipantRow: View {
                         .frame(width: 24, height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(isSelected ? Color.blue600 : Color.white)
+                                .fill(isSelected ? Color.brandPrimary : Color.cardBackground)
                         )
 
                     if isSelected {
@@ -32,23 +32,23 @@ struct AddItemParticipantRow: View {
                         .frame(width: 32, height: 32)
 
                     Text(displayInitial)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
+                        .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+                        .foregroundColor(.textOnBrand)
                 }
 
                 // Name
                 Text(displayName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.body)
+                    .foregroundColor(.textPrimary)
 
                 Spacer()
             }
             .frame(height: 56)
-            .padding(.horizontal, 12)
-            .background(isSelected ? Color.blue50 : Color.white)
-            .cornerRadius(12)
+            .padding(.horizontal, ClearSplitTheme.Spacing.sm)
+            .background(isSelected ? Color.brandSubtle : Color.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                     .stroke(isSelected ? Color.blue200 : Color.gray200, lineWidth: 1)
             )
         }
@@ -66,12 +66,12 @@ struct AddItemParticipantRow: View {
 
     private var avatarGradient: LinearGradient {
         let colors = [
-            [Color(hex: "60A5FA"), Color(hex: "2563EB")], // Blue
-            [Color(hex: "C084FC"), Color(hex: "9333EA")], // Purple
-            [Color(hex: "4ADE80"), Color(hex: "16A34A")], // Green
-            [Color(hex: "FB923C"), Color(hex: "EA580C")], // Orange
-            [Color(hex: "F472B6"), Color(hex: "DB2777")], // Pink
-            [Color(hex: "818CF8"), Color(hex: "4F46E5")]  // Indigo
+            [Color(hex: "60A5FA"), Color(hex: "2563EB")],
+            [Color(hex: "38BDF8"), Color(hex: "0284C7")],
+            [Color(hex: "4ADE80"), Color(hex: "16A34A")],
+            [Color(hex: "14B8A6"), Color(hex: "0F766E")],
+            [Color(hex: "818CF8"), Color(hex: "4F46E5")],
+            [Color(hex: "64748B"), Color(hex: "334155")]
         ]
 
         let hash = participant.membershipId.uuidString.hashValue

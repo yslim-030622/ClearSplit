@@ -6,9 +6,9 @@ struct CreateShoppingSessionView: View {
     @State private var isDatePickerExpanded = false
     @State private var showingError = false
     @FocusState private var isTitleFocused: Bool
-    private let clearsplitBlue = Color(red: 0.231, green: 0.510, blue: 0.965)
-    private let infoBlueBg = Color(red: 0.239, green: 0.596, blue: 0.953).opacity(0.1)
-    private let infoBlueText = Color(red: 0.153, green: 0.380, blue: 0.753)
+    private let clearsplitBlue = Color.brandPrimary
+    private let infoBlueBg = Color.infoSurface
+    private let infoBlueText = Color.blue800
     
     let onCreated: () -> Void
     
@@ -38,7 +38,7 @@ struct CreateShoppingSessionView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.gray50
+                Color.pageBackground
                 .ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
@@ -93,8 +93,8 @@ struct CreateShoppingSessionView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Trip Title")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.gray700)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textSecondary)
 
                 TextField("e.g., Weekly Groceries, Costco Run", text: $viewModel.title)
                     .textInputAutocapitalization(.words)
@@ -107,10 +107,10 @@ struct CreateShoppingSessionView: View {
                         }
                     }
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.gray900)
+                    .foregroundColor(.textPrimary)
                     .padding(.horizontal, 14)
                     .frame(height: 48)
-                    .background(Color(UIColor.systemGray6))
+                    .background(Color.cardInset)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(isTitleFocused ? clearsplitBlue : Color.clear, lineWidth: 2)
@@ -120,14 +120,14 @@ struct CreateShoppingSessionView: View {
                     .accessibilityHint("Enter a name for this shopping trip")
 
                 Text("Give this shopping trip a memorable name")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Date (Optional)")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.gray700)
+                    .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                    .foregroundColor(.textSecondary)
 
                 Button(action: {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
@@ -138,21 +138,21 @@ struct CreateShoppingSessionView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "calendar")
                             .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
 
                         Text(formattedDate)
                             .font(.system(size: 16, weight: .regular))
-                            .foregroundColor(.gray900)
+                            .foregroundColor(.textPrimary)
 
                         Spacer()
 
                         Image(systemName: isDatePickerExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray600)
+                            .foregroundColor(.textSecondary)
                     }
                     .padding(.horizontal, 14)
                     .frame(height: 48)
-                    .background(Color(UIColor.systemGray6))
+                    .background(Color.cardInset)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(isDatePickerExpanded ? clearsplitBlue : Color.clear, lineWidth: 2)
@@ -176,19 +176,19 @@ struct CreateShoppingSessionView: View {
                 }
 
                 Text("Defaults to today if not set")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.caption)
+                    .foregroundColor(.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
-        .background(Color.white)
+        .background(Color.cardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.gray200, lineWidth: 1)
+                .stroke(Color.borderMedium, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        .applyElevation(.low)
     }
 
     private var infoBox: some View {
@@ -198,7 +198,7 @@ struct CreateShoppingSessionView: View {
                 .foregroundColor(infoBlueText)
 
             Text("Next steps: After creating this session, you'll be able to add items, upload receipts, and set who shares each item.")
-                .font(.system(size: 13, weight: .regular))
+                .font(ClearSplitTheme.Typography.caption)
                 .foregroundColor(infoBlueText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -211,7 +211,7 @@ struct CreateShoppingSessionView: View {
     private var createButton: some View {
         VStack(spacing: 0) {
             LinearGradient(
-                colors: [Color.gray50.opacity(0), Color.gray50],
+                colors: [Color.pageBackground.opacity(0), Color.pageBackground],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -221,18 +221,18 @@ struct CreateShoppingSessionView: View {
                 HStack(spacing: 8) {
                     if viewModel.isCreating {
                         ProgressView()
-                            .tint(.white)
+                            .tint(.textOnBrand)
                     } else {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 16, weight: .medium))
                         Text("Create Session")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(ClearSplitTheme.Typography.bodyStrong)
                     }
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.textOnBrand)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(isFormValid ? clearsplitBlue : Color.gray400)
+                .background(isFormValid ? clearsplitBlue : Color.interactiveDisabled)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             }
             .disabled(!isFormValid || viewModel.isCreating)
@@ -241,7 +241,7 @@ struct CreateShoppingSessionView: View {
             .accessibilityHint("Create a new shopping session with the entered title and date")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(Color.gray50)
+            .background(Color.pageBackground)
         }
     }
 

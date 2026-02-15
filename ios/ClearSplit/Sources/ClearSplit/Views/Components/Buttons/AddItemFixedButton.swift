@@ -7,19 +7,16 @@ struct AddItemFixedButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: "plus")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(.white)
+                    .font(.title3.weight(.bold))
+                    .foregroundColor(.textOnBrand)
 
                 Text("Add Item")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.textOnBrand)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(Color.blue600)
-            .cornerRadius(26)
-            .shadow(color: Color.blue600.opacity(0.25), radius: 12, x: 0, y: 4)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(PrimaryActionButtonStyle())
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.pill))
     }
 }

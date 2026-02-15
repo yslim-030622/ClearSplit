@@ -173,13 +173,13 @@ struct ShoppingSessionDetailView: View {
                     VStack(spacing: 2) {
                         Text(session.title)
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.gray900)
+                            .foregroundColor(.textPrimary)
 
                         if let dateString = session.shoppingDate,
                            let date = parseDate(dateString) {
                             Text(formatDate(date))
                                 .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(.gray500)
+                                .foregroundColor(.textTertiary)
                         }
                     }
                 }
@@ -191,7 +191,7 @@ struct ShoppingSessionDetailView: View {
                         }) {
                             Image(systemName: "camera.fill")
                                 .font(.system(size: 20, weight: .semibold))
-                                .foregroundColor(.blue600)
+                                .foregroundColor(.brandPrimary)
                         }
                     }
                 }
@@ -235,17 +235,17 @@ struct ShoppingSessionDetailView: View {
                                 ProgressView()
                                 Text("Loading group members...")
                                     .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(.gray500)
+                                    .foregroundColor(.textTertiary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else if groupMembers.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "person.2")
                                     .font(.system(size: 28, weight: .regular))
-                                    .foregroundColor(.gray500)
+                                    .foregroundColor(.textTertiary)
                                 Text("No group members available.")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(.gray700)
+                                    .foregroundColor(.textSecondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
@@ -261,23 +261,23 @@ struct ShoppingSessionDetailView: View {
                                             HStack(spacing: 12) {
                                                 Text(displayName(for: membership))
                                                     .font(.system(size: 16, weight: .regular))
-                                                    .foregroundColor(.gray900)
+                                                    .foregroundColor(.textPrimary)
 
                                                 Spacer()
 
                                                 if membership.id == session.paidByMembershipId {
                                                     Text("Payer")
                                                         .font(.system(size: 12, weight: .medium))
-                                                        .foregroundColor(.blue700)
+                                                        .foregroundColor(.brandPrimaryPressed)
                                                         .padding(.horizontal, 8)
                                                         .padding(.vertical, 4)
-                                                        .background(Color.blue50)
+                                                        .background(Color.brandSubtle)
                                                         .clipShape(Capsule())
                                                 }
 
                                                 Image(systemName: participantDraft.contains(membership.id) ? "checkmark.circle.fill" : "circle")
                                                     .font(.system(size: 20, weight: .regular))
-                                                    .foregroundColor(participantDraft.contains(membership.id) ? .blue600 : .gray400)
+                                                    .foregroundColor(participantDraft.contains(membership.id) ? .brandPrimary : .textMuted)
                                             }
                                         }
                                         .buttonStyle(PlainButtonStyle())

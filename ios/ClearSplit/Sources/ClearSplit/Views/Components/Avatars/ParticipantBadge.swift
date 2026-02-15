@@ -6,12 +6,12 @@ struct ParticipantBadge: View {
 
     var body: some View {
         Text(displayName)
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.blue700)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(Color.blue50)
-            .cornerRadius(14)
+            .font(ClearSplitTheme.Typography.caption.weight(.semibold))
+            .foregroundColor(.brandPrimaryPressed)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.brandSubtle)
+            .clipShape(Capsule())
     }
 
     private var displayName: String {

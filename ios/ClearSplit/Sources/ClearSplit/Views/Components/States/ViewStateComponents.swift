@@ -10,32 +10,33 @@ struct LoadingView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: ClearSplitTheme.Spacing.sm) {
             ProgressView()
                 .progressViewStyle(.circular)
-                .tint(.blue600)
+                .tint(.brandPrimary)
                 .scaleEffect(1.1)
 
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.bodyStrong)
+                .foregroundColor(.textPrimary)
 
             if let message, !message.isEmpty {
                 Text(message)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.gray500)
+                    .font(ClearSplitTheme.Typography.subheadline)
+                    .foregroundColor(.textTertiary)
                     .multilineTextAlignment(.center)
             }
         }
-        .padding(.vertical, 24)
-        .padding(.horizontal, 20)
+        .padding(.vertical, ClearSplitTheme.Spacing.xl)
+        .padding(.horizontal, ClearSplitTheme.Spacing.lg)
         .frame(maxWidth: .infinity)
         .background(Color.cardBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                 .stroke(Color.borderMedium, lineWidth: 1)
         )
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+        .applyElevation(.low)
     }
 }
 
@@ -61,37 +62,38 @@ struct EmptyStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: ClearSplitTheme.Spacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 44, weight: .regular))
-                .foregroundColor(.gray400)
+                .foregroundColor(.textMuted)
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.title)
+                .foregroundColor(.textPrimary)
 
             Text(message)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundColor(.gray500)
+                .font(ClearSplitTheme.Typography.body)
+                .foregroundColor(.textTertiary)
                 .multilineTextAlignment(.center)
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue600)
+                    .padding(.top, ClearSplitTheme.Spacing.xs)
+                    .buttonStyle(PrimaryActionButtonStyle())
                     .accessibilityHint("Performs an action to continue from the empty state.")
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 24)
+        .padding(.horizontal, ClearSplitTheme.Spacing.lg)
+        .padding(.vertical, ClearSplitTheme.Spacing.xl)
         .background(Color.cardBackground)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                 .stroke(Color.borderMedium, lineWidth: 1)
         )
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
+        .applyElevation(.low)
     }
 }
 
@@ -114,36 +116,36 @@ struct ErrorStateView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: ClearSplitTheme.Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 28, weight: .regular))
-                .foregroundColor(.red600)
+                .foregroundColor(.danger)
                 .accessibilityHidden(true)
 
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.gray900)
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
 
             Text(message)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundColor(.gray500)
+                .font(ClearSplitTheme.Typography.subheadline)
+                .foregroundColor(.textTertiary)
                 .multilineTextAlignment(.center)
 
             Button(retryTitle, action: retry)
-                .buttonStyle(.borderedProminent)
-                .tint(.blue600)
+                .padding(.top, ClearSplitTheme.Spacing.xs)
+                .buttonStyle(PrimaryActionButtonStyle())
                 .accessibilityLabel("Retry")
                 .accessibilityHint("Retries loading data.")
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 20)
-        .background(Color.red50)
+        .padding(.horizontal, ClearSplitTheme.Spacing.lg)
+        .padding(.vertical, ClearSplitTheme.Spacing.lg)
+        .background(Color.dangerSurface)
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                 .stroke(Color.red300, lineWidth: 1)
         )
-        .cornerRadius(16)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
     }
 }
 
@@ -157,16 +159,16 @@ struct SectionCardView<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.gray900)
+                    .font(ClearSplitTheme.Typography.sectionTitle)
+                    .foregroundColor(.textPrimary)
             }
 
             content
         }
-        .padding(16)
+        .padding(ClearSplitTheme.Spacing.md)
         .cardStyle()
     }
 }
