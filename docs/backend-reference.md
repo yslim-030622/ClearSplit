@@ -151,9 +151,10 @@ Money representation:
 | `20250107_0002` | Shopping session, participant, receipt, item, item split tables. |
 | `20250110_0003` | Add `shopping_sessions.total_amount`. |
 | `20260127_0004` | Add `users.first_name` and `users.last_name`. |
-| `20260128_0005` | Add `users.username` (CITEXT + index). |
+| `20260128_0005` | Add `users.username` (text + unique index). |
 | `20260209_0006` | Add `receipt_extracted_items` table. |
 | `20260213_0007` | Add shopping session lifecycle status, item creator column, settlement payment persistence tables. |
+| `20260215_0012` | Remove `uuid-ossp`/`citext` dependency by migrating defaults/columns to built-in/text types. |
 
 Canonical schema source is Alembic versions, not `backend/db/schema.sql`.
 

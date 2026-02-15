@@ -10,6 +10,7 @@
 - ❌ No `.env` files with real secrets (except `.env.example` with placeholders)
 - ✅ Use `.env.local` for local development (gitignored)
 - ✅ Use GitHub Secrets for CI/CD
+- ✅ Use GitHub OIDC federation for Azure deployments (no long-lived Azure client secret)
 - ✅ Use platform secret managers (AWS Secrets Manager, etc.) for production
 
 ### Required Secrets
@@ -66,6 +67,12 @@ env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
 ```
 
+For Azure deployment authentication, use OIDC variables (not secrets):
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+
 ### Production Deployment
 
 1. **Never use default/example secrets in production**
@@ -108,7 +115,8 @@ If a secret is compromised or needs rotation:
 
 **ACT IMMEDIATELY:**
 
-1. **Rotate the secret** - The committed secret is now compromised
+1. **Rotate or disable the secret immediately** - The committed secret is now compromised
+   - For AWS access keys: deactivate or delete the IAM access key first, then create a replacement.
 2. **Remove from git history:**
    ```bash
    # Use git-filter-repo (recommended) or BFG Repo-Cleaner
@@ -153,7 +161,6 @@ Do NOT create public GitHub issues for security vulnerabilities.
 - [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
 - [GitHub Secret Scanning](https://docs.github.com/en/code-security/secret-scanning)
 - [12-Factor App: Config](https://12factor.net/config)
-
 
 
 
