@@ -17,6 +17,9 @@ concurrency:
   group: backend-ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   MIN_COVERAGE_PR: "78"
   MIN_COVERAGE_MAIN: "80"
@@ -35,6 +38,7 @@ jobs:
   backend-lint:
     name: Backend Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ./backend
@@ -67,6 +71,7 @@ jobs:
   backend-migrations:
     name: Backend Migrations
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: ./backend
@@ -144,6 +149,7 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: [backend-lint, backend-migrations]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: ./backend
@@ -227,6 +233,26 @@ jobs:
             --durations=20 \
             -v | tee artifacts/pytest.log
 
+      - name: Publish backend coverage summary
+        if: always()
+        run: |
+          if [[ ! -f artifacts/coverage.xml ]]; then
+            echo "### Backend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage report not found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("artifacts/coverage.xml").getroot()
+          line_rate = float(root.attrib.get("line-rate", 0.0)) * 100
+          branch_rate = float(root.attrib.get("branch-rate", 0.0)) * 100
+          print("### Backend Coverage")
+          print("")
+          print(f"- Line coverage: {line_rate:.2f}%")
+          print(f"- Branch coverage: {branch_rate:.2f}%")
+          PY
+
       - name: Upload PR test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -242,6 +268,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [backend-lint, backend-migrations]
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: ./backend
@@ -325,6 +352,26 @@ jobs:
             --durations=30 \
             -v | tee artifacts/pytest.log
 
+      - name: Publish backend coverage summary
+        if: always()
+        run: |
+          if [[ ! -f artifacts/coverage.xml ]]; then
+            echo "### Backend Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "Coverage report not found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("artifacts/coverage.xml").getroot()
+          line_rate = float(root.attrib.get("line-rate", 0.0)) * 100
+          branch_rate = float(root.attrib.get("branch-rate", 0.0)) * 100
+          print("### Backend Coverage")
+          print("")
+          print(f"- Line coverage: {line_rate:.2f}%")
+          print(f"- Branch coverage: {branch_rate:.2f}%")
+          PY
+
       - name: Upload main test artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -340,6 +387,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [backend-test-main]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

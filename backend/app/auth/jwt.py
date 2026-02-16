@@ -75,7 +75,10 @@ def decode_token(token: str, token_type: str = ACCESS_TOKEN_TYPE) -> dict:
     """Decode and validate a JWT token."""
     try:
         payload = jwt.decode(
-            token, settings.get_jwt_secret(), algorithms=[settings.jwt_algorithm]
+            token,
+            settings.get_jwt_secret(),
+            algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "sub", "type"]},
         )
     except InvalidTokenError as exc:
         raise JWTError("Invalid token") from exc
@@ -91,7 +94,10 @@ def get_user_id_from_token(token: str, token_type: str = ACCESS_TOKEN_TYPE) -> U
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise JWTError("Token missing subject")
-    return UUID(user_id_str)
+    try:
+        return UUID(user_id_str)
+    except (TypeError, ValueError) as exc:
+        raise JWTError("Token subject must be a valid UUID") from exc
 
 
 def get_refresh_token_identity(token: str) -> tuple[UUID, str]:
@@ -105,4 +111,8 @@ def get_refresh_token_identity(token: str) -> tuple[UUID, str]:
     if not token_jti or not isinstance(token_jti, str):
         raise JWTError("Token missing jti")
 
-    return UUID(user_id_str), token_jti
+    try:
+        user_id = UUID(user_id_str)
+    except (TypeError, ValueError) as exc:
+        raise JWTError("Token subject must be a valid UUID") from exc
+    return user_id, token_jti
