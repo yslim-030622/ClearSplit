@@ -1,33 +1,57 @@
 # Backend Reference
 
-## Stack
+## Service Summary
 
-- FastAPI application (`backend/app/main.py`)
-- SQLAlchemy async ORM + PostgreSQL
-- Alembic migrations
-- Pydantic schemas
-- JWT auth with bcrypt password hashing
-- S3-backed receipt storage and OCR extraction
+- Framework: FastAPI
+- Data: PostgreSQL with async SQLAlchemy
+- Migrations: Alembic
+- Auth: JWT access + rotating refresh tokens
+- Storage: S3-compatible object storage for receipt images
+- OCR: Tesseract via `pytesseract`
 
-## Layered Structure
+## Environment Variables
 
-| Layer | Path | Responsibility |
-| --- | --- | --- |
-| API | `backend/app/api/` | Route handlers, request/response models, auth dependencies. |
-| Services | `backend/app/services/` | Business rules and domain operations. |
-| Models | `backend/app/models/` | SQLAlchemy table mappings and relationships. |
-| Schemas | `backend/app/schemas/` | Input/output contract definitions. |
-| Auth | `backend/app/auth/` | JWT handling, password hashing, current-user dependency. |
-| Core | `backend/app/core/` | Settings and idempotency key utilities. |
-| DB | `backend/app/db/` | Base metadata and async session factory. |
+The backend loads settings from `.env`, `.env.local`, `../.env`, and `../.env.local`.
+
+Required:
+
+- `ENV` (`local`, `test`, `staging`, `production`)
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `S3_BUCKET_NAME`
+
+Common optional settings:
+
+- `JWT_ALGORITHM` (default `HS256`)
+- `ACCESS_TOKEN_EXPIRE_MINUTES` (default `15`)
+- `REFRESH_TOKEN_EXPIRE_DAYS` (default `30`)
+- `CORS_ORIGINS` (comma-separated)
+- `TRUST_PROXY_HEADERS` (default `false`)
+- `TRUSTED_PROXY_IPS` (comma-separated CIDRs/IPs)
+- `RATE_LIMIT_MAX_KEYS` (default `10000`)
+- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS`, `DB_CONNECT_TIMEOUT_SECONDS`
+- `AWS_REGION` (default `us-east-2`)
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- `S3_PRESIGNED_GET_EXPIRE_SECONDS` (default `900`)
+- `S3_PREFIX` (default `receipts`)
+- `MAX_RECEIPT_BYTES` (default `10485760`)
+- `MAX_RECEIPT_PIXELS` (default `25000000`)
+- `MAX_OCR_CONCURRENCY` (default `2`)
+
+### CORS behavior
+
+- `local`/`test`: local origins are allowed automatically, credentials disabled.
+- non-local: `CORS_ORIGINS` is mandatory and must be HTTPS origins only, credentials enabled.
 
 ## API Surface
 
+All endpoints are prefixed exactly as shown below.
+
 ### Health
 
+- `GET /health/live`
+- `GET /health/ready`
 - `GET /health`
-
-Checks API liveliness, DB query ability, and S3 configuration presence.
 
 ### Auth
 
@@ -36,11 +60,22 @@ Checks API liveliness, DB query ability, and S3 configuration presence.
 - `POST /auth/refresh`
 - `GET /auth/me`
 
-### Groups and Memberships
+### Friends
+
+- `POST /friends/requests`
+- `POST /friends/requests/{friendship_id}/accept`
+- `POST /friends/requests/{friendship_id}/decline`
+- `GET /friends`
+- `GET /friends/requests/incoming`
+- `GET /friends/requests/outgoing`
+- `DELETE /friends/{friendship_id}`
+
+### Groups and membership
 
 - `POST /groups`
 - `GET /groups`
 - `GET /groups/{group_id}`
+- `DELETE /groups/{group_id}`
 - `POST /groups/{group_id}/members/preview`
 - `POST /groups/{group_id}/members`
 - `GET /groups/{group_id}/members`
@@ -51,32 +86,17 @@ Checks API liveliness, DB query ability, and S3 configuration presence.
 - `GET /groups/{group_id}/expenses`
 - `GET /expenses/{expense_id}`
 
-Behavior:
-
-- equal split creation
-- deterministic remainder distribution
-- optional idempotency replay using stored response payload
-- settlement recomputation trigger after expense creation (committed in same unit-of-work)
-
-### Settlements
+### Balances and settlement
 
 - `GET /groups/{group_id}/balances`
 - `POST /groups/{group_id}/settlements/compute`
 - `GET /groups/{group_id}/settlements/latest`
-- `PATCH /settlements/{settlement_id}`
 - `POST /groups/{group_id}/settlement-payments`
 - `POST /settlement-payments/{payment_id}/confirm`
 - `GET /groups/{group_id}/settlement-payments`
+- `PATCH /settlements/{settlement_id}` (legacy compatibility path)
 
-Behavior:
-
-- balances aggregate expenses + shopping sessions (`active`/`finalized`) and exclude `settled` sessions
-- confirmed `settlement_payments` reduce future outstanding balances/suggestions
-- compute creates immutable suggestion snapshots (`settlement_batches` + `settlements`)
-- `PATCH /settlements/{id}` remains backward-compatible and now persists confirmed payment records
-- net-balance verification enforces zero-sum and raises explicit diagnostics when data is inconsistent
-
-### Shopping Sessions and Receipts
+### Shopping, receipts, OCR
 
 - `POST /groups/{group_id}/shopping-sessions`
 - `GET /groups/{group_id}/shopping-sessions`
@@ -88,93 +108,98 @@ Behavior:
 - `POST /shopping-sessions/{session_id}/receipt`
 - `GET /receipts/{receipt_upload_id}/download-url`
 - `DELETE /receipts/{receipt_upload_id}`
+- `POST /receipts/{receipt_upload_id}/extract-items`
+- `GET /receipts/{receipt_upload_id}/extracted-items`
 - `POST /shopping-sessions/{session_id}/items`
 - `PATCH /items/{item_id}`
 - `DELETE /items/{item_id}`
 - `PUT /items/{item_id}/sharers`
-- `POST /receipts/{receipt_upload_id}/extract-items`
-- `GET /receipts/{receipt_upload_id}/extracted-items`
 
-Key rules:
+## Authorization Rules
 
-- session lifecycle status: `active`, `finalized`, `settled`
-- payer-only for participants/finalize/receipts
-- any participant can add items
-- item creator, session payer, or group owner can edit/delete items and manage sharers
-- participants must remain compatible with existing item sharers
-- OCR extraction endpoint is idempotent if extracted rows already exist
+### Role model
 
-## Service Responsibilities
+- `owner`: full group control (member management, payer-level actions, owner overrides)
+- `member`: standard mutation rights based on endpoint-specific rules
+- `viewer`: read-only for financial and shopping mutations
 
-| Service | Core Responsibility |
-| --- | --- |
-| `group.py` | Membership checks, owner checks, group lookup/creation. |
-| `membership.py` | User lookup by identifier and membership creation/listing. |
-| `expense.py` | Equal split math, validation, expense creation/fetch, request hashing. |
-| `settlement.py` | Balance aggregation and transfer generation algorithm. |
-| `shopping.py` | Session/item/participant logic, S3 storage operations, sharer split generation. |
-| `ocr.py` | OCR text extraction and heuristic line parsing into extracted items. |
+### Important endpoint rules
 
-## Data Model Overview
+- Group deletion is owner-only.
+- Member preview/add is owner-only.
+- Expense creation requires non-viewer membership and `paid_by` must be caller membership.
+- Shopping session creation requires non-viewer membership and payer must be caller membership.
+- Participant updates/finalize/delete session are payer-only.
+- Item update/delete/sharer-set is restricted to item creator, session payer, or group owner.
+- Receipt upload is participant-only.
+- Receipt delete and OCR extraction are uploader-only.
+- Settlement payment creation is sender-or-owner.
+- Settlement payment confirmation is receiver-or-owner.
 
-Primary entities:
+## Idempotency
 
+Supported mutation endpoints inspect optional `Idempotency-Key` headers:
+
+- `POST /groups/{group_id}/expenses`
+- `POST /groups/{group_id}/settlements/compute`
+
+Behavior:
+- same key + same payload returns cached response
+- same key + different payload returns HTTP 409
+- key length is capped at 255 characters
+
+## Data Model (Primary Tables)
+
+Identity and auth:
 - `users`
+- `refresh_tokens`
+- `idempotency_keys`
+
+Groups and social graph:
 - `groups`
 - `memberships`
+- `friendships`
+
+Expenses and settlement:
 - `expenses`
 - `expense_splits`
 - `settlement_batches`
 - `settlements`
 - `settlement_payments`
 - `settlement_payment_sessions`
+
+Shopping and receipts:
 - `shopping_sessions`
 - `shopping_session_participants`
 - `shopping_items`
 - `shopping_item_splits`
 - `receipt_uploads`
 - `receipt_extracted_items`
-- `idempotency_keys`
-- `activity_log`
 
-Money representation:
+## Operations
 
-- expense and settlement paths use integer cents (`BigInteger`)
-- shopping items also use integer cents
-- shopping session has optional `total_amount` numeric field for convenience summary
+Install and run:
 
-## Migration Timeline
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements-dev.txt
+alembic upgrade head
+make run
+```
 
-| Revision | Purpose |
-| --- | --- |
-| `20241218_0001` | Core schema (users, groups, memberships, expenses, settlements, idempotency, activity). |
-| `20250107_0002` | Shopping session, participant, receipt, item, item split tables. |
-| `20250110_0003` | Add `shopping_sessions.total_amount`. |
-| `20260127_0004` | Add `users.first_name` and `users.last_name`. |
-| `20260128_0005` | Add `users.username` (text + unique index). |
-| `20260209_0006` | Add `receipt_extracted_items` table. |
-| `20260213_0007` | Add shopping session lifecycle status, item creator column, settlement payment persistence tables. |
-| `20260215_0012` | Remove `uuid-ossp`/`citext` dependency by migrating defaults/columns to built-in/text types. |
+Quality/test:
 
-Canonical schema source is Alembic versions, not `backend/db/schema.sql`.
+```bash
+make lint-ci
+make test
+make test-pr
+make test-all
+```
 
-## Testing Coverage
+## Notes for Integrators
 
-Backend tests cover:
-
-- auth endpoints and token handling
-- group and membership permissions
-- expense creation/splitting/idempotency
-- settlement computation and paid-status authorization
-- shopping session, receipt upload, sharers, OCR extraction flow
-- core model persistence behaviors
-
-Test locations:
-
-- `backend/app/tests/`
-
-## Operational Notes
-
-- `backend/Dockerfile` installs Tesseract system packages for OCR.
-- S3 credentials and bucket config are required for receipt flows.
-- Some helper scripts in `backend/` reflect earlier payload formats and should be validated before relying on them in production workflows.
+- Monetary values are integer cents in API payloads unless explicitly named as decimal totals in shopping session metadata.
+- Date parsing on client side should handle ISO timestamps with and without fractional seconds.
+- OpenAPI/Swagger routes are intentionally enabled only in `local` and `test` environments.

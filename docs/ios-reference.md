@@ -1,104 +1,109 @@
 # iOS Reference
 
-## Stack and Pattern
+## App Structure
 
-- SwiftUI UI layer
-- MVVM viewmodels
-- `AppState` as global orchestration/state container
-- Custom `APIClient` for HTTP + auth refresh logic
-- Keychain-based token storage
+The iOS client is implemented in SwiftUI and organized by feature slices.
 
-Primary active code location:
+Key folders under `ios/ClearSplit/Sources/ClearSplit`:
 
-- `ios/ClearSplit/Sources/ClearSplit/`
+- `State/`: shared app state (`AppState`)
+- `Networking/`: `APIClient` and domain service wrappers
+- `Models/`: Codable request/response and UI data models
+- `ViewModels/`: screen-level orchestration
+- `Views/`: feature screens and reusable UI components
+- `DesignSystem/`: tokens, colors, button/card styles
+- `Storage/`: token persistence (`KeychainService`)
 
-## App Composition
+## AppState Responsibilities
 
-### Entry and Root Flow
+`AppState` is the central coordinator for:
 
-- App entrypoint: `ios/ClearSplit/ClearSplit/ClearSplit/ClearSplitApp.swift`
-- Root router: `ios/ClearSplit/Sources/ClearSplit/RootView.swift`
+- session bootstrap and auth lifecycle
+- loading groups, members, expenses, balances, payments
+- shopping sessions, items, sharers, receipts, OCR extraction
+- mutating operations that keep local screen state in sync
 
-Root behavior:
+On startup:
+1. check stored tokens
+2. call `/auth/me`
+3. load groups
 
-1. If cached tokens exist, bootstrap with `/auth/me`.
-2. On success, show group list.
-3. On missing/invalid auth, show login.
+If `/auth/me` fails, local tokens are cleared and user is logged out.
 
-### Global State (`AppState`)
+## Networking Layer
 
-`ios/ClearSplit/Sources/ClearSplit/State/AppState.swift` coordinates:
+### APIConfig
 
-- auth session lifecycle
-- groups, memberships, expenses, settlements caches
-- live balances cache and settlement payment history cache
-- shopping sessions and receipt interactions
-- optimistic updates plus refresh calls after writes
+- default base URL: `http://127.0.0.1:8000`
+- override via Info.plist key: `API_BASE_URL`
+- real-device hint logic warns against loopback URLs on device
 
-`AppState` depends on:
+### APIClient behavior
 
-- `AuthService`
-- `GroupsService`
-- `ShoppingService`
-- shared `APIClient`
+- injects bearer token for authenticated requests
+- on `401`, refreshes tokens once and retries request
+- refresh flow is coordinated to avoid duplicate simultaneous refresh calls
+- uses snake_case conversion for request/response keys
+- date decoder accepts multiple ISO8601 variants used by backend responses
+- supports both JSON requests and multipart upload (receipt upload)
 
-### Networking Layer
+## Feature Coverage in UI
 
-| File | Role |
-| --- | --- |
-| `Networking/APIClient.swift` | Generic request builder, date decoding, auth header injection, refresh-on-401 retry, upload helper. |
-| `Networking/AuthService.swift` | login/signup/me/refresh endpoints. |
-| `Networking/GroupsService.swift` | groups list endpoint. |
-| `Networking/ShoppingService.swift` | shopping sessions, participants, receipt upload/download/extract, item/sharer endpoints. |
-| `Networking/SettlementService.swift` | live balances, payment create/confirm/history, legacy mark-paid endpoint. |
-| `Storage/KeychainService.swift` | token persistence under `com.clearsplit.auth`. |
-| `Config/APIConfig.swift` | base URL from `API_BASE_URL` Info.plist key or localhost fallback. |
+### Authentication
 
-### Domain Models
+- login screen uses username or email identifier
+- signup captures username, email, password, first/last name
 
-Main Codable model groups:
+### Group and members
 
-- `Models/AuthModels.swift`
-- `Models/GroupModels.swift`
-- `Models/ExpenseModels.swift`
-- `Models/SettlementModels.swift`
-- `Models/ShoppingModels.swift`
-- `Models/ExtractedItemModel.swift` (legacy/local receipt review structure)
+- groups tab lists current groups
+- create group flow
+- group detail loads members, balances, expenses, shopping sessions
+- member invite flow supports preview before add
 
-Models are shaped to backend snake_case payloads through explicit coding keys and `convertFromSnakeCase`.
+### Expenses and balances
 
-### Screen and ViewModel Responsibilities
+- create equal-split expenses
+- show live per-membership balances
+- generate and act on settlement suggestions
+- show settlement payment history
 
-| Feature | Views | ViewModels |
-| --- | --- | --- |
-| Auth | `Views/LoginView.swift`, `Views/SignUpView.swift` | `LoginViewModel`, `SignUpViewModel` |
-| Groups | `Views/GroupsListView.swift`, `Views/GroupDetailView.swift`, `Views/CreateGroupView.swift` | `GroupsViewModel` |
-| Balances & settlement | `Views/BalancesSettlementView.swift` | state-driven via `AppState` |
-| Shopping sessions | `Views/ShoppingSessionsListView.swift`, `Views/CreateShoppingSessionView.swift`, `Views/ShoppingSessionDetailView.swift` | `ShoppingSessionsViewModel`, `CreateShoppingSessionViewModel`, `ShoppingSessionDetailViewModel` |
-| Item creation | `Views/AddItemSheet.swift` + form components | `AddItemViewModel` |
-| Receipt upload/review | `Views/ReceiptUploadView.swift`, `Views/ExtractedItemsReviewView.swift`, `Views/ReceiptPreviewSheet.swift`, `Views/ReceiptReviewView.swift` | mixed state in views plus service-driven calls |
+### Shopping sessions
 
-### Component Library
+- create/list/open sessions
+- manage participants
+- add/edit/delete items
+- set per-item sharers
+- upload and delete receipt
+- trigger and review OCR extracted items
+- finalize session and reflect settlement status changes
 
-Reusable SwiftUI components are organized in:
+### Friends
 
-- `Views/Components/Avatars/`
-- `Views/Components/Buttons/`
-- `Views/Components/Cards/`
-- `Views/Components/FormFields/`
-- `Views/Components/Media/`
-- `Views/Components/Receipt/`
-- `DesignSystem/` for color/style primitives
+- send friend request by identifier or user ID
+- incoming/outgoing request lists
+- accept/decline/remove friendship
 
-### Tests
+## Build, Test, Lint Scripts
 
-- SwiftPM tests: `ios/ClearSplit/Tests/ClearSplitTests/`
-- Xcode test targets: `ios/ClearSplit/ClearSplit/ClearSplitTests/` and `.../ClearSplitUITests/`
+From `ios/ClearSplit`:
 
-Current automated iOS test depth is light compared to backend coverage.
+```bash
+./scripts/ios_build.sh
+./scripts/ios_test.sh unit
+./scripts/ios_test.sh ui
+./scripts/ios_test.sh all
+./scripts/ios_lint.sh
+./scripts/ios_archive.sh
+```
 
-### Repository Realities To Know
+Script behavior:
+- deterministic DerivedData/result bundle locations under `.build/`
+- simulator destination auto-resolution when not explicitly provided
+- code signing disabled for CI-oriented build/test/archive scripts
 
-- The active production UI code is in `Sources/ClearSplit`.
-- `ios/ClearSplit/ClearSplit/ClearSplit/ContentView.swift` is still template-style and not the primary app experience.
-- Placeholder directories (`Core/`, `Features/`, `Models/`, `Networking/` at `ios/ClearSplit/`) remain from earlier structure plans.
+## Local Runtime Notes
+
+- Simulator can use default loopback URL.
+- Real devices require LAN-reachable backend URL in `API_BASE_URL`.
+- If you see immediate network failures on device, verify both backend bind host and local firewall settings.

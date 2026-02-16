@@ -1,26 +1,20 @@
-# ClearSplit Documentation Index
+# Documentation Index
 
-## Primary Documentation
+This index points to the current, code-backed documentation for ClearSplit.
 
-- [README.md](./README.md): docs folder orientation.
-- [project-overview.md](./project-overview.md): architecture, responsibilities, and major flows.
-- [repository-map.md](./repository-map.md): full repository section map and curated tree.
-- [file-tree-full.md](./file-tree-full.md): source-oriented file tree snapshot.
-- [dependencies.md](./dependencies.md): dependency inventory and rationale.
-- [backend-reference.md](./backend-reference.md): backend routes, services, models, and migration timeline.
-- [ios-reference.md](./ios-reference.md): iOS app structure, state model, networking map, and screens.
-- [workflows-and-operations.md](./workflows-and-operations.md): local workflows, scripts, CI/CD, and deploy template.
+## Start Here
 
-## Supporting Material
+- `docs/project-overview.md`: product scope and current capabilities
+- `docs/repository-map.md`: where everything lives in the repository
+- `docs/architecture.md`: system design and core data/behavior flows
 
-- [architecture/db.md](./architecture/db.md)
-- [adr/0001-non-negotiables.md](./adr/0001-non-negotiables.md)
+## Engineering References
 
-## Legacy Topic Docs
+- `docs/backend-reference.md`: backend API, models, auth, permissions, env configuration
+- `docs/ios-reference.md`: iOS app architecture, networking behavior, and UI feature map
+- `docs/dependencies.md`: runtime and development dependencies
 
-These are preserved as historical references and may not reflect the latest implementation:
+## Operations
 
-- `backend-docs/`
-- `features/`
-- `guides/`
-- `security/`
+- `docs/workflows-and-operations.md`: local dev, tests, migrations, CI-friendly scripts
+- `SECURITY.md`: security model and operational guardrails
