@@ -208,6 +208,137 @@ async def test_idempotent_create_expense(client: AsyncClient, session: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_idempotency_with_different_keys_creates_distinct_expenses(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    """Same payload with different Idempotency-Key values should create new rows."""
+    user = create_test_user(email="user-distinct@example.com", username="testuserdistinct")
+    session.add(user)
+    await session.commit()
+
+    group = Group(name="Distinct Key Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership = Membership(
+        group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
+    )
+    session.add(membership)
+    await session.commit()
+
+    access_token = create_access_token(user.id, user.email)
+    key_one = str(uuid.uuid4())
+    key_two = str(uuid.uuid4())
+
+    payload = {
+        "title": "Repeated Dinner",
+        "amount_cents": 2100,
+        "currency": "USD",
+        "paid_by": str(membership.id),
+        "expense_date": str(date.today()),
+        "split_among": [str(membership.id)],
+    }
+
+    response1 = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Idempotency-Key": key_one,
+        },
+        json=payload,
+    )
+    response2 = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Idempotency-Key": key_two,
+        },
+        json=payload,
+    )
+
+    assert response1.status_code == 201
+    assert response2.status_code == 201
+    assert response1.json()["id"] != response2.json()["id"]
+
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(Expense).where(
+            Expense.group_id == group.id,
+            Expense.title == "Repeated Dinner",
+        )
+    )
+    expenses = list(result.scalars().all())
+    assert len(expenses) == 2
+
+
+@pytest.mark.asyncio
+async def test_idempotency_key_reuse_with_different_payload_conflicts(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    """Reusing a key for a different payload should be rejected with conflict."""
+    user = create_test_user(email="user-conflict@example.com", username="testuserconflict")
+    session.add(user)
+    await session.commit()
+
+    group = Group(name="Conflict Key Group", currency="USD")
+    session.add(group)
+    await session.flush()
+
+    membership = Membership(
+        group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
+    )
+    session.add(membership)
+    await session.commit()
+
+    access_token = create_access_token(user.id, user.email)
+    idempotency_key = str(uuid.uuid4())
+
+    response1 = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Idempotency-Key": idempotency_key,
+        },
+        json={
+            "title": "Original Payload",
+            "amount_cents": 1500,
+            "currency": "USD",
+            "paid_by": str(membership.id),
+            "expense_date": str(date.today()),
+            "split_among": [str(membership.id)],
+        },
+    )
+    assert response1.status_code == 201
+
+    response2 = await client.post(
+        f"/groups/{group.id}/expenses",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Idempotency-Key": idempotency_key,
+        },
+        json={
+            "title": "Changed Payload",
+            "amount_cents": 1900,
+            "currency": "USD",
+            "paid_by": str(membership.id),
+            "expense_date": str(date.today()),
+            "split_among": [str(membership.id)],
+        },
+    )
+    assert response2.status_code == 409
+    assert "different request payload" in response2.json()["detail"].lower()
+
+    from sqlalchemy import select
+
+    result = await session.execute(select(Expense).where(Expense.group_id == group.id))
+    expenses = list(result.scalars().all())
+    assert len(expenses) == 1
+
+
+@pytest.mark.asyncio
 async def test_create_expense_invalid_payer(client: AsyncClient, session: AsyncSession):
     """Test creating expense with payer not in group."""
     # Create users

@@ -125,6 +125,7 @@ async def compute_settlements(
             session,
             endpoint=f"POST /groups/{group_id}/settlements/compute",
             user_id=current_user.id,
+            idempotency_key=idempotency_key_header,
             request_body=request_body,
         )
         if existing_key and existing_key.response_body:
@@ -138,6 +139,7 @@ async def compute_settlements(
             session,
             endpoint=f"POST /groups/{group_id}/settlements/compute",
             user_id=current_user.id,
+            idempotency_key=idempotency_key_header,
             request_body=request_body,
             response_body=response_payload.model_dump(mode="json"),
             status_code=201,

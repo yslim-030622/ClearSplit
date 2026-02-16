@@ -20,11 +20,15 @@ env:
 jobs:
   build-and-push:
     if: >
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.event == 'push')
     name: Build and Push Image
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: staging
     permissions:
       id-token: write
@@ -164,6 +168,7 @@ jobs:
     name: Run Alembic Migration Job
     needs: [build-and-push]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: staging
     permissions:
       id-token: write
@@ -280,6 +285,7 @@ jobs:
     name: Deploy Container App
     needs: [build-and-push, migrate]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: staging
       url: ${{ steps.deploy.outputs.url }}
@@ -409,7 +415,7 @@ jobs:
             local path="$1"
             echo "Checking ${BASE_URL}${path}"
             for attempt in {1..18}; do
-              CODE=$(curl -sS -o /dev/null -w "%{http_code}" "${BASE_URL}${path}" || true)
+              CODE=$(curl --connect-timeout 3 --max-time 5 -sS -o /dev/null -w "%{http_code}" "${BASE_URL}${path}" || true)
               if [[ "$CODE" == "200" ]]; then
                 echo "${path} is healthy"
                 return 0

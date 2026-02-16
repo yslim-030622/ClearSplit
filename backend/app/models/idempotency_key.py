@@ -29,6 +29,7 @@ class IdempotencyKey(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    idempotency_key: Mapped[str] = mapped_column(Text(), nullable=False)
     request_hash: Mapped[str] = mapped_column(Text(), nullable=False)
     response_body: Mapped[dict | None] = mapped_column(JSONB(), nullable=True)
     status_code: Mapped[int | None] = mapped_column(Integer(), nullable=True)
@@ -39,9 +40,13 @@ class IdempotencyKey(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("endpoint", "user_id", "request_hash", name="uq_idempotency_unique"),
+        UniqueConstraint(
+            "endpoint",
+            "user_id",
+            "idempotency_key",
+            name="uq_idempotency_unique",
+        ),
     )
 
     # Relationships
     user: Mapped["User"] = relationship()
-

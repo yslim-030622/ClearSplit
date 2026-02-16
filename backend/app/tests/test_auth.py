@@ -1,5 +1,7 @@
 """Tests for authentication endpoints."""
 
+from uuid import uuid4
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,15 +69,20 @@ async def test_signup_duplicate_email(client: AsyncClient, session: AsyncSession
 @pytest.mark.asyncio
 async def test_signup_duplicate_email_case_insensitive(client: AsyncClient, session: AsyncSession):
     """Signup should reject duplicate emails regardless of legacy casing."""
-    user = create_test_user(email="Admin@Admin.com", username="admin")
+    unique_suffix = uuid4().hex[:8]
+    normalized_email = f"admin-{unique_suffix}@example.com"
+    user = create_test_user(
+        email=f"Admin-{unique_suffix}@example.com",
+        username=f"admin-{unique_suffix}",
+    )
     session.add(user)
     await session.commit()
 
     response = await client.post(
         "/auth/signup",
         json={
-            "username": "admin2",
-            "email": "admin@admin.com",
+            "username": f"admin2-{unique_suffix}",
+            "email": normalized_email,
             "password": "password123",
             "first_name": "Admin",
             "last_name": "User",
@@ -111,18 +118,23 @@ async def test_login_success(client: AsyncClient, session: AsyncSession):
 @pytest.mark.asyncio
 async def test_login_legacy_case_insensitive_identifier(client: AsyncClient, session: AsyncSession):
     """Login should still work for legacy mixed-case username/email rows."""
-    user = create_test_user(email="Admin@Admin.com", username="AdminUser")
+    unique_suffix = uuid4().hex[:8]
+    normalized_email = f"admin-{unique_suffix}@example.com"
+    user = create_test_user(
+        email=f"Admin-{unique_suffix}@example.com",
+        username=f"AdminUser-{unique_suffix}",
+    )
     session.add(user)
     await session.commit()
 
     response = await client.post(
         "/auth/login",
-        json={"identifier": "admin@admin.com", "password": "password123"},
+        json={"identifier": normalized_email, "password": "password123"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["user"]["email"].lower() == "admin@admin.com"
+    assert data["user"]["email"].lower() == normalized_email
 
 
 @pytest.mark.asyncio
@@ -236,6 +248,37 @@ async def test_refresh_token_invalid(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_refresh_token_with_non_uuid_subject_returns_401(client: AsyncClient):
+    """Malformed refresh token subject should be rejected as unauthorized."""
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    malformed_refresh = jwt.encode(
+        {
+            "sub": "not-a-uuid",
+            "email": "malformed@example.com",
+            "type": "refresh",
+            "jti": "malformed-jti",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.get_jwt_secret(),
+        algorithm=settings.jwt_algorithm,
+    )
+
+    response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": malformed_refresh},
+    )
+
+    assert response.status_code == 401
+    assert "invalid" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_get_me_success(client: AsyncClient, session: AsyncSession):
     """Test getting current user info."""
     # Create user
@@ -267,6 +310,36 @@ async def test_get_me_invalid_token(client: AsyncClient):
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_me_with_non_uuid_subject_returns_401(client: AsyncClient):
+    """Malformed access token subject should never bubble as a server error."""
+    from datetime import datetime, timedelta, timezone
+
+    import jwt
+
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    malformed_access = jwt.encode(
+        {
+            "sub": "not-a-uuid",
+            "email": "malformed@example.com",
+            "type": "access",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+        },
+        settings.get_jwt_secret(),
+        algorithm=settings.jwt_algorithm,
+    )
+
+    response = await client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {malformed_access}"},
+    )
+
+    assert response.status_code == 401
+    assert "invalid" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

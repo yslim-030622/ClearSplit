@@ -78,6 +78,7 @@ async def create_expense(
             session,
             endpoint=f"POST /groups/{group_id}/expenses",
             user_id=current_user.id,
+            idempotency_key=idempotency_key_header,
             request_body=request_body,
         )
 
@@ -115,6 +116,7 @@ async def create_expense(
             session,
             endpoint=f"POST /groups/{group_id}/expenses",
             user_id=current_user.id,
+            idempotency_key=idempotency_key_header,
             request_body=request.model_dump(mode='json'),
             response_body=expense_response.model_dump(mode='json'),
             status_code=201,

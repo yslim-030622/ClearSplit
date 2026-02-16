@@ -269,6 +269,51 @@ async def test_compute_idempotency(client: AsyncClient, session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_compute_idempotency_with_different_keys_creates_new_batches(
+    client: AsyncClient,
+    session: AsyncSession,
+):
+    users = [
+        await _create_user(session, "idempotent-key-a@example.com"),
+        await _create_user(session, "idempotent-key-b@example.com"),
+        await _create_user(session, "idempotent-key-c@example.com"),
+    ]
+    group, memberships = await _create_group_with_members(session, users)
+
+    await _add_expense(
+        session,
+        group_id=group.id,
+        paid_by=memberships[0].id,
+        amount=3000,
+        splits=[(m.id, 1000) for m in memberships],
+    )
+
+    user = users[0]
+    first_key = str(uuid4())
+    second_key = str(uuid4())
+
+    first = await client.post(
+        f"/groups/{group.id}/settlements/compute",
+        headers={**_auth_header(user), "Idempotency-Key": first_key},
+    )
+    second = await client.post(
+        f"/groups/{group.id}/settlements/compute",
+        headers={**_auth_header(user), "Idempotency-Key": second_key},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json()["id"] != second.json()["id"]
+
+    count = await session.execute(
+        select(func.count())
+        .select_from(SettlementBatch)
+        .where(SettlementBatch.group_id == group.id)
+    )
+    assert count.scalar() == 2
+
+
+@pytest.mark.asyncio
 async def test_permissions_enforced(client: AsyncClient, session: AsyncSession):
     owner = await _create_user(session, "owner@example.com")
     outsider = await _create_user(session, "outsider@example.com")
