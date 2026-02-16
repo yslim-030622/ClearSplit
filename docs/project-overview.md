@@ -2,72 +2,69 @@
 
 ## What ClearSplit Is
 
-ClearSplit is a two-client system:
+ClearSplit helps a group track shared expenses and shopping sessions, then settle up with the smallest practical number of transfers.
 
-- a FastAPI backend that owns business rules and persistence
-- a SwiftUI iOS app that handles authentication, group operations, shopping flows, and receipt review
+The system has two main user experiences:
+- enter shared expenses and see live balances
+- run collaborative shopping sessions with receipt upload and optional OCR-assisted item entry
 
-The practical product focus is itemized shopping split workflows, while classic group expense and settlement flows remain available.
+## Current Feature Set
 
-## System Shape
+### Accounts and identity
 
-### Backend (`backend/`)
+- signup with `username`, `email`, `password`, `first_name`, `last_name`
+- login using either username or email as `identifier`
+- JWT access token + rotating refresh token flow
+- normalized identity matching for case-insensitive email/username behavior
 
-- Framework: FastAPI + SQLAlchemy async + Alembic
-- Database: PostgreSQL
-- Auth: JWT access + refresh token model
-- Storage: S3 for receipt images
-- OCR: Tesseract pipeline for extracted receipt line items
+### Groups and membership
 
-### iOS (`ios/`)
+- create and list groups
+- owner/member/viewer roles
+- owner-only member add
+- invite preview endpoint to verify user existence before adding
 
-- UI: SwiftUI
-- Pattern: MVVM with `AppState` as top-level state container
-- Networking: custom `APIClient` with token refresh + retry on `401`
-- Secure storage: Keychain for tokens
+### Expenses and balances
 
-### Infra and Automation
+- create expenses with equal split logic
+- per-group expense history
+- live group balances (not just static snapshots)
+- settlement suggestions generated from current net balances
 
-- Docker Compose local stack: API + Postgres
-- GitHub Actions for CI, security scanning, Docker publish, and staging deployment template
+### Settlement payments
 
-## Core Runtime Flows
+- create pending or auto-confirmed settlement payments
+- receiver/owner confirmation workflow
+- payment history per group
+- legacy settlement status endpoint still supported
 
-### 1) Authentication
+### Shopping flow
 
-1. iOS sends login/signup request.
-2. Backend validates user and returns tokens.
-3. iOS stores tokens in Keychain.
-4. Protected requests include Bearer access token.
-5. On `401`, iOS refreshes access token and retries once.
+- create and manage shopping sessions
+- configure participants per session
+- add/edit/delete items
+- assign item sharers with deterministic equal split remainder handling
+- finalize sessions
+- automatic `settled` transition when covered balances are fully paid
 
-### 2) Group Expenses and Settlements
+### Receipts and OCR
 
-1. User creates group and memberships.
-2. Expense is created with equal split logic.
-3. Split shares are persisted atomically with the expense.
-4. Settlement batch can be computed from net balances.
-5. Only debtor membership can mark settlement as paid.
+- one receipt per shopping session
+- participant-only receipt upload
+- uploader-only receipt deletion and OCR trigger
+- OCR extraction pipeline with image safety checks and timeout
+- extracted receipt items retrievable by any group member
 
-### 3) Shopping Sessions + Receipts + OCR
+### Friends
 
-1. User creates shopping session for a group.
-2. Payer defines participants.
-3. Payer uploads receipt image (stored in S3, referenced in DB).
-4. Payer triggers OCR extraction for line items.
-5. Extracted items are reviewed and confirmed into shopping items.
-6. Sharers are set per item; equal split shares are generated deterministically.
+- friend request send/accept/decline
+- incoming/outgoing request lists
+- friend list and unfriend flow
 
-## Data and Consistency Rules
+## Non-goals (Current)
 
-- Expense and settlement money values are modeled in integer cents.
-- Equal split remainder is deterministic (extra cents assigned in stable order).
-- Settlement batches are immutable snapshots (new compute creates a new batch).
-- Write endpoints support idempotency storage for request deduplication.
-- Timestamps are emitted as ISO-8601 and decoded in iOS with tolerant parsing.
-
-## Current Repository Reality
-
-- `web/` is currently a placeholder (`web/src/` exists but no active implementation).
-- iOS has an active Swift package source tree (`ios/ClearSplit/Sources/ClearSplit`) and a minimal app-template residue under `ios/ClearSplit/ClearSplit/ClearSplit/ContentView.swift`.
-- Existing docs include both active and legacy content; use `docs/INDEX.md` for the current set.
+As implemented today:
+- no push notification pipeline
+- no web client
+- no background job queue for OCR (OCR runs in request lifecycle with a timeout)
+- no multi-currency conversion logic in settlement engine

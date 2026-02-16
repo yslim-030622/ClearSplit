@@ -1,134 +1,129 @@
 # Workflows and Operations
 
-## Local Development Workflow
+## Local Development
 
-### Backend
-
-1. Create env file:
-
-```bash
-cp .env.example .env
-```
-
-2. Start database:
-
-```bash
-docker-compose up -d db
-```
-
-3. Install and migrate:
+### Backend setup
 
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements-dev.txt
 alembic upgrade head
+make run
 ```
 
-4. Run API:
+### Backend with Docker Compose
+
+From repo root:
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+docker compose up --build
 ```
 
-5. Run tests:
+This starts PostgreSQL and API using `.env` values.
 
-```bash
-pytest
-```
-
-### iOS
-
-Build through Xcode project:
+### iOS setup
 
 ```bash
 open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
 ```
 
-CLI build (project-based):
+Use `API_BASE_URL` override for physical devices.
+
+## Daily Engineering Loops
+
+### Add a backend endpoint
+
+1. add/update schema in `backend/app/schemas/`
+2. add route in `backend/app/api/`
+3. implement business rule in `backend/app/services/`
+4. add/adjust tests in `backend/app/tests/`
+
+### Change persistence model
+
+1. update model in `backend/app/models/`
+2. generate migration in `backend/alembic/versions/`
+3. run `alembic upgrade head`
+4. run tests
+
+### iOS feature addition
+
+1. add/update model in `Models/`
+2. add networking call in `Networking/`
+3. wire orchestration in `State/AppState.swift` and/or `ViewModels/`
+4. build UI in `Views/`
+5. validate with `ios_test.sh`
+
+## Testing and Quality
+
+### Backend
+
+```bash
+cd backend
+make lint-ci
+make test
+make test-pr
+make test-all
+```
+
+### iOS
 
 ```bash
 cd ios/ClearSplit
-xcodebuild -project ClearSplit/ClearSplit.xcodeproj -scheme ClearSplit -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+./scripts/ios_build.sh
+./scripts/ios_test.sh all
+./scripts/ios_lint.sh
 ```
 
-SwiftPM test run:
+## Migrations
+
+Apply latest migrations:
 
 ```bash
-swift test
+cd backend
+alembic upgrade head
 ```
 
-## Helper Scripts
+In migration environments, duplicate identity precheck script is available at:
 
-| Script | Purpose | Caveat |
-| --- | --- | --- |
-| `scripts/secret-scan.sh` | Scans tracked files for likely secret patterns. | Best used as a pre-commit signal, not a full DLP solution. |
-| `scripts/verify-security.sh` | Runs a batch of security posture checks. | Some checks assume older config conventions and should be reviewed. |
-| `scripts/s3_smoke_test.py` | Confirms S3 upload + presigned URL generation. | Requires valid AWS credentials and bucket config. |
-| `backend/setup_db.sh` | Starts DB container and runs migrations. | Assumes local venv layout and specific container naming. |
-| `backend/run_migration.sh` | Applies migrations using `DATABASE_URL`. | Good for explicit migration runs in local environments. |
-| `backend/test_api.sh` | Curl-based API flow checks. | Contains assumptions aligned to earlier auth payloads. |
-| `backend/QUICK_TEST.sh` | Quick sanity script. | Signup request shape is stale relative to current backend schema. |
+- `backend/app/scripts/migration_precheck.py`
 
-## CI/CD Workflows (`.github/workflows/`)
+It checks for case-insensitive duplicate emails/usernames before related constraints are enforced.
 
-| Workflow | What It Does |
-| --- | --- |
-| `ci.yml` | Backend lint, migration reversibility, PR/main test gates, and archive build on main. |
-| `docker.yml` | Builds and pushes backend image to GHCR with Trivy scan. |
-| `security-scan.yml` | Secret scan, dependency scan, and static security scan. |
-| `deploy-staging.yml` | OIDC-based staging deployment to Azure Container Apps (runs after successful backend CI on `main`; ACR build/push, migration job, deploy, health verification, rollback-on-failure). |
-| `ios-pr-checks.yml` | iOS PR lint/build/unit-test checks. |
-| `ios-main-checks.yml` | iOS main-branch full validation and optional TestFlight flow. |
+## Operational Scripts
 
-## Staging Deployment (Azure Container Apps + OIDC)
+### Security scans
 
-### Required GitHub Variables
+```bash
+./scripts/secret-scan.sh
+./scripts/verify-security.sh
+```
 
-Set these as repository variables or `staging` environment variables:
+### S3 integration smoke test
 
-- `AZURE_CLIENT_ID`
-- `AZURE_TENANT_ID`
-- `AZURE_SUBSCRIPTION_ID`
-- `AZURE_RESOURCE_GROUP`
-- `ACR_NAME`
-- `ACR_LOGIN_SERVER`
-- `ACA_APP_NAME`
-- `ACA_MIGRATION_JOB`
+```bash
+python scripts/s3_smoke_test.py
+```
 
-### Required Azure Configuration
+Requires S3-related environment variables.
 
-- GitHub federated credential for the deployment app registration.
-- Deployment principal roles:
-  - `AcrPush` on ACR.
-  - `Container Apps Contributor` on the staging resource group.
-- Container App runtime secrets configured in ACA or Key Vault:
-  - `DATABASE_URL`
-  - `JWT_SECRET`
-  - `S3_BUCKET_NAME`
-  - Optional static AWS keys only when not using identity-based auth.
+## Troubleshooting
 
-### Deployment Flow
+### API is up but app cannot connect
 
-1. Build backend image and push to ACR.
-2. Update and execute ACA migration job.
-3. Update staging Container App image to new tag.
-4. Verify `GET /health/live` and `GET /health/ready` return HTTP 200.
-5. If health verification fails, roll back to the previously deployed image and fail the workflow.
+- confirm backend is listening on `0.0.0.0` when testing from device
+- set `API_BASE_URL` to host LAN IP for physical devices
+- verify that `/health/live` responds from the same network path
 
-## Runtime Dependencies Checklist
+### Receipt upload failures
 
-Before running end-to-end shopping and receipt flows, verify:
+- verify `S3_BUCKET_NAME` and AWS credentials/permissions
+- verify file format is one of JPEG/PNG/WEBP/GIF
+- verify image is below configured byte and pixel limits
 
-- PostgreSQL is reachable via `DATABASE_URL`
-- `DATABASE_URL` includes TLS settings for managed PostgreSQL environments
-- JWT settings are configured
-- S3 bucket and credentials/identity are valid
-- Tesseract is available (for OCR paths)
+### OCR timeout or no extracted items
 
-## Operational Advice
-
-- Treat Alembic migrations as the canonical schema source.
-- Use idempotency headers for client-side retry safety on write endpoints.
-- Keep scripts as convenience tooling; use tests and API contracts as source of truth when behavior differs.
+- use a clearer receipt image with higher text contrast
+- check backend logs for OCR timeout or image validation errors
+- verify Tesseract is installed in runtime environment

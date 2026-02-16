@@ -7,7 +7,6 @@ on:
       - "ios/**"
       - ".github/workflows/ios-pr-checks.yml"
       - ".github/workflows/ios-main-checks.yml"
-      - ".github/workflows/ci.yml"
 
 concurrency:
   group: ios-pr-${{ github.event.pull_request.number || github.ref }}

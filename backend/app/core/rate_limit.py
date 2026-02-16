@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import time
+from collections.abc import Callable
 from collections import defaultdict, deque
 from typing import Union
 from uuid import UUID
@@ -75,10 +76,17 @@ def _is_request_from_trusted_proxy(request: Request) -> bool:
 class InMemoryRateLimiter:
     """A small process-local sliding window limiter."""
 
-    def __init__(self, limit: int, window_seconds: int, max_keys: int):
+    def __init__(
+        self,
+        limit: int,
+        window_seconds: int,
+        max_keys: int,
+        now_fn: Callable[[], float] | None = None,
+    ):
         self.limit = limit
         self.window_seconds = window_seconds
         self.max_keys = max(1000, max_keys)
+        self._now = now_fn or time.monotonic
         self._events: dict[str, deque[float]] = defaultdict(deque)
         self._last_seen: dict[str, float] = {}
         self._lock = asyncio.Lock()
@@ -106,7 +114,7 @@ class InMemoryRateLimiter:
             self._last_seen.pop(key, None)
 
     async def enforce(self, key: str, detail: str) -> None:
-        now = time.monotonic()
+        now = self._now()
         cutoff = now - self.window_seconds
 
         async with self._lock:

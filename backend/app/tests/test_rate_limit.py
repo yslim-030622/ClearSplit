@@ -1,6 +1,5 @@
 """Isolated tests for in-memory rate limiter behavior."""
 
-import asyncio
 import ipaddress
 
 import pytest
@@ -13,7 +12,13 @@ from app.core.rate_limit import InMemoryRateLimiter, _client_identifier
 
 @pytest.mark.asyncio
 async def test_inmemory_rate_limiter_enforces_limit_and_recovers_after_window():
-    limiter = InMemoryRateLimiter(limit=2, window_seconds=1, max_keys=1000)
+    monotonic_values = iter((10.0, 10.2, 10.4, 11.5))
+    limiter = InMemoryRateLimiter(
+        limit=2,
+        window_seconds=1,
+        max_keys=1000,
+        now_fn=lambda: next(monotonic_values),
+    )
 
     await limiter.enforce("login:client-a", detail="Too many login attempts.")
     await limiter.enforce("login:client-a", detail="Too many login attempts.")
@@ -23,7 +28,6 @@ async def test_inmemory_rate_limiter_enforces_limit_and_recovers_after_window():
     assert exc_info.value.status_code == 429
     assert "too many login attempts" in exc_info.value.detail.lower()
 
-    await asyncio.sleep(1.05)
     await limiter.enforce("login:client-a", detail="Too many login attempts.")
 
 
