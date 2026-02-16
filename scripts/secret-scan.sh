@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
-echo "🔍 Scanning for secrets in tracked files..."
+echo "Scanning for secrets in tracked files..."
 echo ""
 
 ISSUES_FOUND=0
@@ -40,7 +40,7 @@ declare -a PATTERN_REGEXES=(
 FILES=$(git ls-files | grep -v -E '(\.env\.example|SECURITY\.md|secret-scan\.sh|\.md$|\.txt$|\.gitignore|LICENSE|\.yml$)' || true)
 
 if [ -z "$FILES" ]; then
-    echo -e "${GREEN}✅ No files to scan${NC}"
+    echo -e "${GREEN}No files to scan${NC}"
     exit 0
 fi
 
@@ -53,7 +53,7 @@ for i in "${!PATTERN_NAMES[@]}"; do
     MATCHES=$(echo "$FILES" | xargs grep -n -E -i "$pattern" 2>/dev/null || true)
     
     if [ -n "$MATCHES" ]; then
-        echo -e "${RED}❌ Found: $pattern_name${NC}"
+        echo -e "${RED} Found: $pattern_name${NC}"
         echo "$MATCHES" | while IFS= read -r line; do
             echo -e "   ${YELLOW}$line${NC}"
         done
@@ -65,7 +65,7 @@ done
 # Check for .env files that shouldn't be committed
 BANNED_ENV_FILES=$(git ls-files | grep -E '\.env$|\.env\.local|\.env\.prod|\.env\.production' || true)
 if [ -n "$BANNED_ENV_FILES" ]; then
-    echo -e "${RED}❌ Found tracked .env files (should be gitignored):${NC}"
+    echo -e "${RED}Found tracked .env files (should be gitignored):${NC}"
     echo "$BANNED_ENV_FILES" | while IFS= read -r file; do
         echo -e "   ${YELLOW}$file${NC}"
     done
@@ -78,7 +78,7 @@ fi
 # Check for common test/dummy secrets that might be hardcoded
 DUMMY_SECRETS=$(echo "$FILES" | xargs grep -n -E '(test-secret|changeme|your-secret-here|password123|admin123)' 2>/dev/null || true)
 if [ -n "$DUMMY_SECRETS" ]; then
-    echo -e "${YELLOW}⚠️  Warning: Found potential dummy/test secrets:${NC}"
+    echo -e "${YELLOW}Warning: Found potential dummy/test secrets:${NC}"
     echo "$DUMMY_SECRETS" | while IFS= read -r line; do
         echo -e "   $line"
     done
@@ -89,19 +89,19 @@ fi
 # Summary
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if [ $ISSUES_FOUND -eq 0 ]; then
-    echo -e "${GREEN}✅ No secrets detected in tracked files${NC}"
-    echo -e "${GREEN}✅ Safe to commit${NC}"
+    echo -e "${GREEN} No secrets detected in tracked files${NC}"
+    echo -e "${GREEN}Safe to commit${NC}"
     exit 0
 else
-    echo -e "${RED}❌ Found $ISSUES_FOUND issue(s)${NC}"
+    echo -e "${RED}Found $ISSUES_FOUND issue(s)${NC}"
     echo ""
-    echo "🔒 Action Required:"
+    echo "  Action Required:"
     echo "  1. Remove hardcoded secrets from code"
     echo "  2. Use .env.local (gitignored) for local secrets"
     echo "  3. Use environment variables or secret managers"
     echo "  4. If secret was committed, rotate it immediately"
     echo ""
-    echo "📖 See SECURITY.md for details"
+    echo "See SECURITY.md for details"
     exit 1
 fi
 
