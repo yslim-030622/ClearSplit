@@ -3,6 +3,8 @@ import os
 
 import asyncpg
 
+from app.db.connect_args import build_asyncpg_engine_config, normalize_env_name
+
 EMAIL_DUP_SQL = """
 SELECT COUNT(*)::int
 FROM (
@@ -25,20 +27,34 @@ FROM (
 
 
 async def main() -> None:
-    dsn = os.getenv("DATABASE_URL", "").strip()
-    if not dsn:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
         raise SystemExit("DATABASE_URL is not configured in migration job env")
 
-    # The app uses SQLAlchemy async URLs; asyncpg expects a plain postgresql:// URL.
+    # SQLAlchemy accepts both `postgresql://` and `postgresql+asyncpg://`, but `postgres://`
+    # is a common variant that can appear in hosted providers.
+    if database_url.startswith("postgres://"):
+        database_url = "postgresql://" + database_url.split("://", 1)[1]
+
+    env_name = normalize_env_name(os.getenv("ENV"))
+    connect_timeout_raw = os.getenv("DB_CONNECT_TIMEOUT_SECONDS")
+    try:
+        connect_timeout_seconds = float(connect_timeout_raw) if connect_timeout_raw else 10.0
+    except ValueError:
+        connect_timeout_seconds = 10.0
+
+    sqlalchemy_url, connect_args = build_asyncpg_engine_config(
+        database_url,
+        env_name=env_name,
+        connect_timeout_seconds=connect_timeout_seconds,
+    )
+
+    # build_asyncpg_engine_config returns a SQLAlchemy URL. asyncpg accepts plain postgresql://.
+    dsn = sqlalchemy_url
     if dsn.startswith("postgresql+asyncpg://"):
         dsn = "postgresql://" + dsn.split("://", 1)[1]
 
-    if not dsn.startswith(("postgresql://", "postgres://")):
-        raise SystemExit(
-            "DATABASE_URL must use postgresql:// or postgresql+asyncpg:// for migration precheck"
-        )
-
-    conn = await asyncpg.connect(dsn)
+    conn = await asyncpg.connect(dsn, **connect_args)
     try:
         users_exists = await conn.fetchval("SELECT to_regclass('public.users') IS NOT NULL;")
         if not users_exists:
@@ -61,4 +77,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
