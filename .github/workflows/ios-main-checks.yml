@@ -114,7 +114,7 @@ jobs:
           bundler-cache: true
 
       - name: Run TestFlight lane
-        run: bundle exec fastlane ios testflight
+        run: bundle exec fastlane ios upload_testflight
 
       - name: Upload TestFlight lane artifacts
         if: always()

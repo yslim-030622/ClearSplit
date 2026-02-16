@@ -58,7 +58,7 @@ platform :ios do
   end
 
   desc "Optional: Build and upload to TestFlight (requires ASC + signing secrets)"
-  lane :testflight do
+  lane :upload_testflight do
     required_env = %w[ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_CONTENT]
     missing = required_env.select { |k| ENV[k].to_s.strip.empty? }
     UI.user_error!("Missing required env vars: #{missing.join(', ')}") unless missing.empty?
