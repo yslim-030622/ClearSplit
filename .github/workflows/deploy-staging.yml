@@ -279,8 +279,8 @@ jobs:
             return 1
           }
 
-          # Keep job args free of leading-dash tokens to avoid Azure CLI parsing issues.
-          run_job_and_wait python "app/scripts/migration_precheck.py"
+          # Run as a module so `app.*` imports work reliably inside the container.
+          run_job_and_wait python "-m" "app.scripts.migration_precheck"
           run_job_and_wait alembic "upgrade" "head"
 
   deploy:
