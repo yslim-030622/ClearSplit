@@ -1,7 +1,13 @@
 import asyncio
 import os
+import sys
+from pathlib import Path
 
 import asyncpg
+
+# Allow `python app/scripts/migration_precheck.py` in job runners where module mode is inconvenient.
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from app.db.connect_args import build_asyncpg_engine_config, normalize_env_name
 

@@ -96,8 +96,8 @@ jobs:
             exit 1
           fi
 
-          if [[ "${DATABASE_URL}" != *"sslmode="* ]]; then
-            echo "DATABASE_URL must explicitly include sslmode for staging."
+          if [[ "${DATABASE_URL}" != *"sslmode="* && "${DATABASE_URL}" != *"ssl="* ]]; then
+            echo "DATABASE_URL must explicitly include ssl or sslmode for staging."
             exit 1
           fi
 
@@ -209,8 +209,8 @@ jobs:
             exit 1
           fi
 
-          if [[ "${MIGRATION_DATABASE_URL}" != *"sslmode="* ]]; then
-            echo "DATABASE_URL must explicitly include sslmode for staging."
+          if [[ "${MIGRATION_DATABASE_URL}" != *"sslmode="* && "${MIGRATION_DATABASE_URL}" != *"ssl="* ]]; then
+            echo "DATABASE_URL must explicitly include ssl or sslmode for staging."
             exit 1
           fi
 
@@ -223,30 +223,24 @@ jobs:
             local command="$1"
             shift
             local args=("$@")
-            local args_flags=()
             local execution_name=""
             local status=""
-
-            # Azure CLI stops collecting `--args` values when it encounters a token that starts with
-            # "-", so we need to pass leading dash args via the `--args=-c` form.
             if ((${#args[@]})); then
-              if [[ "${args[0]}" == -* ]]; then
-                args_flags+=(--args="${args[0]}")
-                if ((${#args[@]} > 1)); then
-                  args_flags+=("${args[@]:1}")
-                fi
-              else
-                args_flags+=(--args "${args[@]}")
-              fi
+              az containerapp job update \
+                --resource-group "$RG" \
+                --name "$JOB" \
+                --image "$IMAGE" \
+                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
+                --command "$command" \
+                --args "${args[@]}" >/dev/null
+            else
+              az containerapp job update \
+                --resource-group "$RG" \
+                --name "$JOB" \
+                --image "$IMAGE" \
+                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
+                --command "$command" >/dev/null
             fi
-
-            az containerapp job update \
-              --resource-group "$RG" \
-              --name "$JOB" \
-              --image "$IMAGE" \
-              --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
-              --command "$command" \
-              "${args_flags[@]}" >/dev/null
 
             execution_name=$(az containerapp job start \
               --resource-group "$RG" \
@@ -279,8 +273,7 @@ jobs:
             return 1
           }
 
-          # Run as a module so `app.*` imports work reliably inside the container.
-          run_job_and_wait python "-m" "app.scripts.migration_precheck"
+          run_job_and_wait python "app/scripts/migration_precheck.py"
           run_job_and_wait alembic "upgrade" "head"
 
   deploy:
