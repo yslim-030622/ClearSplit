@@ -1,34 +1,37 @@
 default_platform(:ios)
 
+IOS_ROOT = File.expand_path("..", __dir__)
+XCODEPROJ_PATH = File.join(IOS_ROOT, "ClearSplit", "ClearSplit.xcodeproj")
+
 platform :ios do
   desc "Run iOS lint checks"
   lane :lint do
-    sh("./scripts/ios_lint.sh")
+    sh(File.join(IOS_ROOT, "scripts", "ios_lint.sh"))
   end
 
   desc "Build the app for simulator"
   lane :build do
-    sh("./scripts/ios_build.sh")
+    sh(File.join(IOS_ROOT, "scripts", "ios_build.sh"))
   end
 
   desc "Run unit tests"
   lane :test_unit do
-    sh("./scripts/ios_test.sh unit")
+    sh("#{File.join(IOS_ROOT, 'scripts', 'ios_test.sh')} unit")
   end
 
   desc "Run UI smoke tests"
   lane :test_ui do
-    sh("./scripts/ios_test.sh ui")
+    sh("#{File.join(IOS_ROOT, 'scripts', 'ios_test.sh')} ui")
   end
 
   desc "Run full test suite"
   lane :test_all do
-    sh("./scripts/ios_test.sh all")
+    sh("#{File.join(IOS_ROOT, 'scripts', 'ios_test.sh')} all")
   end
 
   desc "Validate unsigned release archive generation"
   lane :archive do
-    sh("./scripts/ios_archive.sh")
+    sh(File.join(IOS_ROOT, "scripts", "ios_archive.sh"))
   end
 
   desc "Run PR-grade checks (lint + build + unit tests)"
@@ -52,7 +55,7 @@ platform :ios do
     UI.user_error!("Set CI_BUILD_NUMBER or GITHUB_RUN_NUMBER") if build_number.to_s.strip.empty?
 
     increment_build_number(
-      xcodeproj: "ClearSplit/ClearSplit.xcodeproj",
+      xcodeproj: XCODEPROJ_PATH,
       build_number: build_number
     )
   end
@@ -72,7 +75,7 @@ platform :ios do
 
     # Signing materials (cert/profile or match) must already be configured in CI.
     build_app(
-      project: "ClearSplit/ClearSplit.xcodeproj",
+      project: XCODEPROJ_PATH,
       scheme: "ClearSplit",
       clean: true,
       export_method: "app-store"
