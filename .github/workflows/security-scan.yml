@@ -26,7 +26,7 @@ jobs:
           fetch-depth: 0  # Full history for secret scanning
 
       - name: Run secret scanner
-        uses: trufflesecurity/trufflehog@v3
+        uses: trufflesecurity/trufflehog@main
         with:
           path: ./
           extra_args: --only-verified --fail
