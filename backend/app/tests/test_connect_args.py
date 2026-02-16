@@ -13,7 +13,10 @@ def test_sslmode_require_maps_to_ssl_connect_arg() -> None:
     )
 
     assert engine_url == "postgresql+asyncpg://user:pass@db.example.com:5432/app"
-    assert isinstance(connect_args["ssl"], ssl.SSLContext)
+    ssl_context = connect_args["ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode == ssl.CERT_NONE
+    assert ssl_context.check_hostname is False
 
 
 def test_ssl_true_maps_to_ssl_connect_arg() -> None:
@@ -24,7 +27,10 @@ def test_ssl_true_maps_to_ssl_connect_arg() -> None:
     )
 
     assert engine_url == "postgresql+asyncpg://user:pass@db.example.com:5432/app"
-    assert isinstance(connect_args["ssl"], ssl.SSLContext)
+    ssl_context = connect_args["ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode == ssl.CERT_NONE
+    assert ssl_context.check_hostname is False
 
 
 def test_ssl_false_maps_to_disabled_ssl_connect_arg() -> None:
@@ -45,7 +51,21 @@ def test_non_local_defaults_to_tls_when_missing_ssl_config() -> None:
         connect_timeout_seconds=5.0,
     )
 
-    assert isinstance(connect_args["ssl"], ssl.SSLContext)
+    ssl_context = connect_args["ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode == ssl.CERT_REQUIRED
+
+
+def test_sslmode_verify_full_keeps_certificate_validation_enabled() -> None:
+    _, connect_args = build_asyncpg_engine_config(
+        "postgresql+asyncpg://user:pass@db.example.com:5432/app?sslmode=verify-full",
+        env_name="staging",
+        connect_timeout_seconds=5.0,
+    )
+
+    ssl_context = connect_args["ssl"]
+    assert isinstance(ssl_context, ssl.SSLContext)
+    assert ssl_context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_local_does_not_force_tls_when_missing_ssl_config() -> None:
@@ -74,4 +94,3 @@ def test_rejects_invalid_ssl_value() -> None:
             env_name="staging",
             connect_timeout_seconds=5.0,
         )
-

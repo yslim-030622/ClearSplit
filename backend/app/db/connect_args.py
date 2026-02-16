@@ -53,8 +53,10 @@ def _ssl_from_sslmode(raw_sslmode: object) -> object:
         )
     if sslmode == "disable":
         return False
-    if sslmode in TLS_SSLMODES:
-        return ssl.create_default_context()
+    if sslmode in {"allow", "prefer", "require"}:
+        return _build_tls_context(verify_cert=False)
+    if sslmode in {"verify-ca", "verify-full"}:
+        return _build_tls_context(verify_cert=True)
     raise RuntimeError(
         f"Unsupported sslmode '{sslmode}' in DATABASE_URL. "
         "Use disable/allow/prefer/require/verify-ca/verify-full."
@@ -69,13 +71,21 @@ def _ssl_from_ssl_query(raw_ssl: object) -> object:
             "Use true/false (or 1/0)."
         )
     if ssl_value in TLS_SSL_TRUE_VALUES:
-        return ssl.create_default_context()
+        return _build_tls_context(verify_cert=False)
     if ssl_value in TLS_SSL_FALSE_VALUES:
         return False
     raise RuntimeError(
         f"Unsupported ssl value '{ssl_value}' in DATABASE_URL. "
         "Use true/false (or 1/0)."
     )
+
+
+def _build_tls_context(*, verify_cert: bool) -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    if not verify_cert:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
 
 
 def build_asyncpg_engine_config(
