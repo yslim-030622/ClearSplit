@@ -23,6 +23,17 @@ docker compose up --build
 
 This starts PostgreSQL and API using `.env` values.
 
+To route local API requests to an external PostgreSQL (for example AWS RDS),
+export `API_DATABASE_URL` before starting compose:
+
+```bash
+export API_DATABASE_URL='postgresql+asyncpg://<user>:<password>@<rds-host>:5432/<db>?ssl=require'
+docker compose up --build
+```
+
+In this mode, the iOS simulator still targets local API (`127.0.0.1:8000`),
+while the backend writes to the external database.
+
 ### iOS setup
 
 ```bash

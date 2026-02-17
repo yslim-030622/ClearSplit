@@ -77,11 +77,11 @@
 
 ## Running Tests
 
-Tests require a running Postgres database (via docker-compose):
+Tests require a running Postgres database (via Docker Compose):
 
 ```bash
 # Start database
-docker-compose up -d db
+docker compose up -d db
 
 # Run migrations
 cd backend

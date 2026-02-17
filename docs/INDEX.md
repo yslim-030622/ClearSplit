@@ -1,20 +1,32 @@
 # Documentation Index
 
-This index points to the current, code-backed documentation for ClearSplit.
+Entry point for all ClearSplit documentation. Every file listed here is kept in sync with the codebase.
 
 ## Start Here
 
-- `docs/project-overview.md`: product scope and current capabilities
-- `docs/repository-map.md`: where everything lives in the repository
-- `docs/architecture.md`: system design and core data/behavior flows
+| Document | Description |
+|----------|-------------|
+| [Project Overview](project-overview.md) | Product scope, features, and tech stack |
+| [Repository Map](repository-map.md) | Directory layout and where everything lives |
+| [Architecture](architecture.md) | System design, data flows, and key patterns |
 
 ## Engineering References
 
-- `docs/backend-reference.md`: backend API, models, auth, permissions, env configuration
-- `docs/ios-reference.md`: iOS app architecture, networking behavior, and UI feature map
-- `docs/dependencies.md`: runtime and development dependencies
+| Document | Description |
+|----------|-------------|
+| [Backend Reference](backend-reference.md) | API endpoints, models, schemas, auth, config |
+| [iOS Reference](ios-reference.md) | App architecture, networking, views, navigation |
+| [Dependencies](dependencies.md) | Runtime and development dependencies with versions |
 
 ## Operations
 
-- `docs/workflows-and-operations.md`: local dev, tests, migrations, CI-friendly scripts
-- `SECURITY.md`: security model and operational guardrails
+| Document | Description |
+|----------|-------------|
+| [Workflows & Operations](workflows-and-operations.md) | Local dev, testing, CI/CD pipelines, deployment |
+| [Security](../SECURITY.md) | Security model, controls, and incident response |
+
+## Architecture Decisions
+
+| Document | Description |
+|----------|-------------|
+| [Non-Negotiables](adr/0001-non-negotiables.md) | Core architectural constraints and principles |

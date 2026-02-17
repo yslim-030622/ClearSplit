@@ -117,4 +117,8 @@ Do not commit credentials or key files. Use GitHub Actions encrypted secrets onl
 - Build Active Architecture Only: Debug = YES, Release = NO.
 - Deployment Target: iOS 16.0 (`Package.swift` sets `.iOS(.v16)`).
 - DerivedData cleanup: `xcodebuild -scheme ClearSplit clean` or delete `~/Library/Developer/Xcode/DerivedData`.
-- BASE_URL: set `API_BASE_URL` in Info.plist or scheme xcconfig. Default is `http://127.0.0.1:8000`.
+- BASE_URL resolution order: Run Scheme environment variable `API_BASE_URL` -> Info.plist `API_BASE_URL` -> default `http://127.0.0.1:8000`.
+- For simulator traffic to deployed backend, set Run Scheme environment variable:
+  `API_BASE_URL=https://clearsplit-backend-staging.livelypebble-460e405a.eastus.azurecontainerapps.io`.
+- Shared scheme currently enables that staging `API_BASE_URL` by default. Remove/disable it in Scheme -> Run -> Arguments to return simulator traffic to local backend.
+- Debug build also defines Info.plist `API_BASE_URL` as the staging URL for fallback when Scheme env vars are not applied.

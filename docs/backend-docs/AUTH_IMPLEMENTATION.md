@@ -165,7 +165,7 @@ Test coverage:
 
 3. **Start database:**
    ```bash
-   docker-compose up -d db
+   docker compose up -d db
    ```
 
 4. **Run migrations:**
@@ -254,4 +254,3 @@ curl -X GET http://localhost:8000/auth/me \
 - [ ] Add password reset flow
 - [ ] Add token blacklisting for logout
 - [ ] Add refresh token rotation
-
