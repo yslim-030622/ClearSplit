@@ -23,9 +23,9 @@ from app.services.expense import get_expense_by_id
 
 logger = logging.getLogger(__name__)
 
-# CORS middleware for iOS app
 settings = get_settings()
 env_name = settings.env.lower()
+local_envs = {"local", "test"}
 
 
 @asynccontextmanager
@@ -38,9 +38,9 @@ app = FastAPI(
     title="ClearSplit API",
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if env_name in {"local", "test"} else None,
-    redoc_url="/redoc" if env_name in {"local", "test"} else None,
-    openapi_url="/openapi.json" if env_name in {"local", "test"} else None,
+    docs_url="/docs" if env_name in local_envs else None,
+    redoc_url="/redoc" if env_name in local_envs else None,
+    openapi_url="/openapi.json" if env_name in local_envs else None,
 )
 
 local_origins = [
@@ -67,7 +67,7 @@ def _validate_non_local_cors_origins(origins: list[str]) -> None:
         )
 
 
-if env_name in {"local", "test"}:
+if env_name in local_envs:
     cors_origins = sorted(set(local_origins + settings.get_cors_origins()))
     allow_credentials = False
 else:
@@ -89,10 +89,41 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Attach baseline security headers to all responses."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+    if env_name not in local_envs:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=63072000; includeSubDomains"
+        )
+    return response
+
+
+def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
+    """Remove raw user input values from validation errors before returning."""
+    sanitized: list[dict] = []
+    for error in errors:
+        filtered = {
+            key: value
+            for key, value in error.items()
+            if key != "input"
+        }
+        sanitized.append(filtered)
+    return sanitized
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Handle validation errors without logging or returning sensitive request payloads."""
-    error_paths = ["/".join(str(part) for part in err.get("loc", [])) for err in exc.errors()]
+    sanitized_errors = _sanitize_validation_errors(exc.errors())
+    error_paths = [
+        "/".join(str(part) for part in err.get("loc", [])) for err in sanitized_errors
+    ]
     logger.warning(
         "Validation error on %s %s for fields=%s",
         request.method,
@@ -101,7 +132,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
+        content={"detail": sanitized_errors},
     )
 
 # Include routers
@@ -172,7 +203,7 @@ async def health_live() -> dict[str, str]:
 @app.get("/health/ready")
 async def health_ready(db: AsyncSession = Depends(get_session)) -> JSONResponse:
     """Readiness probe endpoint that validates dependency availability."""
-    detailed = env_name in {"local", "test"}
+    detailed = env_name in local_envs
     response, status_code = await _build_health_payload(db)
 
     if detailed:

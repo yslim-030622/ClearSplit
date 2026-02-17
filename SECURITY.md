@@ -24,6 +24,11 @@ Service-layer authorization checks enforce endpoint restrictions beyond route-le
 - process-local rate limits protect signup, login, and member-invite preview routes
 - trusted proxy header use is disabled by default and requires explicit allowlist configuration
 
+Process-local limiter caveat:
+- current rate-limit counters live in app process memory only
+- when running multiple API replicas, each replica enforces limits independently
+- for strict global limits across replicas, use a shared backend (for example Redis)
+
 ## Idempotency and Replay Safety
 
 - idempotency key support exists for key mutation endpoints (`expenses`, settlement compute)

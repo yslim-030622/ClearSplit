@@ -146,15 +146,15 @@ final class APIClient {
         
         // Log receipt download URL requests
         if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
-            print("[APIClient] 📥 Requesting receipt download URL: \(apiRequest.path)")
-            print("[APIClient] Full URL: \(request.url?.absoluteString ?? "nil")")
-            print("[APIClient] Method: \(apiRequest.method)")
-            print("[APIClient] Requires auth: \(apiRequest.requiresAuth)")
+            debugLog("[APIClient] 📥 Requesting receipt download URL: \(apiRequest.path)")
+            debugLog("[APIClient] Full URL: \(request.url?.absoluteString ?? "nil")")
+            debugLog("[APIClient] Method: \(apiRequest.method)")
+            debugLog("[APIClient] Requires auth: \(apiRequest.requiresAuth)")
             if let authHeader = request.value(forHTTPHeaderField: "Authorization") {
                 let tokenPreview = authHeader.prefix(20) + "..."
-                print("[APIClient] Auth header present: \(tokenPreview)")
+                debugLog("[APIClient] Auth header present: \(tokenPreview)")
             } else {
-                print("[APIClient] ⚠️ No auth header found")
+                debugLog("[APIClient] ⚠️ No auth header found")
             }
         }
         
@@ -164,7 +164,7 @@ final class APIClient {
             (data, response) = try await session.data(for: request)
         } catch {
             if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
-                print("[APIClient] ❌ Network error for receipt download URL: \(error)")
+                debugLog("[APIClient] ❌ Network error for receipt download URL: \(error)")
             }
             throw APIError.network(error)
         }
@@ -175,7 +175,7 @@ final class APIClient {
 
         if http.statusCode == 401, retryingOn401, apiRequest.requiresAuth {
             if apiRequest.path.contains("/receipts/") && apiRequest.path.contains("/download-url") {
-                print("[APIClient] 🔄 Received 401, attempting token refresh for receipt download URL")
+                debugLog("[APIClient] 🔄 Received 401, attempting token refresh for receipt download URL")
             }
             // attempt refresh once
             let refreshed = try await auth.refresh { current in
@@ -198,12 +198,12 @@ final class APIClient {
         let isReceiptDownload = path.contains("/receipts/") && path.contains("/download-url")
         
         if isReceiptDownload {
-            print("[APIClient] 📥 Receipt download URL response - Status: \(http.statusCode)")
-            print("[APIClient] Response headers: \(http.allHeaderFields)")
+            debugLog("[APIClient] 📥 Receipt download URL response - Status: \(http.statusCode)")
+            debugLog("[APIClient] Response headers: \(http.allHeaderFields)")
             if let responseBody = String(data: data, encoding: .utf8) {
-                print("[APIClient] Response body: \(responseBody)")
+                debugLog("[APIClient] Response body: \(responseBody)")
             } else {
-                print("[APIClient] Response body (binary): \(data.count) bytes")
+                debugLog("[APIClient] Response body (binary): \(data.count) bytes")
             }
         }
         
@@ -218,9 +218,9 @@ final class APIClient {
             }
             // Debug logging (no secrets/tokens are in the body)
             if isReceiptDownload {
-                print("[APIClient] ❌ Receipt download URL error - Status: \(http.statusCode), Message: \(errorMessage ?? "nil")")
+                debugLog("[APIClient] ❌ Receipt download URL error - Status: \(http.statusCode), Message: \(errorMessage ?? "nil")")
             } else {
-                print("🚨 API error status=\(http.statusCode) message=\(errorMessage ?? "nil")")
+                debugLog("🚨 API error status=\(http.statusCode) message=\(errorMessage ?? "nil")")
             }
             throw APIError.server(status: http.statusCode, message: errorMessage)
         }
@@ -228,30 +228,24 @@ final class APIClient {
         do {
             let decoded = try decoder.decode(T.self, from: data)
             if isReceiptDownload {
-                print("[APIClient] ✅ Successfully decoded ReceiptDownloadURLResponse")
+                debugLog("[APIClient] ✅ Successfully decoded ReceiptDownloadURLResponse")
                 if let urlResponse = decoded as? ReceiptDownloadURLResponse {
-                    print("[APIClient] URL: \(urlResponse.url)")
-                    print("[APIClient] URL scheme: \(URL(string: urlResponse.url)?.scheme ?? "nil")")
-                    print("[APIClient] Expires in: \(urlResponse.expiresInSeconds) seconds")
+                    debugLog("[APIClient] URL: \(urlResponse.url)")
+                    debugLog("[APIClient] URL scheme: \(URL(string: urlResponse.url)?.scheme ?? "nil")")
+                    debugLog("[APIClient] Expires in: \(urlResponse.expiresInSeconds) seconds")
                 }
             }
             return decoded
         } catch {
             if path == "auth/login" || path == "auth/me" || path == "groups" {
-                print("[APIClient] ❌ Decoding failed for path=\(path): \(error)")
-                if let object = try? JSONSerialization.jsonObject(with: data),
-                   let dict = object as? [String: Any] {
-                    print("[APIClient] Response keys: \(dict.keys.sorted())")
-                    if let user = dict["user"] as? [String: Any] {
-                        print("[APIClient] User keys: \(user.keys.sorted())")
-                    }
-                }
+                debugLog("[APIClient] ❌ Decoding failed for path=\(path): \(error)")
+                debugDumpJSONKeys(from: data)
             }
             if isReceiptDownload {
-                print("[APIClient] ❌ Failed to decode ReceiptDownloadURLResponse")
-                print("[APIClient] Decoding error: \(error)")
+                debugLog("[APIClient] ❌ Failed to decode ReceiptDownloadURLResponse")
+                debugLog("[APIClient] Decoding error: \(error)")
                 if let jsonString = String(data: data, encoding: .utf8) {
-                    print("[APIClient] Raw JSON: \(jsonString)")
+                    debugLog("[APIClient] Raw JSON: \(jsonString)")
                 }
             }
             throw APIError.decoding
@@ -318,6 +312,24 @@ final class APIClient {
         }
 
         return request
+    }
+
+    private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        print(message())
+#endif
+    }
+
+    private func debugDumpJSONKeys(from data: Data) {
+#if DEBUG
+        if let object = try? JSONSerialization.jsonObject(with: data),
+           let dict = object as? [String: Any] {
+            print("[APIClient] Response keys: \(dict.keys.sorted())")
+            if let user = dict["user"] as? [String: Any] {
+                print("[APIClient] User keys: \(user.keys.sorted())")
+            }
+        }
+#endif
     }
 
     private func refreshTokens(refreshToken: String) async throws -> AuthTokens {
