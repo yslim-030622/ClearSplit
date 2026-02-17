@@ -18,7 +18,7 @@
 
 - **iOS app** (SwiftUI, async/await) handles UI, local state, and Keychain token storage
 - **FastAPI backend** exposes REST endpoints, enforces domain rules, manages auth
-- **PostgreSQL 16** stores all relational data (20+ tables, 14 migrations)
+- **PostgreSQL 16** stores all relational data (18 tables, 14 migrations)
 - **S3-compatible storage** stores receipt images with presigned URL access
 - **Tesseract OCR** runs server-side for receipt text extraction
 
@@ -37,10 +37,42 @@
 
 - **Thin routes, thick services** — route handlers delegate to service functions; business logic never lives in route files
 - **Role-aware permissions** — `owner`, `member`, `viewer` roles checked at service boundaries, not just route level
-- **Deterministic split arithmetic** — integer cents with stable remainder distribution (first members get extra cent)
+- **Deterministic split arithmetic** — integer cents with stable remainder distribution (payer-preferred, then UUID-sorted)
 - **Idempotency support** — mutation endpoints accept `Idempotency-Key` header; replays return cached responses, payload mismatches return 409
 - **Group-scoped integrity** — composite foreign keys ensure expenses, splits, settlements, and shopping items can only reference memberships within their own group
 - **Async-first** — SQLAlchemy 2.0 async with asyncpg driver, async session management throughout
+- **Deferred FK constraints** — settlement constraints are deferred to handle complex atomic operations within a single transaction
+
+## Backend Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Route Handlers (app/api/)                          │
+│  ─ HTTP input/output, schema validation             │
+│  ─ Delegates to services, never contains logic      │
+├─────────────────────────────────────────────────────┤
+│  Service Layer (app/services/)                      │
+│  ─ Business logic, authorization checks             │
+│  ─ Domain invariant enforcement                     │
+│  ─ Transaction orchestration                        │
+├─────────────────────────────────────────────────────┤
+│  Auth Layer (app/auth/)                             │
+│  ─ JWT creation/validation, password hashing        │
+│  ─ Refresh token rotation with JTI tracking         │
+│  ─ FastAPI dependency injection for auth context     │
+├─────────────────────────────────────────────────────┤
+│  Core Utilities (app/core/)                         │
+│  ─ Settings (Pydantic BaseSettings, SecretStr)      │
+│  ─ Rate limiting (in-memory sliding window)         │
+│  ─ Idempotency key management                       │
+│  ─ Identity normalization (case-insensitive)        │
+├─────────────────────────────────────────────────────┤
+│  Data Layer                                         │
+│  ─ Models (app/models/) — 18 SQLAlchemy ORM models  │
+│  ─ Schemas (app/schemas/) — Pydantic DTOs           │
+│  ─ Database (app/db/) — async session + TLS config  │
+└─────────────────────────────────────────────────────┘
+```
 
 ## Core Domain Flows
 
@@ -51,6 +83,7 @@
 - Refresh rotation: old token is revoked (`revoked_at` set, `replaced_by_jti` recorded), new token issued with fresh JTI
 - Replaying a revoked refresh token returns 401
 - Passwords hashed with bcrypt via `bcrypt.gensalt()`
+- Timing-attack resistant: login always runs password verification (dummy hash for unknown users)
 
 ### Identity Normalization
 
@@ -72,6 +105,7 @@
 - Confirmed payments feed back into live balance computation
 - Payment can optionally link to shopping sessions via join table `settlement_payment_sessions`
 - Settlement batches are immutable snapshots of computed transfers at a point in time
+- Only status and void reason are mutable on batches (per ADR 0001)
 
 ### Shopping Sessions
 
@@ -80,6 +114,7 @@
 - Participant changes are managed by payer only
 - Item sharers get deterministic equal splits with payer-preferred remainder assignment
 - One receipt per session (enforced by unique constraint on `session_id`)
+- Items can be created by any session participant; edit/delete restricted to creator, payer, or group owner
 
 ### Receipt and OCR Pipeline
 
@@ -97,6 +132,19 @@
 - Declined friendships can be re-sent
 - Check constraints ensure: distinct users, requester is a participant
 
+## Middleware Pipeline
+
+Requests pass through these middleware layers in order:
+
+1. **CORS Middleware** — origin validation (HTTPS-only in non-local environments)
+2. **Security Headers Middleware** — adds protective headers:
+   - `X-Content-Type-Options: nosniff`
+   - `X-Frame-Options: DENY`
+   - `Referrer-Policy: strict-origin-when-cross-origin`
+   - `X-Permitted-Cross-Domain-Policies: none`
+   - `Strict-Transport-Security` (non-local environments only, max-age=63072000)
+3. **Request Validation Error Handler** — sanitizes validation errors (removes raw input values from responses)
+
 ## iOS Architecture
 
 ### State Management
@@ -107,17 +155,18 @@
 
 ### Networking Layer
 
-- `APIClient` singleton handles all HTTP communication
+- `APIClient` singleton handles all HTTP communication (390 lines)
 - `AuthCoordinator` (Swift actor) manages thread-safe token storage and de-duplicates concurrent refresh requests
 - Automatic 401 retry: on unauthorized response, refreshes token and replays the original request once
 - JSON key conversion: `convertFromSnakeCase` / `convertToSnakeCase`
 - Date parsing supports multiple ISO-8601 formats including microsecond precision
+- Multipart form-data support for receipt image uploads
 
 ### Service Layer
 
 - Protocol-based services: `AuthServicing`, `GroupsServicing`, `ShoppingServicing`, `SettlementServicing`, `FriendsServicing`
 - Each service wraps `APIClient.request()` calls with typed request/response models
-- Multipart upload support for receipt images
+- Protocol-based design enables easy mocking for unit tests
 
 ### Navigation
 
@@ -125,6 +174,15 @@
 - Groups tab: list → detail → shopping sessions / balances & settlements
 - Shopping detail: participants → receipts → items → extracted items review
 - Login/signup presented when unauthenticated
+- Uses SwiftUI `NavigationStack` with conditional navigation and sheet/fullScreenCover modals
+
+### Design System
+
+- **Spacing**: xxs(4), xs(8), sm(12), md(16), lg(20), xl(24), xxl(32)
+- **Radius**: sm(8), md(12), lg(16), xl(20), pill(999)
+- **Typography**: hero, title, sectionTitle, body, bodyStrong, subheadline, footnote, caption
+- **Colors**: brand palette (blue600), semantic colors (success/warning/danger), surface variants
+- **Components**: 26 reusable components (cards, avatars, form elements, layout helpers, state views)
 
 ### Token Storage
 
@@ -137,7 +195,9 @@
 - Non-local environments require explicit HTTPS CORS origins (validated at startup)
 - Trusted-proxy header handling is opt-in (`TRUST_PROXY_HEADERS=false` by default) with IP allowlist
 - Rate limiting protects signup (5/5min), login (10/60s), and member preview (30/60s per group/user/IP)
-- Rate limiting disabled in test environment
+- Rate limiting disabled in test environment; process-local only (each replica has own counters)
 - Receipt processing defends against malformed/oversized image payloads
 - Database TLS enforced by default in non-local environments
 - Secrets use `SecretStr` in Pydantic config with accessor methods (never exposed in logs)
+- Error responses are sanitized to prevent password/secret leakage
+- API documentation endpoints disabled in non-local environments
