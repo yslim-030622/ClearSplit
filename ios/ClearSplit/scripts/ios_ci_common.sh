@@ -68,6 +68,25 @@ resolved_destination() {
   echo "platform=iOS Simulator"
 }
 
+resolved_build_destination() {
+  if [[ -n "${IOS_BUILD_DESTINATION:-}" ]]; then
+    echo "$IOS_BUILD_DESTINATION"
+    return
+  fi
+
+  local destination
+  destination="$(resolved_destination)"
+
+  # Xcode 26 runners can expose only the generic simulator placeholder for build.
+  # In that case, xcodebuild requires the explicit generic destination form.
+  if [[ "$destination" == "platform=iOS Simulator" ]]; then
+    echo "generic/platform=iOS Simulator"
+    return
+  fi
+
+  echo "$destination"
+}
+
 run_xcodebuild() {
   local name="$1"
   shift
