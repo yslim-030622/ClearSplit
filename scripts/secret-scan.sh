@@ -36,8 +36,8 @@ declare -a PATTERN_REGEXES=(
     '(secret|token)\s*=\s*["\047][a-zA-Z0-9]{20,}["\047]'
 )
 
-# Files to scan (only git-tracked files, excluding safe paths)
-FILES=$(git ls-files | grep -v -E '(\.env\.example|SECURITY\.md|secret-scan\.sh|\.md$|\.txt$|\.gitignore|LICENSE|\.yml$)' || true)
+# Files to scan (only git-tracked files, excluding docs/config/test fixtures)
+FILES=$(git ls-files | grep -v -E '(\.env\.example|SECURITY\.md|secret-scan\.sh|\.md$|\.txt$|\.gitignore|LICENSE|\.yml$|^backend/app/tests/|^backend/test_.*\.sh$|^backend/QUICK_TEST\.sh$|^ios/.*/Tests/)' || true)
 
 if [ -z "$FILES" ]; then
     echo -e "${GREEN}No files to scan${NC}"
@@ -104,4 +104,3 @@ else
     echo "See SECURITY.md for details"
     exit 1
 fi
-

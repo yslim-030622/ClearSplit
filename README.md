@@ -102,6 +102,14 @@ Security helpers:
 ./scripts/verify-security.sh
 ```
 
+Optional pre-commit setup:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
 ## Documentation
 
 Start here:

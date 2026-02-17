@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import logging
 import time
 from collections.abc import Callable
 from collections import defaultdict, deque
@@ -19,6 +20,16 @@ IPNetwork = Union[ipaddress.IPv4Network, ipaddress.IPv6Network]
 
 settings = get_settings()
 _rate_limit_enabled = settings.env.lower() != "test"
+logger = logging.getLogger(__name__)
+
+# This limiter is intentionally process-local.
+# In multi-replica production deployments each instance enforces its own counters,
+# so aggregate limits are weaker than single-instance behavior.
+if settings.env.lower() == "production":
+    logger.warning(
+        "Rate limiting backend is process-local memory. "
+        "Use a shared store (e.g. Redis) for strict global limits across replicas."
+    )
 
 
 def _parse_trusted_proxy_networks() -> list[IPNetwork]:

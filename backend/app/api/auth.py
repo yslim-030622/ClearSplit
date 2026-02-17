@@ -35,6 +35,7 @@ from app.schemas.user import UserRead
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_DUMMY_PASSWORD_HASH = hash_password("clearsplit-login-dummy-password")
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -167,6 +168,8 @@ async def login(
     user = result.scalar_one_or_none()
 
     if not user:
+        # Always run a bcrypt check to reduce account-existence timing signals.
+        verify_password(request.password, _DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username/email or password",
