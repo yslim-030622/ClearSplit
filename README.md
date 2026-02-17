@@ -49,6 +49,17 @@ This starts:
 - `db` on `localhost:${POSTGRES_PORT:-5432}`
 - `api` on `http://localhost:8000`
 
+To run the local API against an external PostgreSQL (for example AWS RDS), set
+`API_DATABASE_URL` before `docker compose up`:
+
+```bash
+export API_DATABASE_URL='postgresql+asyncpg://<user>:<password>@<rds-host>:5432/<db>?ssl=require'
+docker compose up --build
+```
+
+With this override, iOS simulator traffic still goes to local API
+(`http://127.0.0.1:8000`), but persistence goes to the external database.
+
 Health checks:
 - `GET /health/live`
 - `GET /health/ready`

@@ -43,7 +43,7 @@ if [ -z "$ACCESS_TOKEN" ] || [ -z "$REFRESH_TOKEN" ]; then
     echo ""
     echo "Troubleshooting:"
     echo "  1. Check server logs for detailed error"
-    echo "  2. Verify database is running: docker-compose ps"
+    echo "  2. Verify database is running: docker compose ps"
     echo "  3. Run migrations: alembic upgrade head"
     echo "  4. Check DATABASE_URL in .env file"
     exit 1

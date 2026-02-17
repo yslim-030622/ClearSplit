@@ -7,7 +7,7 @@ on:
       - "backend/**"
       - ".github/workflows/ci.yml"
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - "backend/**"
       - ".github/workflows/ci.yml"
@@ -263,9 +263,9 @@ jobs:
             backend/.coverage
           retention-days: 14
 
-  backend-test-main:
-    name: Backend Tests (Main Full Suite)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  backend-test-staging:
+    name: Backend Tests (Staging Full Suite)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     needs: [backend-lint, backend-migrations]
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -372,20 +372,20 @@ jobs:
           print(f"- Branch coverage: {branch_rate:.2f}%")
           PY
 
-      - name: Upload main test artifacts
+      - name: Upload staging test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-main-test-artifacts
+          name: backend-staging-test-artifacts
           path: |
             backend/artifacts
             backend/.coverage
           retention-days: 21
 
-  backend-archive-main:
-    name: Backend Archive Build (Main)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [backend-test-main]
+  backend-archive-staging:
+    name: Backend Archive Build (Staging)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    needs: [backend-test-staging]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -404,6 +404,6 @@ jobs:
       - name: Upload archive build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: backend-main-build-artifacts
+          name: backend-staging-build-artifacts
           path: backend-build-artifacts
           retention-days: 21
