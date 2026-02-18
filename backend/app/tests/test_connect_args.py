@@ -15,8 +15,7 @@ def test_sslmode_require_maps_to_ssl_connect_arg() -> None:
     assert engine_url == "postgresql+asyncpg://user:pass@db.example.com:5432/app"
     ssl_context = connect_args["ssl"]
     assert isinstance(ssl_context, ssl.SSLContext)
-    assert ssl_context.verify_mode == ssl.CERT_NONE
-    assert ssl_context.check_hostname is False
+    assert ssl_context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_ssl_true_maps_to_ssl_connect_arg() -> None:
@@ -29,8 +28,7 @@ def test_ssl_true_maps_to_ssl_connect_arg() -> None:
     assert engine_url == "postgresql+asyncpg://user:pass@db.example.com:5432/app"
     ssl_context = connect_args["ssl"]
     assert isinstance(ssl_context, ssl.SSLContext)
-    assert ssl_context.verify_mode == ssl.CERT_NONE
-    assert ssl_context.check_hostname is False
+    assert ssl_context.verify_mode == ssl.CERT_REQUIRED
 
 
 def test_ssl_false_maps_to_disabled_ssl_connect_arg() -> None:
