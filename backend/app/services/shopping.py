@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from app.models.receipt_extracted_item import ReceiptExtractedItem
 
 logger = logging.getLogger(__name__)
+_UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 
 
 # ============================================================================
@@ -171,6 +172,42 @@ async def can_manage_item(
 # Storage abstraction (S3)
 # ============================================================================
 
+
+async def _read_upload_with_size_limit(
+    file: UploadFile,
+    *,
+    max_bytes: int,
+    chunk_size: int = _UPLOAD_READ_CHUNK_BYTES,
+) -> bytes:
+    """Read uploaded content in bounded chunks to avoid unbounded memory growth."""
+    chunks: list[bytes] = []
+    total_bytes = 0
+    max_bytes_plus_one = max_bytes + 1
+
+    while True:
+        remaining_before_reject = max_bytes_plus_one - total_bytes
+        read_size = min(chunk_size, remaining_before_reject)
+        chunk = await file.read(read_size)
+        if not chunk:
+            break
+
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File too large. Maximum size is {max_bytes} bytes",
+            )
+
+    if total_bytes == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+
+    return b"".join(chunks)
+
+
 class ReceiptStorage:
     """S3 storage for receipt images."""
 
@@ -213,20 +250,11 @@ class ReceiptStorage:
                 detail="Invalid file type. Expected image upload.",
             )
 
-        # Read file content
-        content = await file.read()
-        if not content:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty",
-            )
-
-        # Validate file size
-        if len(content) > self.settings.max_receipt_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File too large. Maximum size is {self.settings.max_receipt_bytes} bytes",
-            )
+        # Read in bounded chunks to reject oversized uploads early.
+        content = await _read_upload_with_size_limit(
+            file,
+            max_bytes=self.settings.max_receipt_bytes,
+        )
 
         detected_format, width, height = self._detect_image_metadata(content)
         total_pixels = width * height
