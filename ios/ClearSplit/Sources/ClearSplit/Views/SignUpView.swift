@@ -21,31 +21,24 @@ struct SignUpView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [Color.brandSubtle, Color.pageBackground],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .ignoresSafeArea()
+                authBackground
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         Spacer()
-                            .frame(height: 24)
+                            .frame(height: 16)
 
-                        VStack(spacing: 8) {
-                            Text("Create Account")
-                                .font(ClearSplitTheme.Typography.hero)
-                                .foregroundColor(.textPrimary)
-                            Text("Set up your ClearSplit profile")
-                                .font(ClearSplitTheme.Typography.body)
-                                .foregroundColor(.textSecondary)
-                        }
+                        cancelButtonRow
 
                         Spacer()
-                            .frame(height: 24)
+                            .frame(height: 20)
 
-                        VStack(spacing: 16) {
+                        headerSection
+
+                        Spacer()
+                        .frame(height: 24)
+
+                        VStack(spacing: 20) {
                             VStack(spacing: 12) {
                                 inputField(
                                     title: "First Name",
@@ -130,73 +123,94 @@ struct SignUpView: View {
                                     }
                                 }
                             } label: {
-                                HStack {
+                                HStack(spacing: 8) {
                                     if viewModel.isLoading {
                                         ProgressView()
                                             .tint(.white)
                                     }
                                     Text("Create Account")
-                                        .font(ClearSplitTheme.Typography.bodyStrong)
-                                        .foregroundColor(.textOnBrand)
                                 }
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                                .background(
-                                    viewModel.isLoading ||
-                                    viewModel.email.isEmpty ||
-                                    viewModel.password.isEmpty ||
-                                    viewModel.confirmPassword.isEmpty
-                                        ? Color.brandPrimary.opacity(0.75)
-                                        : Color.brandPrimary
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
-                            .disabled(
-                                viewModel.isLoading ||
-                                viewModel.email.isEmpty ||
-                                viewModel.password.isEmpty ||
-                                viewModel.confirmPassword.isEmpty
-                            )
-                            .buttonStyle(ScaleButtonStyle())
+                            .buttonStyle(PrimaryActionButtonStyle(isEnabled: canSubmit))
+                            .disabled(!canSubmit)
                             .accessibilityIdentifier("signup.submitButton")
                         }
                         .padding(24)
-                        .background(Color.cardBackground)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .stroke(Color.borderMedium, lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .applyElevation(.low)
+                        .cardStyle()
 
                         Spacer()
-                            .frame(height: 20)
-
-                        Button("Already have an account? Log In") {
-                            dismiss()
-                        }
-                        .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
-                        .foregroundColor(.textSecondary)
-                        .disabled(viewModel.isLoading)
-                        .padding(.bottom, 24)
-                        .accessibilityIdentifier("signup.loginLinkButton")
+                            .frame(height: 24)
                     }
                     .padding(.horizontal, 24)
                     .frame(maxWidth: 420)
                     .frame(maxWidth: .infinity)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(viewModel.isLoading)
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .alert("Sign Up Failed", isPresented: $viewModel.showAlert) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(viewModel.alertMessage ?? "Unknown error")
+        }
+    }
+
+    private var canSubmit: Bool {
+        !viewModel.isLoading &&
+        !viewModel.email.isEmpty &&
+        !viewModel.password.isEmpty &&
+        !viewModel.confirmPassword.isEmpty
+    }
+
+    private var authBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.brandSubtle, Color.pageBackground],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color.brandPrimary.opacity(0.10))
+                .frame(width: 260, height: 260)
+                .blur(radius: 34)
+                .offset(x: 110, y: -300)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var cancelButtonRow: some View {
+        HStack {
+            Button("Cancel") {
+                dismiss()
+            }
+            .font(ClearSplitTheme.Typography.bodyStrong)
+            .foregroundColor(.textSecondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.cardBackground)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color.borderLight, lineWidth: 1)
+            )
+            .applyElevation(.low)
+            .disabled(viewModel.isLoading)
+
+            Spacer()
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 8) {
+            Text("Create Account")
+                .font(ClearSplitTheme.Typography.hero)
+                .foregroundColor(.textPrimary)
+
+            Text("Set up your ClearSplit profile")
+                .font(ClearSplitTheme.Typography.body)
+                .foregroundColor(.textSecondary)
         }
     }
 
@@ -212,38 +226,18 @@ struct SignUpView: View {
         submitLabel: SubmitLabel,
         onSubmit: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
-                .foregroundColor(.textSecondary)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.cardBackground)
-
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        focusedField == field ? Color.brandPrimary : Color.borderMedium,
-                        lineWidth: focusedField == field ? 2 : 1
-                    )
-
-                TextField(placeholder, text: text)
-                    .textContentType(textContentType)
-                    .keyboardType(keyboardType)
-                    .textInputAutocapitalization(autocapitalization)
-                    .autocorrectionDisabled()
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundColor(.textPrimary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .focused($focusedField, equals: field)
-                    .submitLabel(submitLabel)
-                    .onSubmit(onSubmit)
-                    .accessibilityIdentifier(accessibilityIdentifier)
-            }
-            .frame(height: 48)
+        labeledInput(title: title, isFocused: focusedField == field) {
+            TextField(placeholder, text: text)
+                .textContentType(textContentType)
+                .keyboardType(keyboardType)
+                .textInputAutocapitalization(autocapitalization)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: field)
+                .submitLabel(submitLabel)
+                .onSubmit(onSubmit)
+                .accessibilityIdentifier(accessibilityIdentifier)
+                .disabled(viewModel.isLoading)
         }
-        .disabled(viewModel.isLoading)
     }
 
     private func secureInputField(
@@ -256,6 +250,24 @@ struct SignUpView: View {
         submitLabel: SubmitLabel,
         onSubmit: @escaping () -> Void
     ) -> some View {
+        labeledInput(title: title, isFocused: focusedField == field) {
+            SecureField(placeholder, text: text)
+                .textContentType(textContentType)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: field)
+                .submitLabel(submitLabel)
+                .onSubmit(onSubmit)
+                .accessibilityIdentifier(accessibilityIdentifier)
+                .disabled(viewModel.isLoading)
+        }
+    }
+
+    private func labeledInput<Content: View>(
+        title: String,
+        isFocused: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
@@ -263,29 +275,27 @@ struct SignUpView: View {
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.cardBackground)
+                    .fill(isFocused ? Color.cardBackground : Color.cardInset)
 
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(
-                        focusedField == field ? Color.brandPrimary : Color.borderMedium,
-                        lineWidth: focusedField == field ? 2 : 1
+                        isFocused ? Color.brandPrimary : Color.borderLight,
+                        lineWidth: isFocused ? 2 : 1
                     )
 
-                SecureField(placeholder, text: text)
-                    .textContentType(textContentType)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.system(size: 16, weight: .regular))
+                if isFocused {
+                    RoundedRectangle(cornerRadius: 15)
+                        .stroke(Color.brandPrimary.opacity(0.20), lineWidth: 3)
+                        .padding(-3)
+                }
+
+                content()
+                    .font(.system(size: 16, weight: .regular, design: .rounded))
                     .foregroundColor(.textPrimary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
-                    .focused($focusedField, equals: field)
-                    .submitLabel(submitLabel)
-                    .onSubmit(onSubmit)
-                    .accessibilityIdentifier(accessibilityIdentifier)
             }
             .frame(height: 48)
         }
-        .disabled(viewModel.isLoading)
     }
 }
