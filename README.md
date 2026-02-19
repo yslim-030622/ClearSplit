@@ -21,7 +21,7 @@ graph TB
         IK["Idempotency Gate<br/>Idempotency-Key Header"]
         JWT["JWT Auth<br/>HS256 · 15min Access · 30d Refresh"]
 
-        subgraph "API Layer"
+        subgraph API_LAYER["API Layer"]
             AUTH_R["/auth"]
             GRP_R["/groups"]
             EXP_R["/expenses"]
@@ -35,8 +35,8 @@ graph TB
         end
 
         ASGI --> MW --> RL --> IK --> JWT
-        JWT --> API Layer
-        API Layer --> SVC
+        JWT --> API_LAYER
+        API_LAYER --> SVC
     end
 
     subgraph "Data Stores"
