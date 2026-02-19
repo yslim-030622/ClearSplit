@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import create_access_token, decode_token
+from app.core import rate_limit as rate_limit_module
 from app.models.user import User
 from app.tests.conftest import create_test_user
 
@@ -199,6 +200,43 @@ async def test_refresh_token_success(client: AsyncClient, session: AsyncSession)
     payload = decode_token(new_access_token, token_type="access")
     assert payload["sub"] == str(user.id)
     assert payload["type"] == "access"
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rate_limit_enforced(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Refresh endpoint should enforce abuse throttling."""
+    user = create_test_user(email="refresh-rate-limit@example.com", username="refreshratelimit")
+    session.add(user)
+    await session.commit()
+
+    login_response = await client.post(
+        "/auth/login",
+        json={"identifier": "refresh-rate-limit@example.com", "password": "password123"},
+    )
+    assert login_response.status_code == 200
+    refresh_token = login_response.json()["refresh_token"]
+
+    monkeypatch.setattr(rate_limit_module, "_rate_limit_enabled", True)
+    monkeypatch.setattr(rate_limit_module._refresh_limiter, "limit", 1)
+    rate_limit_module._refresh_limiter._events.clear()
+    rate_limit_module._refresh_limiter._last_seen.clear()
+
+    first_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    second_response = await client.post(
+        "/auth/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
+    assert "too many token refresh attempts" in second_response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

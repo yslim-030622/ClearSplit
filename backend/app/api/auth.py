@@ -20,7 +20,11 @@ from app.auth.refresh_tokens import (
     validate_and_rotate_refresh_token,
 )
 from app.core.identity import normalize_email, normalize_identifier, normalize_username
-from app.core.rate_limit import enforce_login_rate_limit, enforce_signup_rate_limit
+from app.core.rate_limit import (
+    enforce_login_rate_limit,
+    enforce_refresh_rate_limit,
+    enforce_signup_rate_limit,
+)
 from app.db.session import get_session
 from app.models.user import User
 from app.schemas.auth import (
@@ -204,6 +208,7 @@ async def login(
 @router.post("/refresh", response_model=RefreshTokenResponse)
 async def refresh(
     request: RefreshTokenRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> RefreshTokenResponse:
     """Refresh access token using refresh token.
@@ -218,6 +223,8 @@ async def refresh(
     Raises:
         HTTPException: If refresh token is invalid or expired
     """
+    await enforce_refresh_rate_limit(http_request)
+
     try:
         user_id, current_jti = get_refresh_token_identity(request.refresh_token)
     except JWTError:

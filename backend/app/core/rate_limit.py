@@ -184,6 +184,11 @@ _signup_limiter = InMemoryRateLimiter(
     window_seconds=300,
     max_keys=settings.rate_limit_max_keys,
 )
+_refresh_limiter = InMemoryRateLimiter(
+    limit=20,
+    window_seconds=60,
+    max_keys=settings.rate_limit_max_keys,
+)
 _member_preview_limiter = InMemoryRateLimiter(
     limit=30,
     window_seconds=60,
@@ -206,6 +211,15 @@ async def enforce_signup_rate_limit(request: Request) -> None:
     await _signup_limiter.enforce(
         key=f"signup:{_client_identifier(request)}",
         detail="Too many signup attempts. Please try again later.",
+    )
+
+
+async def enforce_refresh_rate_limit(request: Request) -> None:
+    if not _rate_limit_enabled:
+        return
+    await _refresh_limiter.enforce(
+        key=f"refresh:{_client_identifier(request)}",
+        detail="Too many token refresh attempts. Please try again later.",
     )
 
 
