@@ -6,6 +6,7 @@ Expense-splitting API built with FastAPI, PostgreSQL 16, and SQLAlchemy 2.0 asyn
 
 - [Security Policy](SECURITY.md)
 - [iOS App Showcase](SHOWCASE.md)
+- [Documentation Index](docs/INDEX.md)
 
 ---
 

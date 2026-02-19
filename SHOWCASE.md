@@ -21,7 +21,7 @@ This document walks through the actual iOS screens, explains what each one does,
 ## 1. Welcome & Login
 
 <p align="center">
-  <img src="images/screenshots/02_login.png" width="300" alt="Login screen" />
+  <img src="docs/images/screenshots/02_login.png" width="300" alt="Login screen" />
 </p>
 
 The first thing you see when you open ClearSplit. Clean, focused, no distractions — just your email and password.
@@ -42,7 +42,7 @@ If you close and reopen the app later, it silently restores your session from th
 ## 2. Create Account
 
 <p align="center">
-  <img src="images/screenshots/01_create_account.png" width="300" alt="Create Account screen" />
+  <img src="docs/images/screenshots/01_create_account.png" width="300" alt="Create Account screen" />
 </p>
 
 New here? The sign-up form collects just what's needed — name, username, email, and password. No phone number, no social login clutter.
@@ -65,7 +65,7 @@ New here? The sign-up form collects just what's needed — name, username, email
 ## 3. My Groups
 
 <p align="center">
-  <img src="images/screenshots/03_my_groups.png" width="300" alt="My Groups screen" />
+  <img src="docs/images/screenshots/03_my_groups.png" width="300" alt="My Groups screen" />
 </p>
 
 This is your home base after logging in. Every group you belong to shows up here as a card, with the member count and a quick status — "All settled up" means nobody owes anyone. That's the goal.
@@ -84,7 +84,7 @@ The bottom tab bar gives you three main areas: **Groups**, **Friends**, and **Pr
 ## 4. Group Overview
 
 <p align="center">
-  <img src="images/screenshots/04_group_overview.png" width="300" alt="Group Overview screen" />
+  <img src="docs/images/screenshots/04_group_overview.png" width="300" alt="Group Overview screen" />
 </p>
 
 Tap into a group and you get the full picture at a glance. The blue hero card at the top shows the **total spent across all shopping trips** — a number computed by summing every shopping session's items.
@@ -106,7 +106,7 @@ Below that, you see:
 ## 5. Shopping Sessions
 
 <p align="center">
-  <img src="images/screenshots/05_shopping_sessions.png" width="300" alt="Shopping Sessions screen" />
+  <img src="docs/images/screenshots/05_shopping_sessions.png" width="300" alt="Shopping Sessions screen" />
 </p>
 
 Each shopping session represents one trip or one bill. The card shows:
@@ -129,7 +129,7 @@ The blue "+" button in the top right creates a new session via `POST /groups/{id
 ## 6. Session Detail — Participants & Receipts
 
 <p align="center">
-  <img src="images/screenshots/06_session_participants.png" width="300" alt="Session Participants screen" />
+  <img src="docs/images/screenshots/06_session_participants.png" width="300" alt="Session Participants screen" />
 </p>
 
 Inside a session, you get the full breakdown. The blue header shows the **total amount** and **who paid**.
@@ -147,7 +147,7 @@ The receipt thumbnail you see is fetched via `GET /receipts/{id}/download-url`, 
 ## 7. Session Detail — Items & Splits
 
 <p align="center">
-  <img src="images/screenshots/07_session_items.png" width="300" alt="Session Items screen" />
+  <img src="docs/images/screenshots/07_session_items.png" width="300" alt="Session Items screen" />
 </p>
 
 This is where the splitting actually happens. Each item card shows:
@@ -172,7 +172,7 @@ This is handled by `PUT /items/{id}/sharers` on the backend, which recalculates 
 ## 8. Friends
 
 <p align="center">
-  <img src="images/screenshots/08_friends.png" width="300" alt="Friends screen" />
+  <img src="docs/images/screenshots/08_friends.png" width="300" alt="Friends screen" />
 </p>
 
 The Friends tab is your social layer. At the top, you'll see **Friend Requests** — incoming requests with accept (checkmark) and decline (X) buttons.
@@ -193,7 +193,7 @@ The blue info banner at the bottom explains why friends matter: *"Add friends to
 ## 9. Add Friend
 
 <p align="center">
-  <img src="images/screenshots/09_add_friend_modal.png" width="300" alt="Add Friend modal" />
+  <img src="docs/images/screenshots/09_add_friend_modal.png" width="300" alt="Add Friend modal" />
 </p>
 
 Tap the "+ Add" button and this form slides in. You can find friends by **email/username** or by **User ID** — toggle between the two input modes at the top.
@@ -212,7 +212,7 @@ Type in their identifier, hit "Send Request", and a friend request is created vi
 ## 10. Profile
 
 <p align="center">
-  <img src="images/screenshots/10_profile.png" width="300" alt="Profile screen" />
+  <img src="docs/images/screenshots/10_profile.png" width="300" alt="Profile screen" />
 </p>
 
 The Profile tab shows your identity and activity summary:
@@ -231,7 +231,7 @@ The stats are computed client-side from the groups and session data already load
 ## 11. Balances & Settlement
 
 <p align="center">
-  <img src="images/screenshots/11_balances_settlement.png" width="300" alt="Balances & Settlement screen" />
+  <img src="docs/images/screenshots/11_balances_settlement.png" width="300" alt="Balances & Settlement screen" />
 </p>
 
 This is where everything comes together. The settlement screen answers the only question that matters: **who owes who, and how much?**
@@ -259,7 +259,7 @@ It computes a net balance per member (paid minus owed), then runs a **transfer m
 ## 12. Add Member
 
 <p align="center">
-  <img src="images/screenshots/12_add_member_modal.png" width="300" alt="Add Member modal" />
+  <img src="docs/images/screenshots/12_add_member_modal.png" width="300" alt="Add Member modal" />
 </p>
 
 Group owners can add new members through this modal. Type a username, hit Search, and the backend runs a preview check via `POST /groups/{id}/members/preview` — it tells you whether the user exists, whether they're already in the group, and their current role if applicable.
