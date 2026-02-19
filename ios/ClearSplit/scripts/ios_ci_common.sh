@@ -38,7 +38,7 @@ new_log_file() {
   echo "$LOGS_DIR/${name}-$(timestamp).log"
 }
 
-first_simulator_name_from_destinations() {
+first_simulator_id_from_destinations() {
   local destinations="$1"
   local preferred_pattern="${2:-}"
 
@@ -48,22 +48,20 @@ first_simulator_name_from_destinations() {
       if ($0 ~ /id:dvtdevice-/) next
       if (preferred_pattern != "" && $0 !~ preferred_pattern) next
 
-      count = split($0, parts, "name:")
-      if (count < 2) next
-
-      split(parts[2], tail, ",")
-      name = tail[1]
-      gsub(/^[[:space:]]+/, "", name)
-      gsub(/[[:space:]}]+$/, "", name)
-      if (name != "") {
-        print name
-        exit
+      if (match($0, /id:[^,}]+/)) {
+        id = substr($0, RSTART + 3, RLENGTH - 3)
+        gsub(/^[[:space:]]+/, "", id)
+        gsub(/[[:space:]}]+$/, "", id)
+        if (id != "") {
+          print id
+          exit
+        }
       }
     }
   '
 }
 
-first_simulator_name_from_simctl() {
+first_simulator_id_from_simctl() {
   local preferred_pattern="${1:-}"
   local devices
   devices="$(xcrun simctl list devices available 2>/dev/null || true)"
@@ -75,13 +73,13 @@ first_simulator_name_from_simctl() {
 
     {
       if (preferred_pattern != "" && $0 !~ preferred_pattern) next
-      if ($0 !~ /\([0-9A-Fa-f-]+\)/) next
+      if (!match($0, /\([0-9A-Fa-f-]+\)/)) next
 
-      name = $0
-      sub(/^[[:space:]]+/, "", name)
-      sub(/[[:space:]]+\([0-9A-Fa-f-]+\)[[:space:]]+\(.*\)$/, "", name)
-      if (name != "") {
-        print name
+      id = substr($0, RSTART + 1, RLENGTH - 2)
+      gsub(/^[[:space:]]+/, "", id)
+      gsub(/[[:space:]]+$/, "", id)
+      if (id != "") {
+        print id
         exit
       }
     }
@@ -94,6 +92,11 @@ resolved_destination() {
     return
   fi
 
+  if [[ -n "${IOS_SIMULATOR_ID:-}" ]]; then
+    echo "platform=iOS Simulator,id=$IOS_SIMULATOR_ID"
+    return
+  fi
+
   if [[ -n "${IOS_SIMULATOR_NAME:-}" ]]; then
     echo "platform=iOS Simulator,name=$IOS_SIMULATOR_NAME"
     return
@@ -102,22 +105,22 @@ resolved_destination() {
   # Discover an available simulator from xcodebuild output first.
   local destinations
   destinations="$(xcodebuild "${XCODE_BASE_ARGS[@]}" -showdestinations 2>&1 || true)"
-  local simulator_name
-  simulator_name="$(first_simulator_name_from_destinations "$destinations" "name:iPhone")"
-  if [[ -z "$simulator_name" ]]; then
-    simulator_name="$(first_simulator_name_from_destinations "$destinations")"
+  local simulator_id
+  simulator_id="$(first_simulator_id_from_destinations "$destinations" "name:iPhone")"
+  if [[ -z "$simulator_id" ]]; then
+    simulator_id="$(first_simulator_id_from_destinations "$destinations")"
   fi
 
   # Fallback to simctl when xcodebuild output is sparse on some runner images.
-  if [[ -z "$simulator_name" ]]; then
-    simulator_name="$(first_simulator_name_from_simctl "iPhone")"
+  if [[ -z "$simulator_id" ]]; then
+    simulator_id="$(first_simulator_id_from_simctl "iPhone")"
   fi
-  if [[ -z "$simulator_name" ]]; then
-    simulator_name="$(first_simulator_name_from_simctl)"
+  if [[ -z "$simulator_id" ]]; then
+    simulator_id="$(first_simulator_id_from_simctl)"
   fi
 
-  if [[ -n "$simulator_name" ]]; then
-    echo "platform=iOS Simulator,name=$simulator_name"
+  if [[ -n "$simulator_id" ]]; then
+    echo "platform=iOS Simulator,id=$simulator_id"
     return
   fi
 
