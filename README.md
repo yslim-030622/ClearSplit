@@ -2,6 +2,11 @@
 
 Expense-splitting API built with FastAPI, PostgreSQL 16, and SQLAlchemy 2.0 async. Tracks group expenses, shopping sessions with receipt OCR, and computes minimum-transfer settlements using deterministic integer-cent arithmetic. Consumed by a native SwiftUI iOS client over HTTPS/JSON with JWT auth.
 
+## Quick Links
+
+- [Security Policy](SECURITY.md)
+- [iOS App Showcase](SHOWCASE.md)
+
 ---
 
 ## Backend Architecture
