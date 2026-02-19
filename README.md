@@ -1,419 +1,421 @@
 # ClearSplit
 
-ClearSplit is a full-stack expense-splitting platform for groups of people — roommates, travel companions, dinner friends — who share costs and want to settle up fairly. A **Python/FastAPI backend** handles group finances, shopping session tracking, and receipt OCR, while a **native SwiftUI iOS app** gives users a polished mobile experience with offline-safe token management and zero external dependencies. The system computes who-owes-whom using deterministic integer arithmetic (no floating-point rounding surprises) and minimizes the number of transfers needed to settle a group.
-
-## Table of Contents
-
-- [System Architecture](#system-architecture)
-- [Data Flow](#data-flow)
-- [Request Lifecycle](#request-lifecycle)
-- [Backend](#backend)
-- [iOS App](#ios-app)
-- [CI/CD](#cicd)
-- [Deployment & Operations](#deployment--operations)
-- [Local Development](#local-development)
-- [What This Repo Contains](#what-this-repo-contains)
-- [Contributing](#contributing)
-- [Security](#security)
+Expense-splitting API built with FastAPI, PostgreSQL 16, and SQLAlchemy 2.0 async. Tracks group expenses, shopping sessions with receipt OCR, and computes minimum-transfer settlements using deterministic integer-cent arithmetic. Consumed by a native SwiftUI iOS client over HTTPS/JSON with JWT auth.
 
 ---
 
-## System Architecture
-
-The system is a classic client-server split: a stateless API backed by PostgreSQL and S3, consumed by the iOS app over HTTPS/JSON.
+## Backend Architecture
 
 ```mermaid
 graph TB
-    subgraph "iOS Client"
-        App["SwiftUI App<br/>(MVVM + AppState)"]
-        KC["Keychain<br/>(Token Storage)"]
-        App <--> KC
+    subgraph "Clients"
+        iOS["iOS App · SwiftUI"]
+        Web["Any HTTP Client"]
     end
 
-    subgraph "Backend (Python 3.11)"
-        API["FastAPI<br/>Uvicorn ASGI"]
-        MW["Middleware Stack<br/>CORS · Security Headers<br/>Rate Limiting · Idempotency"]
-        SVC["Service Layer<br/>Auth · Groups · Expenses<br/>Shopping · Settlements · Friends"]
-        API --> MW --> SVC
+    subgraph "Backend · Python 3.11"
+        direction TB
+        ASGI["Uvicorn ASGI Server"]
+        MW["Middleware<br/>CORS · Security Headers · Validation Sanitizer"]
+        RL["Rate Limiter<br/>Sliding Window · Per-IP"]
+        IK["Idempotency Gate<br/>Idempotency-Key Header"]
+        JWT["JWT Auth<br/>HS256 · 15min Access · 30d Refresh"]
+
+        subgraph "API Layer"
+            AUTH_R["/auth"]
+            GRP_R["/groups"]
+            EXP_R["/expenses"]
+            SHOP_R["/shopping"]
+            SETTLE_R["/settlements"]
+            FRIEND_R["/friends"]
+        end
+
+        subgraph "Service Layer"
+            SVC["Business Logic<br/>Auth Checks · Split Engine<br/>Balance Aggregator · Transfer Minimizer"]
+        end
+
+        ASGI --> MW --> RL --> IK --> JWT
+        JWT --> API Layer
+        API Layer --> SVC
     end
 
     subgraph "Data Stores"
-        PG["PostgreSQL 16<br/>(17 tables, Alembic migrations)"]
-        S3["AWS S3<br/>(Receipt images)"]
-        OCR["Tesseract OCR<br/>(In-process)"]
+        PG["PostgreSQL 16<br/>17 tables · Alembic migrations"]
+        S3["AWS S3<br/>Receipt images · Presigned URLs"]
+        OCR["Tesseract OCR<br/>In-process · Concurrency cap"]
     end
 
-    App -- "HTTPS / JSON<br/>Bearer JWT" --> API
+    iOS -- "HTTPS / Bearer JWT" --> ASGI
+    Web -- "HTTPS / Bearer JWT" --> ASGI
     SVC --> PG
     SVC --> S3
     SVC --> OCR
 ```
 
-**Why each piece exists:**
-
-| Component | Role |
-|-----------|------|
-| **FastAPI + Uvicorn** | Async Python framework — native `async/await` pairs well with asyncpg for non-blocking DB access |
-| **SQLAlchemy 2.0 async** | Type-safe ORM with async session support; Alembic handles schema evolution |
-| **PostgreSQL 16** | Relational integrity for financial data — foreign keys, check constraints, and unique indices enforce correctness |
-| **S3 (boto3)** | Receipt images stored privately; presigned URLs (15-min TTL) grant temporary download access |
-| **Tesseract (pytesseract)** | On-device OCR runs in-process with concurrency cap (default 2) — no external ML service needed |
-| **SwiftUI + MVVM** | Declarative UI with zero external dependencies; actor-based `AuthCoordinator` deduplicates concurrent token refreshes |
-| **Keychain** | iOS secure enclave for JWT storage — tokens never touch `UserDefaults` or disk |
-
-*Inferred from: `backend/app/main.py`, `backend/app/core/config.py`, `backend/app/db/session.py`, `backend/Dockerfile`, `ios/ClearSplit/Sources/ClearSplit/Networking/APIClient.swift`, `ios/ClearSplit/Sources/ClearSplit/Config/APIConfig.swift`*
+| Layer | Stack | Purpose |
+|-------|-------|---------|
+| ASGI | Uvicorn + FastAPI 0.122 | Async request handling, OpenAPI docs (local only) |
+| ORM | SQLAlchemy 2.0 async + asyncpg | Non-blocking DB access, relationship loading |
+| Database | PostgreSQL 16 | ACID for financial data, check constraints, cascade deletes |
+| Migrations | Alembic (14 revisions) | Schema versioning with upgrade/downgrade |
+| Auth | PyJWT HS256 + bcrypt | Stateless access tokens, refresh rotation with JTI chain |
+| Storage | boto3 S3 | Private receipt bucket, presigned GET URLs (15-min TTL) |
+| OCR | pytesseract + Pillow | In-process text extraction, concurrency-limited (default 2) |
+| Config | pydantic-settings + SecretStr | Typed env loading, secrets never in logs |
 
 ---
 
-## Data Flow
+## Server / API
 
-How money-related data moves through the system, from expense creation to settlement:
+40+ endpoints across 6 domain routers. OpenAPI at `/docs` when `ENV=local`.
 
-```mermaid
-flowchart LR
-    subgraph "Input Sources"
-        Manual["Manual Expense"]
-        Shopping["Shopping Session"]
-        Receipt["Receipt OCR"]
-    end
+### Auth
 
-    subgraph "Processing"
-        Split["Deterministic<br/>Equal-Split Engine<br/>(integer cents)"]
-        Balance["Balance<br/>Aggregator"]
-        Settle["Greedy Transfer<br/>Minimizer"]
-    end
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/auth/signup` | No | Create account. Rate: 5/5min per IP |
+| POST | `/auth/login` | No | Authenticate. Rate: 10/60s per IP. Timing-safe (dummy hash on unknown user) |
+| POST | `/auth/refresh` | No | Rotate refresh token. Revokes old JTI, persists new. Rate: 20/60s per IP |
+| GET | `/auth/me` | Yes | Current user profile |
 
-    subgraph "Output"
-        Balances["Per-Member<br/>Balances"]
-        Transfers["Suggested<br/>Transfers"]
-        Payments["Settlement<br/>Payments"]
-    end
+### Groups & Members
 
-    Manual --> Split
-    Shopping --> Split
-    Receipt -->|"OCR → Review → Import"| Shopping
-    Split --> Balance
-    Balance --> Balances
-    Balance --> Settle
-    Settle --> Transfers
-    Transfers -->|"User confirms"| Payments
-```
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/groups` | Yes | Create group; creator becomes owner |
+| GET | `/groups` | Yes | List user's groups |
+| GET | `/groups/{id}` | Yes | Get group (member required) |
+| DELETE | `/groups/{id}` | Yes | Delete group (owner only, cascades) |
+| POST | `/groups/{id}/members/preview` | Yes | Check user existence before invite (owner, rate-limited) |
+| POST | `/groups/{id}/members` | Yes | Add member (owner only) |
+| GET | `/groups/{id}/members` | Yes | List members |
 
-All financial arithmetic uses **integer cents** with deterministic remainder distribution. When splitting $10.00 among 3 people, the payer gets the extra cent: `[334, 333, 333]`. This is enforced in `backend/app/services/shopping.py` and `backend/app/services/expense.py`.
+### Expenses
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/groups/{id}/expenses` | Yes | Create with equal splits. Supports `Idempotency-Key` |
+| GET | `/groups/{id}/expenses` | Yes | List group expenses |
+| GET | `/expenses/{id}` | Yes | Get by ID (standalone route) |
+
+### Settlements
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/groups/{id}/balances` | Yes | Live balances + suggested transfers |
+| POST | `/groups/{id}/settlements/compute` | Yes | Persist immutable settlement batch. Idempotent |
+| GET | `/groups/{id}/settlements/{batch_id}` | Yes | Get batch |
+| POST | `/groups/{id}/settlements/{batch_id}/pay` | Yes | Create payment record |
+| PATCH | `/groups/{id}/settlements/payments/{pid}` | Yes | Confirm payment (receiver or owner) |
+| DELETE | `/groups/{id}/settlements/payments/{pid}` | Yes | Void payment |
+
+### Shopping Sessions
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/groups/{id}/shopping-sessions` | Yes | Create session |
+| GET | `/groups/{id}/shopping-sessions` | Yes | List sessions |
+| GET | `/shopping-sessions/{id}` | Yes | Get with items, participants, receipts |
+| PATCH | `/shopping-sessions/{id}` | Yes | Update title, date, total, status |
+| POST | `/shopping-sessions/{id}/finalize` | Yes | Finalize session |
+| DELETE | `/shopping-sessions/{id}` | Yes | Delete (cascades items, splits, receipts) |
+| PUT | `/shopping-sessions/{id}/participants` | Yes | Set/replace participants |
+| POST | `/shopping-sessions/{id}/items` | Yes | Create item |
+| PATCH | `/items/{id}` | Yes | Update item (invalidates splits if total changes) |
+| DELETE | `/items/{id}` | Yes | Delete item (cascades splits) |
+| PUT | `/items/{id}/sharers` | Yes | Set sharers with equal-split computation |
+| POST | `/shopping-sessions/{id}/receipt` | Yes | Upload receipt (one per session, 10MB/25MP limit) |
+| GET | `/receipts/{id}/download-url` | Yes | Presigned S3 URL (15-min TTL) |
+| DELETE | `/receipts/{id}` | Yes | Delete receipt from S3 |
+| POST | `/receipts/{id}/extract-items` | Yes | OCR extraction (idempotent) |
+| GET | `/receipts/{id}/extracted-items` | Yes | List extracted items |
+
+### Friends
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/friends/requests` | Yes | Send request (by user_id or identifier) |
+| POST | `/friends/requests/{id}/accept` | Yes | Accept |
+| POST | `/friends/requests/{id}/decline` | Yes | Decline |
+| GET | `/friends` | Yes | List accepted (optional search) |
+| GET | `/friends/requests/incoming` | Yes | Incoming requests |
+| GET | `/friends/requests/outgoing` | Yes | Outgoing requests |
+| DELETE | `/friends/{id}` | Yes | Remove friendship |
+
+### Health
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health/live` | Liveness probe (always 200) |
+| GET | `/health/ready` | Readiness probe (DB + S3 check in local; status-only in prod) |
+| GET | `/health` | Alias for `/health/ready` |
 
 ---
 
-## Request Lifecycle
+## Database
 
-What happens when the iOS app makes an authenticated API call:
-
-```mermaid
-sequenceDiagram
-    participant iOS as iOS App
-    participant API as FastAPI
-    participant MW as Middleware
-    participant SVC as Service Layer
-    participant DB as PostgreSQL
-    participant S3 as AWS S3
-
-    iOS->>API: POST /groups/{id}/expenses<br/>Authorization: Bearer <JWT>
-    API->>MW: CORS check
-    MW->>MW: Security headers injection
-    MW->>MW: Rate limit check (if auth endpoint)
-    MW->>MW: Idempotency-Key dedup (if present)
-    API->>API: JWT decode + verify (HS256)
-    API->>SVC: create_expense(user, group_id, payload)
-    SVC->>DB: Verify membership + role
-    SVC->>DB: INSERT expense + splits (integer cents)
-    SVC-->>API: ExpenseRead response
-    API-->>iOS: 201 Created + JSON
-
-    Note over iOS,API: On 401 → iOS auto-refreshes via /auth/refresh<br/>Actor-based coordinator deduplicates concurrent refreshes
-```
-
-*Inferred from: `backend/app/main.py:83-104` (middleware), `backend/app/api/auth.py` (JWT), `backend/app/api/expenses.py` (route), `ios/ClearSplit/Sources/ClearSplit/Networking/APIClient.swift:144-190` (retry logic)*
-
----
-
-## Backend
-
-### Tech Stack
-
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Framework | FastAPI 0.122 + Uvicorn | Async-native, auto-generated OpenAPI docs, Pydantic validation |
-| ORM | SQLAlchemy 2.0 (async mode) | Type-safe queries, relationship loading, migration support |
-| Database | PostgreSQL 16 + asyncpg | ACID compliance for financial data, async driver |
-| Migrations | Alembic (14 revisions) | Schema versioning with upgrade/downgrade support |
-| Auth | PyJWT (HS256) + bcrypt | Stateless access tokens, secure password hashing |
-| Storage | boto3 (S3) | Private bucket with presigned URLs for receipt images |
-| OCR | pytesseract + Pillow | In-process text extraction with image validation |
-| Config | pydantic-settings + SecretStr | Type-safe env loading, secrets never leak to logs |
-
-### API Surface
-
-40+ endpoints across 7 domains. OpenAPI docs available at `/docs` in local/test environments.
-
-| Domain | Prefix | Key Endpoints | Auth |
-|--------|--------|--------------|------|
-| **Health** | `/health` | `GET /live`, `GET /ready` | No |
-| **Auth** | `/auth` | `POST /signup`, `POST /login`, `POST /refresh`, `GET /me` | No (except `/me`) |
-| **Groups** | `/groups` | CRUD + member management (preview → add), role-based access | Yes |
-| **Expenses** | `/groups/{id}/expenses` | Create (idempotent), list by group, get by ID | Yes |
-| **Settlements** | `/groups/{id}` | Balances, compute settlement batch, payment CRUD + confirmation | Yes |
-| **Shopping** | `/groups/{id}/shopping-sessions` | Session lifecycle, items CRUD, participant management, receipt upload/OCR | Yes |
-| **Friends** | `/friends` | Send/accept/decline requests, list friends, remove | Yes |
-
-### Auth Model
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant API
-    participant DB
-
-    Client->>API: POST /auth/login {username, password}
-    API->>DB: Lookup user (case-insensitive)
-    API->>API: bcrypt.verify(password, hash)<br/>Always runs verify (timing-attack safe)
-    API->>DB: INSERT refresh_token (JTI, expires_at)
-    API-->>Client: {access_token (15min), refresh_token (30d)}
-
-    Note over Client,API: Later, when access token expires...
-
-    Client->>API: POST /auth/refresh {refresh_token}
-    API->>DB: Lookup token by JTI
-    API->>DB: SET revoked_at, replaced_by_jti
-    API->>DB: INSERT new refresh_token
-    API-->>Client: {new access_token, new refresh_token}
-
-    Note over Client,DB: Replaying a revoked refresh token → 401
-```
-
-- Access tokens: JWT (HS256), 15-minute expiry, explicit `token_type: "access"` claim
-- Refresh tokens: Persisted in `refresh_tokens` table with unique JTI, 30-day expiry
-- Rotation: Old token revoked on refresh; `replaced_by_jti` creates an audit chain
-- Passwords: bcrypt via `bcrypt.gensalt()`; unknown users still run a dummy hash comparison
-
-*Inferred from: `backend/app/auth/jwt.py`, `backend/app/api/auth.py`, `backend/app/models/refresh_token.py`*
-
-### Database Schema
-
-17 tables managed by SQLAlchemy ORM + Alembic. Key entities and their relationships:
+### Entity Relationship Diagram
 
 ```mermaid
 erDiagram
-    users ||--o{ memberships : "has many"
-    users ||--o{ friendships : "sends/receives"
-    users ||--o{ refresh_tokens : "has many"
-    groups ||--o{ memberships : "has many"
-    groups ||--o{ expenses : "has many"
-    groups ||--o{ shopping_sessions : "has many"
-    groups ||--o{ settlements : "has many"
-    expenses ||--o{ expense_splits : "split among"
+    users ||--o{ memberships : "joins groups"
+    users ||--o{ refresh_tokens : "authenticates"
+    users ||--o{ friendships : "connects"
+    groups ||--o{ memberships : "has members"
+    groups ||--o{ expenses : "tracks costs"
+    groups ||--o{ shopping_sessions : "tracks shopping"
+    groups ||--o{ settlement_batches : "settles debts"
+    groups ||--o{ settlement_payments : "records payments"
+    expenses ||--o{ expense_splits : "divided into"
+    memberships ||--o{ expense_splits : "owes share"
     shopping_sessions ||--o{ shopping_items : "contains"
     shopping_sessions ||--o{ shopping_session_participants : "includes"
-    shopping_sessions ||--o{ receipt_uploads : "attached"
-    shopping_items ||--o{ shopping_item_splits : "split among"
-    receipt_uploads ||--o{ receipt_extracted_items : "OCR results"
-    memberships ||--o{ expense_splits : "owes/paid"
-    memberships ||--o{ shopping_item_splits : "shares"
+    shopping_sessions ||--|| receipt_uploads : "has receipt"
+    shopping_items ||--o{ shopping_item_splits : "divided into"
+    memberships ||--o{ shopping_item_splits : "shares cost"
+    receipt_uploads ||--o{ receipt_extracted_items : "OCR output"
 
     users {
         uuid id PK
-        string username UK
-        string email UK
-        string password_hash
-        string display_name
+        string username "CI unique"
+        string email "CI unique"
+        string password_hash "bcrypt"
+        string first_name
+        string last_name
+        timestamp created_at
     }
     groups {
         uuid id PK
         string name
+        string currency "default USD"
+        int version
         timestamp created_at
     }
     memberships {
         uuid id PK
-        uuid user_id FK
         uuid group_id FK
-        enum role "owner|member|viewer"
+        uuid user_id FK
+        enum role "owner | member | viewer"
     }
     expenses {
         uuid id PK
         uuid group_id FK
-        uuid paid_by_membership_id FK
-        bigint amount_cents
-        text description
+        uuid paid_by FK
+        bigint amount_cents "check > 0"
+        string title
+        date expense_date
+    }
+    expense_splits {
+        uuid id PK
+        uuid expense_id FK
+        uuid membership_id FK
+        bigint share_cents "check >= 0"
     }
     shopping_sessions {
         uuid id PK
         uuid group_id FK
-        uuid payer_membership_id FK
-        enum status "active|finalized|settled"
+        uuid paid_by_membership_id FK "composite FK"
+        enum status "active | finalized | settled"
         date shopping_date
     }
     shopping_items {
         uuid id PK
         uuid session_id FK
-        text name
-        int quantity
-        bigint total_cents
+        string name
+        int quantity "check >= 1"
+        bigint total_cents "check > 0"
+    }
+    shopping_item_splits {
+        uuid id PK
+        uuid item_id FK
+        uuid membership_id FK
+        bigint share_cents "check >= 0"
+    }
+    receipt_uploads {
+        uuid id PK
+        uuid session_id FK "unique"
+        uuid uploaded_by_membership_id FK
+        string storage_key
+    }
+    settlement_batches {
+        uuid id PK
+        uuid group_id FK
+        enum status "suggested | paid | voided"
+        int total_settlements
+        int version
+    }
+    settlement_payments {
+        uuid id PK
+        uuid group_id FK
+        uuid from_membership FK
+        uuid to_membership FK
+        bigint amount_cents "check > 0"
+        enum status "pending | confirmed | voided"
     }
 ```
 
-Key integrity rules enforced by the schema:
-- **Check constraints**: `quantity >= 1`, `total_cents > 0`, `share_cents >= 0`
-- **Unique constraints**: one split per item per member, one membership per user per group
-- **Cascade deletes**: deleting a session removes its items, splits, and receipts
-- **Role enum**: `owner`, `member`, `viewer` — authorization checked at service layer
+### 17 Tables
 
-*Inferred from: `backend/app/models/*.py` (17 model files)*
+| Table | Key Constraints | Notes |
+|-------|----------------|-------|
+| `users` | CI unique on `username`, `email` | bcrypt password hash |
+| `groups` | Optimistic locking via `version` | Default currency USD |
+| `memberships` | Unique `(group_id, user_id)` | Role enum: owner/member/viewer |
+| `expenses` | `amount_cents > 0` | Paid-by references membership |
+| `expense_splits` | `share_cents >= 0` | One row per member per expense |
+| `shopping_sessions` | Composite FK `(group_id, paid_by_membership_id)` | Status: active/finalized/settled |
+| `shopping_items` | `quantity >= 1`, `total_cents > 0` | Linked to session |
+| `shopping_item_splits` | `share_cents >= 0` | One row per sharer per item |
+| `shopping_session_participants` | Unique `(session_id, membership_id)` | Participant list |
+| `receipt_uploads` | Unique on `session_id` (one receipt per session) | S3 storage key |
+| `receipt_extracted_items` | FK to receipt_upload | OCR results with confidence |
+| `settlement_batches` | Versioned per group | Immutable snapshot of transfers |
+| `settlements` | `from_membership != to_membership` | Individual transfer instructions |
+| `settlement_payments` | `amount_cents > 0` | Pending/confirmed/voided lifecycle |
+| `settlement_payment_sessions` | Bridge table | Links payments to shopping sessions |
+| `refresh_tokens` | Unique `token_jti` | `replaced_by_jti` for rotation chain |
+| `friendships` | Unique `(user_low_id, user_high_id)`, `low < high` | Status: pending/accepted/declined |
+| `activity_log` | FK to group + user | Audit trail |
+| `idempotency_keys` | Unique `(endpoint, user_id, idempotency_key)` | Cached response + status code |
 
-### Middleware & Cross-Cutting Concerns
+### Migrations (Alembic)
 
-| Concern | Implementation | File |
-|---------|---------------|------|
-| CORS | Environment-aware origins; non-local must be HTTPS | `backend/app/main.py:46-89` |
-| Security headers | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, HSTS (non-local) | `backend/app/main.py:92-104` |
-| Rate limiting | In-process sliding window (signup: 5/5min, login: 10/60s per IP) | `backend/app/core/rate_limit.py` |
-| Idempotency | `Idempotency-Key` header; same key + same payload = cached response, different payload = 409 | `backend/app/core/idempotency.py` |
-| Validation sanitization | Raw input values stripped from error responses (prevents password leakage) | `backend/app/main.py:107-136` |
-| DB TLS | Enforced in non-local environments; invalid SSL configurations rejected at startup | `backend/app/db/connect_args.py` |
-
----
-
-## iOS App
-
-### Architecture
-
-The app follows **MVVM** with a central `AppState` coordinator that owns the `APIClient` and manages authentication state.
-
-```
-Sources/ClearSplit/
-├── State/AppState.swift          # Central coordinator (auth state, API client)
-├── Config/APIConfig.swift        # Base URL resolution
-├── Networking/
-│   ├── APIClient.swift           # HTTP client with auto-refresh
-│   ├── AuthService.swift         # Login, signup, token refresh
-│   ├── GroupsService.swift       # Group CRUD
-│   ├── ShoppingService.swift     # Sessions, items, receipts
-│   ├── SettlementService.swift   # Balances, payments
-│   └── FriendsService.swift      # Friend requests
-├── ViewModels/                   # 7 screen-level VMs
-├── Views/                        # 44 views + 26 reusable components
-├── Models/                       # Codable structs matching API schemas
-├── Storage/KeychainService.swift # Secure token persistence
-└── DesignSystem/                 # Colors, typography, button styles
-```
-
-**Key design decisions:**
-- **Zero external dependencies** — pure Foundation + SwiftUI (no Alamofire, no Kingfisher)
-- **Actor-based `AuthCoordinator`** — deduplicates concurrent token refresh requests; if 5 requests hit 401 simultaneously, only one refresh call is made
-- **Keychain storage** — JWTs stored via Security framework, never in `UserDefaults`
-- **Snake-case / camelCase bridging** — `JSONDecoder.keyDecodingStrategy = .convertFromSnakeCase` bridges Python API conventions
-
-### Connecting to the Backend
-
-The iOS app resolves its API base URL in this priority order:
-
-1. **Environment variable** `API_BASE_URL` (Xcode scheme → Run → Environment Variables)
-2. **Info.plist key** `API_BASE_URL`
-3. **Default**: `http://127.0.0.1:8000` (works on Simulator; physical devices need a LAN IP)
-
-On 401 responses, the `APIClient` automatically attempts a token refresh via `POST /auth/refresh` before retrying the original request. If refresh fails, the user is logged out.
-
-### Key Screens
-
-| Screen | What It Does |
-|--------|-------------|
-| Login / Sign Up | Username or email auth with form validation |
-| Groups List | User's groups with member counts |
-| Group Detail | Expenses, shopping sessions, balances, member list |
-| Shopping Session | Items with per-person splits, receipt upload |
-| Receipt Review | OCR-extracted items with confidence scores for import |
-| Balances & Settlement | Who owes whom, suggested transfers, payment confirmation |
-| Friends | Send/accept requests, friend list |
-| Profile | Current user info, logout |
-
-### Running the iOS App
-
-```bash
-# Prerequisites: Xcode 15+, macOS
-open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
-
-# Make sure the backend is running first:
-docker compose up -d
-
-# Run on Simulator — connects to localhost:8000 automatically
-# Run on device — set API_BASE_URL in scheme env vars to your Mac's IP
-```
-
-*Inferred from: `ios/ClearSplit/Sources/ClearSplit/Config/APIConfig.swift`, `ios/ClearSplit/Sources/ClearSplit/Networking/APIClient.swift`, `ios/ClearSplit/Package.swift`*
+14 revisions from `20241218_0001_initial` to `20260216_0014_idempotency_key_header_enforcement`. CI validates full upgrade/downgrade/upgrade cycle on every run.
 
 ---
 
-## CI/CD
-
-### Pipeline Overview
+## Request Lifecycle
 
 ```mermaid
-flowchart TB
-    subgraph "Pull Request"
-        PR_BE["Backend CI<br/>Lint → Migrations → Tests<br/>(78% coverage gate)"]
-        PR_iOS["iOS PR Checks<br/>SwiftLint → Build → Unit Tests"]
-        PR_Sec["Security Scan<br/>TruffleHog · pip-audit · Bandit"]
+sequenceDiagram
+    participant C as Client
+    participant U as Uvicorn
+    participant MW as Middleware
+    participant R as Router
+    participant S as Service
+    participant DB as PostgreSQL
+    participant S3 as AWS S3
+
+    C->>U: POST /groups/{id}/expenses<br/>Authorization: Bearer JWT<br/>Idempotency-Key: abc-123
+
+    rect rgb(245, 245, 245)
+        Note over U,MW: Middleware Pipeline
+        U->>MW: CORS origin check
+        MW->>MW: Inject security headers<br/>(X-Content-Type-Options, X-Frame-Options, HSTS)
     end
 
-    subgraph "Push to main"
-        Main_Docker["Docker Build & Push<br/>GHCR + Trivy scan"]
-        Main_iOS["iOS Main Checks<br/>Lint → Build → All Tests → Archive"]
-        Main_Sec["Security Scan"]
-    end
+    U->>R: Route dispatch
+    R->>R: Decode JWT (HS256)<br/>Extract user_id from sub claim
+    R->>R: Check Idempotency-Key<br/>If seen + same payload → return cached 201
 
-    subgraph "Push to staging"
-        Stg_CI["Backend CI<br/>Full suite (80% coverage gate)"]
-        Stg_Deploy["Deploy to ACA Staging"]
-    end
+    R->>S: create_expense(user, group_id, payload)
+    S->>DB: SELECT membership WHERE user_id AND group_id
+    S->>DB: INSERT expense (amount_cents)
+    S->>DB: INSERT expense_splits (equal-split, integer cents)
+    S->>DB: Store idempotency response
 
-    Stg_CI -->|"on success"| Stg_Deploy
+    S-->>R: Expense object
+    R-->>C: 201 Created + JSON
 
-    subgraph "Staging Deploy Pipeline"
-        direction TB
-        Build["Build + Push to ACR"]
-        Trivy["Trivy Scan<br/>(HIGH/CRITICAL gate)"]
-        Migrate["Alembic Migration<br/>(ACA container job)"]
-        Deploy["Deploy New Revision"]
-        Health["Health Check<br/>(/health/live + /health/ready)"]
-        Rollback["Auto-Rollback<br/>(if health fails)"]
-
-        Build --> Trivy --> Migrate --> Deploy --> Health
-        Health -->|"fail"| Rollback
-    end
-
-    subgraph "Manual Dispatch"
-        TF["TestFlight Upload<br/>(requires ASC secrets)"]
-    end
+    Note over C,U: On 401 → client refreshes via POST /auth/refresh<br/>Old JTI revoked, new token pair issued
 ```
 
-### What Runs When
+### Middleware Stack (applied in order)
 
-| Trigger | Backend | iOS | Security | Docker | Deploy |
-|---------|---------|-----|----------|--------|--------|
-| **PR to main/develop** | Lint + migrations + tests (78%) | SwiftLint + build + unit tests | TruffleHog + pip-audit + Bandit | — | — |
-| **Push to main** | — | Full tests + archive | TruffleHog + pip-audit + Bandit | Build + GHCR push + Trivy | — |
-| **Push to staging** | Full suite (80%) + Docker archive | — | — | — | ACR → Trivy → migrate → deploy → health check |
-| **Weekly (Sunday)** | — | — | Full security scan | — | — |
-| **Manual dispatch** | On-demand | TestFlight upload | — | On-demand | On-demand |
+| Layer | Behavior |
+|-------|----------|
+| **CORS** | Local: `localhost:3000`. Non-local: HTTPS-only origins, validated at startup |
+| **Security Headers** | `nosniff`, `DENY`, `strict-origin-when-cross-origin`, HSTS (non-local) |
+| **Validation Sanitizer** | Strips `input` field from 422 errors (prevents password leakage) |
+| **Rate Limiter** | In-memory sliding window. Signup: 5/5min, Login: 10/60s, Refresh: 20/60s |
+| **Idempotency** | `Idempotency-Key` header on POST. Same key + payload = cached response. Different payload = 409 |
+| **JWT Auth** | HS256 decode, `token_type: "access"` claim enforced. Dependency-injected via `get_current_user` |
 
-### Artifacts Produced
+### Auth Flow
 
-| Workflow | Artifact | Registry | Retention |
-|----------|----------|----------|-----------|
-| Backend CI (PR) | Coverage XML, JUnit XML, pytest log | GitHub Actions | 14 days |
-| Backend CI (staging) | Coverage XML, JUnit XML, Docker image metadata | GitHub Actions | 21 days |
-| Docker Build | `ghcr.io/<owner>/clearsplit/api:latest`, `:main-<sha>`, `:v*` | GHCR | Permanent |
-| Deploy Staging | `<acr>.azurecr.io/clearsplit-api:<sha>` | Azure ACR | Permanent |
-| iOS | xcresult bundles, build logs, coverage summaries | GitHub Actions | 14–21 days |
+- **Access tokens**: JWT HS256, 15-min expiry, claims: `{sub, email, type, exp}`
+- **Refresh tokens**: Persisted in DB with unique JTI, 30-day expiry
+- **Rotation**: On refresh, old token gets `revoked_at` + `replaced_by_jti`; replay of revoked token returns 401
+- **Passwords**: bcrypt with `gensalt()`; unknown users still run dummy verify (timing-safe)
 
-*Inferred from: `.github/workflows/ci.yml`, `.github/workflows/docker.yml`, `.github/workflows/deploy-staging.yml`, `.github/workflows/ios-pr-checks.yml`, `.github/workflows/ios-main-checks.yml`, `.github/workflows/security-scan.yml`*
+### Financial Arithmetic
+
+All money values stored as `bigint` cents. Equal splits use deterministic remainder distribution: splitting 1000 cents among 3 members yields `[334, 333, 333]` (payer absorbs the extra cent). No floating-point anywhere in the pipeline.
+
+---
+
+## Local Development
+
+### Quick Start (Docker)
+
+```bash
+git clone <repo-url> && cd ClearSplit
+cp .env.example .env
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+docker compose up --build
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
+```
+
+`docker-compose.yml` runs PostgreSQL 16 + the API with live reload (volume-mounted `./backend`).
+
+### Without Docker
+
+```bash
+cd backend
+python3.11 -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Requires PostgreSQL 16 running, DATABASE_URL set in .env
+alembic upgrade head
+make run          # uvicorn --reload on :8000
+```
+
+### Makefile Targets
+
+| Target | Command |
+|--------|---------|
+| `make run` | `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` |
+| `make test` | `pytest` |
+| `make migrate` | `alembic upgrade head` |
+| `make ci-pr` | Lint + tests (no e2e, 78% coverage gate) |
+| `make ci-main` | Lint + full test suite (80% coverage gate) |
+
+### Environment Variables
+
+| Variable | Required | Default | Notes |
+|----------|----------|---------|-------|
+| `ENV` | Yes | `local` | `local`, `test`, `staging`, `production` |
+| `DATABASE_URL` | Yes | - | `postgresql+asyncpg://user:pass@host:5432/db` |
+| `JWT_SECRET` | Yes | - | Min 32 chars. Generate: `openssl rand -hex 32` |
+| `CORS_ORIGINS` | Staging/prod | - | Comma-separated HTTPS origins |
+| `S3_BUCKET_NAME` | For receipts | - | AWS S3 bucket name |
+| `AWS_REGION` | For receipts | `us-east-2` | S3 region |
+| `DB_POOL_SIZE` | No | `10` | SQLAlchemy pool size |
+| `DB_MAX_OVERFLOW` | No | `20` | Max overflow connections |
+
+Full template: `.env.example`
+
+### iOS Client
+
+```bash
+open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
+# Simulator → auto-connects to http://127.0.0.1:8000
+# Device → set API_BASE_URL env var to Mac's LAN IP
+```
+
+Zero external dependencies. Actor-based auth coordinator deduplicates concurrent 401 refreshes. Keychain-backed token storage.
+
+### Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| `JWT_SECRET must be at least 32 characters` | `openssl rand -hex 32` |
+| Alembic migration fails | Verify PostgreSQL is running + `DATABASE_URL` is correct |
+| Port 5432 in use | `lsof -i :5432` to find conflicting process |
+| `CORS_ORIGINS must be configured` | Set `ENV=local` for dev |
+| Rate limited in dev | Rate limiting disabled when `ENV=test` |
 
 ---
 
@@ -421,223 +423,77 @@ flowchart TB
 
 ### Environments
 
-| Environment | Purpose | Database | Config Source |
-|-------------|---------|----------|--------------|
-| `local` | Development | Docker Compose PostgreSQL 16 | `.env` / `.env.local` |
-| `test` | CI test runs | GitHub Actions service container | Workflow env vars |
-| `staging` | Pre-production | Azure PostgreSQL (TLS required) | GitHub Secrets + Vars |
+| Env | Database | TLS | Docs | Config Source |
+|-----|----------|-----|------|---------------|
+| `local` | Docker Compose PG 16 | Off | `/docs` enabled | `.env` / `.env.local` |
+| `test` | CI service container | Off | Enabled | Workflow env vars |
+| `staging` | Azure PostgreSQL | Required | Disabled | GitHub Secrets + Vars |
 
-### Infrastructure
+### Staging Pipeline
 
-Staging runs on **Azure Container Apps** (ACA):
+Triggered on push to `staging` branch. Fully automated via GitHub Actions.
 
-- **Compute**: ACA revision-based deployment (serverless containers)
-- **Container Registry**: Azure Container Registry (ACR) for staging, GHCR for main-branch images
-- **Database**: Azure PostgreSQL with enforced TLS (`sslmode=require` validated in CI)
-- **Auth to Azure**: OIDC federation (no static credentials stored in GitHub)
-- **Migrations**: Alembic `upgrade head` runs as an ACA container job before each deploy
-- **Secrets**: Injected as ACA secret references (`secretref:database-url`, `secretref:jwt-secret`)
+1. **Backend CI** — lint (Ruff), migration validation (upgrade/downgrade/upgrade), tests (80% coverage)
+2. **Build** — Docker image pushed to Azure Container Registry, tagged `<sha>`
+3. **Trivy Scan** — blocks on HIGH/CRITICAL vulnerabilities
+4. **Migrate** — `migration_precheck.py` + `alembic upgrade head` run as ACA container job
+5. **Deploy** — New ACA revision with `--revision-suffix sha-<short>`
+6. **Health Check** — polls `/health/live` + `/health/ready` for up to 3 minutes
+7. **Rollback** — on health failure, reverts to previous image automatically
 
-### Deploy Step-by-Step (Staging)
+Azure auth uses OIDC federation (no static credentials). Secrets injected as ACA secret references.
 
-Staging deployment is fully automated via the `deploy-staging.yml` workflow:
+### CI Workflows
 
-1. Push to the `staging` branch triggers `Backend CI`
-2. On CI success, `Deploy to ACA Staging` runs automatically
-3. Pipeline validates all required secrets/vars are present
-4. Docker image built and pushed to ACR, tagged with commit SHA
-5. Trivy scans the image — **blocks deploy on HIGH/CRITICAL vulns**
-6. Migration precheck + `alembic upgrade head` run as an ACA container job
-7. New ACA revision deployed with `--revision-suffix sha-<short>`
-8. Health checks poll `/health/live` and `/health/ready` (up to 3 minutes)
-9. If healthy → deploy succeeds. If not → **automatic rollback** to previous image
+| Workflow | Trigger | What Runs |
+|----------|---------|-----------|
+| `ci.yml` | PR to main/develop | Lint + migrations + tests (78% coverage) |
+| `ci.yml` | Push to staging | Full suite (80% coverage) + Docker archive |
+| `deploy-staging.yml` | After CI success on staging | ACR push + Trivy + migrate + deploy + health check |
+| `docker.yml` | Push to main | Docker build + GHCR push + Trivy |
+| `security-scan.yml` | PR/push/weekly | TruffleHog + pip-audit + Bandit |
+| `ios-pr-checks.yml` | PR (ios/ changes) | SwiftLint + build + unit tests |
+| `ios-main-checks.yml` | Push to main (ios/) | Full tests + archive |
 
-### Rollback
+### Security Controls
 
-The deploy workflow captures the previous container image before deploying. If health checks fail:
+| Control | Implementation |
+|---------|---------------|
+| JWT secret validation | Min 32 chars, checked at startup |
+| Refresh token rotation | JTI tracking, `replaced_by_jti` audit chain |
+| Timing-safe login | Dummy bcrypt for unknown users |
+| Rate limiting | Sliding window on auth endpoints |
+| DB TLS | Enforced in non-local envs; startup rejection on bad SSL config |
+| CORS | HTTPS-only in non-local; validated at startup |
+| Upload validation | Content type, 10MB size, 25MP pixel limit, decompression bomb guard |
+| API docs exposure | `/docs` and `/redoc` disabled outside local/test |
+| Secret handling | `pydantic.SecretStr`; never in repr or logs |
 
-1. Rolls back to the previous image via `az containerapp update --image <previous>`
-2. Re-checks liveness after rollback
-3. Fails the workflow either way — rollback is a safety net, not a silent fix
-
-*Inferred from: `.github/workflows/deploy-staging.yml:405-455`*
-
----
-
-## Local Development
-
-### One-Command Start (Backend + Database)
-
-```bash
-# 1. Clone and configure
-git clone <repo-url> && cd ClearSplit
-cp .env.example .env
-
-# 2. Generate a JWT secret and update .env
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
-
-# 3. Start everything
-docker compose up --build
-```
-
-The API is now at `http://localhost:8000` with live reload. OpenAPI docs at `http://localhost:8000/docs`.
-
-### Backend Without Docker
-
-```bash
-cd backend
-python3.11 -m venv venv && source venv/bin/activate
-pip install -r requirements-dev.txt
-
-# Ensure PostgreSQL 16 is running and DATABASE_URL is set in .env
-alembic upgrade head
-make run    # uvicorn with --reload on port 8000
-```
-
-### iOS App
-
-```bash
-# Ensure backend is running first
-open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
-# Select an iPhone simulator → Run (Cmd+R)
-```
-
-The app connects to `http://127.0.0.1:8000` by default on Simulator. For a physical device, set `API_BASE_URL` in the Xcode scheme's environment variables to your Mac's LAN IP (e.g., `http://192.168.1.10:8000`).
-
-### Common Pitfalls
-
-| Problem | Fix |
-|---------|-----|
-| `JWT_SECRET must be at least 32 characters` | Generate with `openssl rand -hex 32` — don't use a short test string |
-| iOS app can't reach backend on device | Set `API_BASE_URL` to your Mac's LAN IP, not `localhost` |
-| Alembic migration fails | Ensure PostgreSQL is running and `DATABASE_URL` matches your local DB |
-| Docker Compose DB won't start | Check if port 5432 is already in use: `lsof -i :5432` |
-| `CORS_ORIGINS must be configured` | Only happens in non-local envs; set `ENV=local` for dev |
-| Rate limited during development | Rate limiting is disabled when `ENV=test` |
+Full security model and incident response: [SECURITY.md](SECURITY.md)
 
 ---
 
-## What This Repo Contains
+## Repository Structure
 
 ```
 .
-├── backend/                         # Python FastAPI backend
+├── backend/
 │   ├── app/
-│   │   ├── api/                     #   Route handlers (6 domain modules)
-│   │   ├── auth/                    #   JWT creation/verification, password hashing
-│   │   ├── core/                    #   Config, rate limiting, idempotency, identity normalization
-│   │   ├── db/                      #   Async SQLAlchemy engine, TLS connection builder
-│   │   ├── models/                  #   17 ORM models (all financial entities)
-│   │   ├── schemas/                 #   Pydantic request/response validation
-│   │   ├── services/                #   Business logic + authorization checks
-│   │   ├── scripts/                 #   Migration precheck script
-│   │   └── tests/                   #   143+ pytest tests (unit + integration + e2e)
-│   ├── alembic/                     #   14 database migration revisions
-│   ├── Dockerfile                   #   Production image (python:3.11-slim + tesseract)
-│   ├── Makefile                     #   Dev shortcuts (run, test, lint, migrate)
-│   └── requirements.txt             #   Production Python dependencies
-│
-├── ios/ClearSplit/                   # Native SwiftUI iOS client
-│   ├── ClearSplit/ClearSplit.xcodeproj  # Xcode project
-│   ├── Sources/ClearSplit/          #   App source (views, VMs, networking, models)
-│   ├── Tests/                       #   XCTest unit + UI tests
-│   ├── scripts/                     #   CI shell scripts (build, test, lint, archive)
-│   ├── fastlane/                    #   Fastlane lanes (ci_pr, ci_main, upload_testflight)
-│   └── Package.swift                #   SPM manifest (iOS 16+, zero external deps)
-│
-├── .github/workflows/               # 6 CI/CD pipelines
-│   ├── ci.yml                       #   Backend lint + migrations + tests
-│   ├── docker.yml                   #   Docker build + GHCR push + Trivy
-│   ├── deploy-staging.yml           #   Azure Container Apps staging deploy
-│   ├── ios-pr-checks.yml            #   iOS PR validation
-│   ├── ios-main-checks.yml          #   iOS full validation + optional TestFlight
-│   └── security-scan.yml            #   TruffleHog + pip-audit + Bandit
-│
-├── scripts/                         # Repo-level utilities
-│   ├── secret-scan.sh               #   Pre-commit secret detection
-│   ├── verify-security.sh           #   Security baseline checks
-│   └── s3_smoke_test.py             #   S3 connectivity test
-│
-├── docs/                            # Project documentation
-├── docker-compose.yml               # Local dev: PostgreSQL 16 + API
-├── .env.example                     # Environment variable template
-├── .pre-commit-config.yaml          # Pre-commit hooks (ruff, secrets, formatting)
-└── SECURITY.md                      # Security model + incident response
+│   │   ├── api/            # 6 route modules (auth, groups, expenses, settlements, shopping, friends)
+│   │   ├── auth/           # JWT, bcrypt, dependencies, refresh token rotation
+│   │   ├── core/           # Config, rate limiting, idempotency, identity normalization
+│   │   ├── db/             # Async engine, TLS connection builder
+│   │   ├── models/         # 17 SQLAlchemy ORM models
+│   │   ├── schemas/        # Pydantic request/response models
+│   │   ├── services/       # Business logic + authorization
+│   │   └── tests/          # 143+ pytest tests (unit, integration, e2e)
+│   ├── alembic/            # 14 migration revisions
+│   ├── Dockerfile          # python:3.11-slim + tesseract
+│   ├── Makefile            # run, test, lint, migrate
+│   └── requirements.txt
+├── ios/ClearSplit/         # SwiftUI client (MVVM, zero deps, Keychain auth)
+├── .github/workflows/      # 6 CI/CD pipelines
+├── scripts/                # Secret scanning, security verification
+├── docker-compose.yml      # Local: PG 16 + API
+└── .env.example            # Environment template
 ```
-
----
-
-## Contributing
-
-### Running Tests
-
-```bash
-# Backend — full suite
-cd backend && make test
-
-# Backend — PR gate (no e2e, 78% coverage minimum)
-cd backend && make ci-pr
-
-# Backend — staging gate (full suite, 80% coverage minimum)
-cd backend && make ci-main
-
-# iOS — unit tests
-cd ios/ClearSplit && ./scripts/ios_test.sh unit
-
-# iOS — full suite via Fastlane
-cd ios/ClearSplit && bundle exec fastlane ios ci_pr
-
-# Security checks
-./scripts/secret-scan.sh
-./scripts/verify-security.sh
-```
-
-### Code Style
-
-- **Python**: Enforced by [Ruff](https://github.com/astral-sh/ruff) via pre-commit hooks and CI. No additional formatter config needed — `ruff check` covers linting.
-- **Swift**: Enforced by [SwiftLint](https://github.com/realm/SwiftLint) with config at `ios/ClearSplit/.swiftlint.yml`.
-- **Pre-commit hooks**: Install with `pip install pre-commit && pre-commit install`. Runs trailing whitespace cleanup, merge conflict detection, Ruff, and secret scanning on every commit.
-
-### Adding a New Backend Endpoint
-
-1. **Define the Pydantic schema** in `backend/app/schemas/<domain>.py` (request + response models)
-2. **Write the service function** in `backend/app/services/<domain>.py` (business logic + auth checks)
-3. **Add the route** in `backend/app/api/<domain>.py` using FastAPI's `@router` decorators
-4. **If new tables are needed**: create the model in `backend/app/models/`, then `cd backend && alembic revision --autogenerate -m "description"` and `alembic upgrade head`
-5. **Write tests** in `backend/app/tests/test_<domain>.py` — CI requires 78% coverage on PRs
-6. **If the iOS app needs it**: add a method to the relevant service in `ios/ClearSplit/Sources/ClearSplit/Networking/`
-
----
-
-## Security
-
-### Secret Management
-
-| Context | How Secrets Are Handled |
-|---------|------------------------|
-| **Application code** | All secrets loaded via `pydantic.SecretStr`; accessed only through `.get_secret_value()` — never in string repr or logs |
-| **Local development** | `.env.local` (gitignored); `.env.example` provides the template |
-| **CI/CD** | Dummy test secrets in workflow env vars; staging secrets via GitHub Secrets + Azure OIDC (no static cloud credentials) |
-| **Pre-commit** | `scripts/secret-scan.sh` blocks commits containing hardcoded secrets, API keys, private keys, or tracked `.env` files |
-
-### Security Scanning in CI
-
-| Tool | What It Checks | When |
-|------|---------------|------|
-| **TruffleHog** | Verified secrets in git history | PRs, push to main, weekly |
-| **pip-audit** | CVEs in Python dependencies | PRs, push to main, weekly |
-| **Bandit** | Insecure Python code patterns | PRs, push to main, weekly |
-| **Trivy** | Container image vulnerabilities (HIGH/CRITICAL) | Docker builds, staging deploys |
-
-### Key Security Controls
-
-- JWT secret minimum 32 characters, validated at startup
-- Refresh token rotation with JTI tracking — revoked tokens cannot be replayed
-- Timing-attack-safe login (dummy bcrypt hash for unknown users)
-- Rate limiting on auth endpoints (signup: 5/5min, login: 10/60s per IP)
-- Database TLS enforced in non-local environments
-- CORS origins validated as HTTPS-only in non-local environments
-- Receipt uploads validated: content type, file size (10 MB), pixel count (25M), decompression bomb protection
-- API docs (`/docs`, `/redoc`) disabled outside local/test environments
-
-For the full security model, incident response procedures, and deployment checklist, see **[SECURITY.md](SECURITY.md)**.
