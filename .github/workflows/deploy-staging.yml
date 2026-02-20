@@ -20,8 +20,7 @@ env:
 jobs:
   build-and-push:
     if: >
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main' &&
@@ -38,6 +37,16 @@ jobs:
       deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
 
     steps:
+      - name: Validate manual dispatch targets main
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != "main" ]]; then
+            echo "workflow_dispatch deploy is allowed only from main (current: ${GITHUB_REF_NAME})."
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
