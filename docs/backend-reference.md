@@ -2,139 +2,189 @@
 
 ## Service Summary
 
-- Framework: FastAPI
-- Data: PostgreSQL with async SQLAlchemy
-- Migrations: Alembic
-- Auth: JWT access + rotating refresh tokens
-- Storage: S3-compatible object storage for receipt images
-- OCR: Tesseract via `pytesseract`
+- **Framework**: FastAPI 0.122.0 with Uvicorn 0.30.1
+- **Data**: PostgreSQL 16 with async SQLAlchemy 2.0+ (asyncpg driver)
+- **Migrations**: Alembic 1.13.1 (14 migrations)
+- **Auth**: JWT access + rotating refresh tokens with bcrypt password hashing
+- **Storage**: S3-compatible object storage for receipt images
+- **OCR**: Tesseract via `pytesseract` + Pillow
+- **Entry point**: `backend/app/main.py`
 
 ## Environment Variables
 
-The backend loads settings from `.env`, `.env.local`, `../.env`, and `../.env.local`.
+The backend loads settings from `.env`, `.env.local`, `../.env`, and `../.env.local` via Pydantic `BaseSettings`.
 
-Required:
+### Required
 
-- `ENV` (`local`, `test`, `staging`, `production`)
-- `DATABASE_URL`
-- `JWT_SECRET`
-- `S3_BUCKET_NAME`
+| Variable | Description |
+|----------|-------------|
+| `ENV` | Environment: `local`, `test`, `staging`, `production` |
+| `DATABASE_URL` | PostgreSQL connection string (must use `postgresql+asyncpg://` driver) |
+| `JWT_SECRET` | Secret key for JWT signing (minimum 32 characters) |
+| `S3_BUCKET_NAME` | AWS S3 bucket for receipt storage |
 
-Common optional settings:
+### Optional
 
-- `JWT_ALGORITHM` (default `HS256`)
-- `ACCESS_TOKEN_EXPIRE_MINUTES` (default `15`)
-- `REFRESH_TOKEN_EXPIRE_DAYS` (default `30`)
-- `CORS_ORIGINS` (comma-separated)
-- `TRUST_PROXY_HEADERS` (default `false`)
-- `TRUSTED_PROXY_IPS` (comma-separated CIDRs/IPs)
-- `RATE_LIMIT_MAX_KEYS` (default `10000`)
-- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT_SECONDS`, `DB_POOL_RECYCLE_SECONDS`, `DB_CONNECT_TIMEOUT_SECONDS`
-- `AWS_REGION` (default `us-east-2`)
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
-- `S3_PRESIGNED_GET_EXPIRE_SECONDS` (default `900`)
-- `S3_PREFIX` (default `receipts`)
-- `MAX_RECEIPT_BYTES` (default `10485760`)
-- `MAX_RECEIPT_PIXELS` (default `25000000`)
-- `MAX_OCR_CONCURRENCY` (default `2`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access token lifetime |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | Refresh token lifetime |
+| `CORS_ORIGINS` | — | Comma-separated allowed origins (required for non-local) |
+| `TRUST_PROXY_HEADERS` | `false` | Enable X-Forwarded-For parsing |
+| `TRUSTED_PROXY_IPS` | — | Comma-separated CIDRs/IPs for proxy validation |
+| `RATE_LIMIT_MAX_KEYS` | `10000` | Max tracked rate limit keys |
+| `DB_POOL_SIZE` | `10` | SQLAlchemy connection pool size |
+| `DB_MAX_OVERFLOW` | `20` | Max overflow connections |
+| `DB_POOL_TIMEOUT_SECONDS` | `30` | Pool checkout timeout |
+| `DB_POOL_RECYCLE_SECONDS` | `1800` | Connection recycle interval |
+| `DB_CONNECT_TIMEOUT_SECONDS` | `10` | Connection establishment timeout |
+| `AWS_REGION` | `us-east-2` | AWS region for S3 |
+| `AWS_ACCESS_KEY_ID` | — | AWS credentials (optional with IAM roles) |
+| `AWS_SECRET_ACCESS_KEY` | — | AWS credentials (optional with IAM roles) |
+| `S3_PRESIGNED_GET_EXPIRE_SECONDS` | `900` | Presigned URL expiry (15 min) |
+| `S3_PREFIX` | `receipts` | S3 key prefix for receipts |
+| `MAX_RECEIPT_BYTES` | `10485760` | Max receipt file size (10 MB) |
+| `MAX_RECEIPT_PIXELS` | `25000000` | Max image pixel count (25M) |
+| `MAX_OCR_CONCURRENCY` | `2` | Concurrent OCR requests |
 
-### CORS behavior
+### CORS Behavior
 
-- `local`/`test`: local origins are allowed automatically, credentials disabled.
-- non-local: `CORS_ORIGINS` is mandatory and must be HTTPS origins only, credentials enabled.
+- `local`/`test`: local origins allowed automatically, credentials disabled
+- Non-local: `CORS_ORIGINS` is mandatory and must be HTTPS origins only, credentials enabled
+- Invalid origin formats are rejected at app startup
+
+### Environment-Specific Behaviors
+
+| Setting | Local/Test | Staging/Production |
+|---------|------------|-------------------|
+| API docs (`/docs`, `/redoc`) | Enabled | Disabled |
+| HSTS header | Not sent | Sent (63-day max-age) |
+| CORS validation | Lenient | Strict HTTPS only |
+| DB TLS | Optional | Enforced by default |
 
 ## API Surface
 
-All endpoints are prefixed exactly as shown below.
+All endpoints return JSON. Authenticated endpoints require `Authorization: Bearer <token>`.
 
 ### Health
 
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /health`
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/health/live` | No | Process liveness probe |
+| GET | `/health/ready` | No | Dependency readiness (DB connectivity, returns 503 when degraded) |
+| GET | `/health` | No | Backward-compatible alias of readiness |
 
 ### Auth
 
-- `POST /auth/signup`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `GET /auth/me`
+| Method | Endpoint | Auth | Rate Limit | Description |
+|--------|----------|------|------------|-------------|
+| POST | `/auth/signup` | No | 5/5min per IP | Register new user |
+| POST | `/auth/login` | No | 10/60s per IP | Authenticate (accepts username or email) |
+| POST | `/auth/refresh` | No | — | Rotate refresh token (JTI-based) |
+| GET | `/auth/me` | Yes | — | Current user profile |
+
+**Auth response**: Returns `access_token`, `refresh_token`, `token_type` ("bearer"), and user info.
 
 ### Friends
 
-- `POST /friends/requests`
-- `POST /friends/requests/{friendship_id}/accept`
-- `POST /friends/requests/{friendship_id}/decline`
-- `GET /friends`
-- `GET /friends/requests/incoming`
-- `GET /friends/requests/outgoing`
-- `DELETE /friends/{friendship_id}`
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/friends/requests` | Yes | Send friend request (by user ID, username, or email) |
+| POST | `/friends/requests/{friendship_id}/accept` | Yes | Accept pending request |
+| POST | `/friends/requests/{friendship_id}/decline` | Yes | Decline pending request |
+| GET | `/friends` | Yes | List accepted friends |
+| GET | `/friends/requests/incoming` | Yes | Pending incoming requests |
+| GET | `/friends/requests/outgoing` | Yes | Pending outgoing requests |
+| DELETE | `/friends/{friendship_id}` | Yes | Remove friendship |
 
-### Groups and membership
+### Groups and Membership
 
-- `POST /groups`
-- `GET /groups`
-- `GET /groups/{group_id}`
-- `DELETE /groups/{group_id}`
-- `POST /groups/{group_id}/members/preview`
-- `POST /groups/{group_id}/members`
-- `GET /groups/{group_id}/members`
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/groups` | Yes | Create group (creator becomes owner) |
+| GET | `/groups` | Yes | List user's groups with membership ID |
+| GET | `/groups/{group_id}` | Yes | Group details (requires membership) |
+| DELETE | `/groups/{group_id}` | Yes | Delete group (owner only, cascades all data) |
+| POST | `/groups/{group_id}/members/preview` | Yes | Preview user before adding (owner only, rate limited 30/60s) |
+| POST | `/groups/{group_id}/members` | Yes | Add member to group (owner only) |
+| GET | `/groups/{group_id}/members` | Yes | List group members |
 
 ### Expenses
 
-- `POST /groups/{group_id}/expenses`
-- `GET /groups/{group_id}/expenses`
-- `GET /expenses/{expense_id}`
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/groups/{group_id}/expenses` | Yes | Create expense with equal splits (idempotent via `Idempotency-Key`) |
+| GET | `/groups/{group_id}/expenses` | Yes | List group expenses |
+| GET | `/expenses/{expense_id}` | Yes | Get single expense by ID |
 
-### Balances and settlement
+### Balances and Settlements
 
-- `GET /groups/{group_id}/balances`
-- `POST /groups/{group_id}/settlements/compute`
-- `GET /groups/{group_id}/settlements/latest`
-- `POST /groups/{group_id}/settlement-payments`
-- `POST /settlement-payments/{payment_id}/confirm`
-- `GET /groups/{group_id}/settlement-payments`
-- `PATCH /settlements/{settlement_id}` (legacy compatibility path)
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/groups/{group_id}/balances` | Yes | Live balances + transfer suggestions |
+| POST | `/groups/{group_id}/settlements/compute` | Yes | Compute settlement batch (idempotent) |
+| GET | `/groups/{group_id}/settlements/latest` | Yes | Latest settlement batch |
+| POST | `/groups/{group_id}/settlement-payments` | Yes | Create payment (pending or auto-confirmed) |
+| POST | `/settlement-payments/{payment_id}/confirm` | Yes | Confirm pending payment |
+| GET | `/groups/{group_id}/settlement-payments` | Yes | Payment history |
+| PATCH | `/settlements/{settlement_id}` | Yes | Legacy compatibility (status=paid only) |
 
-### Shopping, receipts, OCR
+### Shopping Sessions
 
-- `POST /groups/{group_id}/shopping-sessions`
-- `GET /groups/{group_id}/shopping-sessions`
-- `GET /shopping-sessions/{session_id}`
-- `PATCH /shopping-sessions/{session_id}`
-- `POST /shopping-sessions/{session_id}/finalize`
-- `DELETE /shopping-sessions/{session_id}`
-- `PUT /shopping-sessions/{session_id}/participants`
-- `POST /shopping-sessions/{session_id}/receipt`
-- `GET /receipts/{receipt_upload_id}/download-url`
-- `DELETE /receipts/{receipt_upload_id}`
-- `POST /receipts/{receipt_upload_id}/extract-items`
-- `GET /receipts/{receipt_upload_id}/extracted-items`
-- `POST /shopping-sessions/{session_id}/items`
-- `PATCH /items/{item_id}`
-- `DELETE /items/{item_id}`
-- `PUT /items/{item_id}/sharers`
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/groups/{group_id}/shopping-sessions` | Yes | Create session |
+| GET | `/groups/{group_id}/shopping-sessions` | Yes | List sessions |
+| GET | `/shopping-sessions/{session_id}` | Yes | Session details with items/participants |
+| PATCH | `/shopping-sessions/{session_id}` | Yes | Update session (payer only) |
+| POST | `/shopping-sessions/{session_id}/finalize` | Yes | Finalize session (payer only) |
+| DELETE | `/shopping-sessions/{session_id}` | Yes | Delete session (payer only, cascades) |
+| PUT | `/shopping-sessions/{session_id}/participants` | Yes | Set participants (payer only) |
+
+### Shopping Items
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/shopping-sessions/{session_id}/items` | Yes | Create item (participants only) |
+| PATCH | `/items/{item_id}` | Yes | Update item (creator/payer/owner) |
+| DELETE | `/items/{item_id}` | Yes | Delete item (creator/payer/owner) |
+| PUT | `/items/{item_id}/sharers` | Yes | Set sharers with deterministic equal splits |
+
+### Receipts and OCR
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/shopping-sessions/{session_id}/receipt` | Yes | Upload receipt image (participants only) |
+| GET | `/receipts/{receipt_upload_id}/download-url` | Yes | Get presigned S3 download URL |
+| DELETE | `/receipts/{receipt_upload_id}` | Yes | Delete receipt (uploader only) |
+| POST | `/receipts/{receipt_upload_id}/extract-items` | Yes | Trigger OCR extraction (uploader only) |
+| GET | `/receipts/{receipt_upload_id}/extracted-items` | Yes | View extracted items |
 
 ## Authorization Rules
 
-### Role model
+### Role Model
 
-- `owner`: full group control (member management, payer-level actions, owner overrides)
-- `member`: standard mutation rights based on endpoint-specific rules
-- `viewer`: read-only for financial and shopping mutations
+| Role | Permissions |
+|------|------------|
+| `owner` | Full group control — member management, payer-level actions, owner overrides |
+| `member` | Standard mutation rights based on endpoint-specific rules |
+| `viewer` | Read-only for financial and shopping mutations |
 
-### Important endpoint rules
+### Endpoint Rules Summary
 
-- Group deletion is owner-only.
-- Member preview/add is owner-only.
-- Expense creation requires non-viewer membership and `paid_by` must be caller membership.
-- Shopping session creation requires non-viewer membership and payer must be caller membership.
-- Participant updates/finalize/delete session are payer-only.
-- Item update/delete/sharer-set is restricted to item creator, session payer, or group owner.
-- Receipt upload is participant-only.
-- Receipt delete and OCR extraction are uploader-only.
-- Settlement payment creation is sender-or-owner.
-- Settlement payment confirmation is receiver-or-owner.
+| Action | Allowed By |
+|--------|-----------|
+| Group deletion | Owner only |
+| Member preview/add | Owner only |
+| Expense creation | Non-viewer, `paid_by` must be caller's membership |
+| Shopping session creation | Non-viewer, payer must be caller's membership |
+| Participant updates / finalize / delete session | Payer only |
+| Item update / delete / set sharers | Item creator, session payer, or group owner |
+| Receipt upload | Session participants only |
+| Receipt delete / OCR extraction | Uploader only |
+| Settlement payment creation | Sender or owner |
+| Settlement payment confirmation | Receiver or owner |
 
 ## Idempotency
 
@@ -144,41 +194,66 @@ Supported mutation endpoints inspect optional `Idempotency-Key` headers:
 - `POST /groups/{group_id}/settlements/compute`
 
 Behavior:
-- same key + same payload returns cached response
-- same key + different payload returns HTTP 409
-- key length is capped at 255 characters
+- Same key + same payload → returns cached response
+- Same key + different payload → returns HTTP 409
+- Key length capped at 255 characters
+- Scope: endpoint + user ID + key value
 
-## Data Model (Primary Tables)
+## Data Model (18 Tables)
 
-Identity and auth:
-- `users`
-- `refresh_tokens`
-- `idempotency_keys`
+### Identity and Auth
+- `users` — account records with case-insensitive email/username indices
+- `refresh_tokens` — JTI-tracked tokens for rotation and replay prevention
+- `idempotency_keys` — request deduplication (endpoint, user_id, key, request_hash)
 
-Groups and social graph:
-- `groups`
-- `memberships`
-- `friendships`
+### Groups and Social Graph
+- `groups` — expense groups with name, currency, version tracking
+- `memberships` — user-group links with role enum (owner/member/viewer)
+- `friendships` — normalized bidirectional edges (user_low_id < user_high_id)
 
-Expenses and settlement:
-- `expenses`
-- `expense_splits`
-- `settlement_batches`
-- `settlements`
-- `settlement_payments`
-- `settlement_payment_sessions`
+### Expenses and Settlement
+- `expenses` — expense records with payer, amount_cents, currency, date, memo
+- `expense_splits` — per-member share with composite group FK
+- `settlement_batches` — immutable snapshots (suggested/paid/voided)
+- `settlements` — individual transfer instructions within batches
+- `settlement_payments` — actual payment records (pending/confirmed/voided)
+- `settlement_payment_sessions` — links payments to shopping sessions
 
-Shopping and receipts:
-- `shopping_sessions`
-- `shopping_session_participants`
-- `shopping_items`
-- `shopping_item_splits`
-- `receipt_uploads`
-- `receipt_extracted_items`
+### Shopping and Receipts
+- `shopping_sessions` — grocery trips with lifecycle status
+- `shopping_session_participants` — members in a session
+- `shopping_items` — line items with name, quantity, unit_price_cents, total_cents
+- `shopping_item_splits` — per-sharer allocation with SUM invariant
+- `receipt_uploads` — S3 storage metadata with content type
+- `receipt_extracted_items` — OCR-extracted data with confidence scores
+
+### Activity
+- `activity_logs` — audit trail for group activities
+
+## Migrations
+
+14 Alembic migrations (December 2024 – February 2026):
+
+| Migration | Description |
+|-----------|-------------|
+| 0001 | Initial schema (users, groups, memberships, expenses, splits, settlements) |
+| 0002 | Shopping tables (sessions, participants, items, splits, receipts) |
+| 0003 | Add total_amount to shopping sessions |
+| 0004 | Add first/last name to users |
+| 0005 | Add username to users |
+| 0006 | Receipt extracted items table |
+| 0007 | Balances and settlement payments |
+| 0008 | Receipt uploader permissions |
+| 0009 | Refresh token rotation |
+| 0010 | Shopping membership integrity (composite FKs) |
+| 0011 | Friendships table |
+| 0012 | Remove extension dependencies (uuid-ossp) |
+| 0013 | Case-insensitive user identity uniqueness |
+| 0014 | Idempotency key header enforcement |
 
 ## Operations
 
-Install and run:
+### Install and Run
 
 ```bash
 cd backend
@@ -189,17 +264,31 @@ alembic upgrade head
 make run
 ```
 
-Quality/test:
+### Quality and Testing
 
 ```bash
-make lint-ci
-make test
-make test-pr
-make test-all
+make lint-ci          # Ruff linting
+make test             # Full test suite
+make test-pr          # PR gate (no e2e, 78% coverage)
+make test-all         # Staging gate (with e2e, 80% coverage)
+make ci-pr            # Lint + PR tests
+make ci-main          # Lint + all tests
 ```
+
+### Migration Management
+
+```bash
+alembic upgrade head          # Apply all pending migrations
+alembic downgrade -1          # Rollback one migration
+alembic revision --autogenerate -m "description"  # Generate new migration
+```
+
+Migration precheck script for deployments: `backend/app/scripts/migration_precheck.py`
 
 ## Notes for Integrators
 
-- Monetary values are integer cents in API payloads unless explicitly named as decimal totals in shopping session metadata.
-- Date parsing on client side should handle ISO timestamps with and without fractional seconds.
-- OpenAPI/Swagger routes are intentionally enabled only in `local` and `test` environments.
+- Monetary values are integer cents in API payloads unless explicitly named as decimal totals in shopping session metadata
+- Date parsing on client side should handle ISO timestamps with and without fractional seconds
+- OpenAPI/Swagger routes are intentionally enabled only in `local` and `test` environments
+- All UUIDs in the API are v4 format
+- Responses use snake_case JSON keys

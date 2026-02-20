@@ -77,7 +77,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "API_BASE_URL"
-            value = "https://clearsplit-backend-staging.livelypebble-460e405a.eastus.azurecontainerapps.io"
+            value = "http://127.0.0.1:8000"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

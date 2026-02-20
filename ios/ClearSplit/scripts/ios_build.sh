@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/ios_ci_common.sh"
 
-destination="$(resolved_destination)"
+destination="$(resolved_build_destination)"
 result_bundle="$(new_result_bundle "build")"
 
 run_xcodebuild "build" \

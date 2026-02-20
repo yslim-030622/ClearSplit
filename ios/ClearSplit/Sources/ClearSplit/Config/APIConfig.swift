@@ -1,9 +1,18 @@
 import Foundation
 
 enum APIConfig {
+    private static let runtimeBaseURLEnvironmentKey = "API_BASE_URL"
     private static let localHosts: Set<String> = ["localhost", "127.0.0.1", "::1"]
 
     static var baseURL: URL {
+        // Highest priority: runtime scheme environment variable
+        if let urlString = ProcessInfo.processInfo.environment[runtimeBaseURLEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !urlString.isEmpty,
+           let url = URL(string: urlString) {
+            return url
+        }
+
         // Prefer Info.plist key "API_BASE_URL" if present
         if let urlString = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
            let url = URL(string: urlString) {

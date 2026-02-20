@@ -30,3 +30,8 @@ xcuserdata/
 .build/
 # Node/others
 node_modules/
+
+# Local tooling
+.claude/
+backend/venv
+tmp/

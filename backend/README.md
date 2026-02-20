@@ -11,13 +11,13 @@ Pipeline stages are split by branch intent:
 - `backend-migrations`: migration up/down/up validation on clean Postgres.
 - `backend-test-pr`: non-e2e tests with coverage and JUnit output.
 
-2. Main checks (release safety)
-- `backend-test-main`: full suite including `e2e` smoke tests.
-- `backend-archive-main`: backend Docker archive build verification.
+2. Staging push checks (release safety for staging deployment)
+- `backend-test-staging`: full suite including `e2e` smoke tests.
+- `backend-archive-staging`: backend Docker archive build verification.
 
 Why this split:
 - PR checks stay fast and actionable for review.
-- `main` adds broader confidence and build artifact validation before release.
+- `staging` push adds broader confidence and build artifact validation before deployment.
 
 ## Test Strategy
 
@@ -50,7 +50,7 @@ alembic upgrade head
 # PR-equivalent checks
 make ci-pr
 
-# Main-equivalent checks
+# Staging-equivalent checks
 make ci-main
 
 # Full suite only (includes e2e)
@@ -81,7 +81,7 @@ Health endpoints:
 - `Backend Lint`
 - `Backend Migrations`
 - `Backend Tests (PR)`
-4. Merge to `main` requires full-suite and archive-build green.
+4. Push to `staging` triggers full-suite and archive-build gates before staging deploy.
 
 ## CI Secrets and Credentials
 
@@ -115,7 +115,7 @@ Runtime app secrets should be stored in Azure Container Apps secrets (or Key Vau
   - `alembic upgrade head`
 - Ensure new migrations are reversible.
 
-2. Test failure (`backend-test-pr` / `backend-test-main`)
+2. Test failure (`backend-test-pr` / `backend-test-staging`)
 - Reproduce with same marker mode:
   - `pytest -m "not e2e" -v`
   - `pytest -v`
@@ -124,6 +124,6 @@ Runtime app secrets should be stored in Azure Container Apps secrets (or Key Vau
   - `artifacts/junit.xml`
   - `artifacts/coverage.xml`
 
-3. Archive build failure (`backend-archive-main`)
+3. Archive build failure (`backend-archive-staging`)
 - Reproduce locally:
   - `docker build -t clearsplit-backend:local ./backend`

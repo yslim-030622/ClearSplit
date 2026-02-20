@@ -53,9 +53,9 @@ def _ssl_from_sslmode(raw_sslmode: object) -> object:
         )
     if sslmode == "disable":
         return False
-    if sslmode in {"allow", "prefer", "require"}:
+    if sslmode in {"allow", "prefer"}:
         return _build_tls_context(verify_cert=False)
-    if sslmode in {"verify-ca", "verify-full"}:
+    if sslmode in {"require", "verify-ca", "verify-full"}:
         return _build_tls_context(verify_cert=True)
     raise RuntimeError(
         f"Unsupported sslmode '{sslmode}' in DATABASE_URL. "
@@ -71,7 +71,7 @@ def _ssl_from_ssl_query(raw_ssl: object) -> object:
             "Use true/false (or 1/0)."
         )
     if ssl_value in TLS_SSL_TRUE_VALUES:
-        return _build_tls_context(verify_cert=False)
+        return _build_tls_context(verify_cert=True)
     if ssl_value in TLS_SSL_FALSE_VALUES:
         return False
     raise RuntimeError(

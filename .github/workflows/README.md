@@ -4,18 +4,18 @@ This directory contains GitHub Actions workflows for ClearSplit.
 
 ## Workflows
 
-### `ci.yml` - Backend CI (PR + Main Gates)
+### `ci.yml` - Backend CI (PR + Staging Gates)
 Triggers:
 - PR to `main`, `develop` for backend/workflow changes
-- Push to `main` for backend/workflow changes
+- Push to `staging` for backend/workflow changes
 - Manual dispatch
 
 Jobs:
-- `Backend Lint` (PR + main): `ruff check app app/tests`
-- `Backend Migrations` (PR + main): `alembic upgrade -> downgrade base -> upgrade`
+- `Backend Lint` (PR + staging): `ruff check app app/tests`
+- `Backend Migrations` (PR + staging): `alembic upgrade -> downgrade base -> upgrade`
 - `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + JUnit + coverage (fail-under 78%)
-- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e` (fail-under 80%)
-- `Backend Archive Build (Main)` (main only): Docker archive build verification
+- `Backend Tests (Staging Full Suite)` (staging push only): full `pytest` including `e2e` (fail-under 80%)
+- `Backend Archive Build (Staging)` (staging push only): Docker archive build verification
 
 ### `docker.yml` - Docker Build & Push to GHCR
 Triggers:
@@ -30,7 +30,7 @@ Triggers:
 
 ### `deploy-staging.yml` - Azure Container Apps Staging Deployment (OIDC)
 Triggers:
-- `Backend CI` workflow completed successfully on `main` (`workflow_run`)
+- `Backend CI` workflow completed successfully on `staging` (`workflow_run`)
 - Manual dispatch
 
 Jobs:
@@ -74,7 +74,7 @@ Backend:
 ```bash
 cd backend
 make ci-pr    # PR-equivalent
-make ci-main  # Main-equivalent
+make ci-main  # Staging-equivalent full gate
 ```
 
 iOS:
@@ -92,6 +92,6 @@ For backend PR protection:
 - `Backend Migrations`
 - `Backend Tests (PR)`
 
-For `main` push confidence:
-- `Backend Tests (Main Full Suite)`
-- `Backend Archive Build (Main)`
+For `staging` push confidence:
+- `Backend Tests (Staging Full Suite)`
+- `Backend Archive Build (Staging)`

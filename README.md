@@ -1,123 +1,138 @@
 # ClearSplit
 
-ClearSplit is a split-expense system for groups, with a FastAPI backend and a SwiftUI iOS client.
+Expense-splitting API built with **FastAPI**, **PostgreSQL 16**, and **SQLAlchemy 2.0 async**. Handles group expenses, shopping sessions with receipt OCR, and minimum-transfer settlement computation using deterministic integer-cent arithmetic. Deployed to **Azure Container Apps** with fully automated CI/CD via GitHub Actions.
 
-The repository contains:
-- `backend/`: API, domain logic, migrations, tests
-- `ios/ClearSplit/`: iOS app, networking layer, UI, and test scripts
-- `docs/`: project documentation
-- `scripts/`: security and operational helper scripts
+## Backend & Ops Highlights
 
-## Product Scope (Current)
+- **FastAPI + async SQLAlchemy 2.0** on Uvicorn ASGI — fully non-blocking I/O with asyncpg
+- **PostgreSQL 16** — ACID-compliant financial storage; check constraints, cascade deletes, optimistic locking
+- **Alembic migrations** — 14 revisions; CI validates full upgrade → downgrade → upgrade cycle on every push
+- **JWT auth (HS256)** — 15-min access / 30-day refresh tokens, JTI rotation chain, timing-safe login (dummy hash on unknown users)
+- **Idempotency layer** — `Idempotency-Key` header on POST endpoints; same key + payload → cached response, different payload → 409
+- **Rate limiting** — in-memory sliding window per IP (signup 5/5 min, login 10/60 s, refresh 20/60 s)
+- **Security hardened** — CORS validated at startup, HSTS, `nosniff`, `DENY`, validation sanitizer strips passwords from 422 bodies, DB TLS enforced in non-local envs
+- **Receipt OCR pipeline** — Tesseract in-process with concurrency cap; images in S3 with presigned URLs (15-min TTL)
+- **Deterministic financial math** — all amounts as `bigint` cents; remainder distribution on splits, zero floating-point
+- **Staging on Azure Container Apps** — OIDC federation (no static creds), Trivy container scanning, automated rollback on health-check failure
+- **143+ pytest tests** — unit, integration, e2e; 80 % coverage gate on main, 78 % on PRs
+- **6 CI/CD workflows** — backend CI, staging deploy, Docker/GHCR, security scanning (TruffleHog + pip-audit + Bandit), iOS checks
 
-ClearSplit currently supports:
-- user signup/login with JWT access + rotating refresh tokens
-- group creation and membership roles (`owner`, `member`, `viewer`)
-- invite preview and member add flows
-- expense creation with equal splits
-- live balances and settlement suggestions
-- persisted settlement payments with sender/receiver confirmation flow
-- shopping sessions, participants, item splits, and lifecycle (`active`, `finalized`, `settled`)
-- receipt upload to S3-compatible storage
-- receipt OCR extraction and item parsing
-- friendship requests and friend list management
-
-## Tech Stack
-
-- Backend: Python, FastAPI, SQLAlchemy (async), PostgreSQL, Alembic
-- Infra integrations: S3-compatible object storage, Tesseract OCR
-- iOS: SwiftUI, URLSession, Keychain-based token storage
-
-## Quick Start
-
-### 1) Prerequisites
-
-- Python 3.11+
-- Docker and Docker Compose
-- PostgreSQL (if running backend without Compose)
-- Xcode 15+ (for iOS)
-
-### 2) Backend via Docker Compose
-
-From repo root:
+## Quickstart (Docker)
 
 ```bash
+git clone <repo-url> && cd ClearSplit
+cp .env.example .env
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 docker compose up --build
+# API  → http://localhost:8000
+# Docs → http://localhost:8000/docs
 ```
 
-This starts:
-- `db` on `localhost:${POSTGRES_PORT:-5432}`
-- `api` on `http://localhost:8000`
+`docker-compose.yml` runs PostgreSQL 16 + the API with live reload (volume-mounted `./backend`).
 
-Health checks:
-- `GET /health/live`
-- `GET /health/ready`
-
-### 3) Backend local workflow (without Compose)
+## Local Dev (No Docker)
 
 ```bash
 cd backend
-python3 -m venv venv
-source venv/bin/activate
+python3.11 -m venv venv && source venv/bin/activate
 pip install -r requirements-dev.txt
+# Requires PostgreSQL 16 running + DATABASE_URL in .env
 alembic upgrade head
-make run
+make run   # uvicorn --reload on :8000
 ```
 
-### 4) iOS app
+Key targets: `make test` · `make migrate` · `make ci-pr` (lint + tests, 78 %) · `make ci-main` (full suite, 80 %)
 
-Open the Xcode project:
+## Architecture
 
-```bash
-open ios/ClearSplit/ClearSplit/ClearSplit.xcodeproj
+```mermaid
+flowchart TD
+    Client["iOS + any HTTPS client"] -- "TLS / Bearer JWT" --> CORS
+
+    subgraph Backend["Backend · Python 3.11 · Uvicorn ASGI"]
+        CORS["CORS Validation"]
+        CORS --> SecH["Security Headers<br/>HSTS · nosniff · DENY"]
+        SecH --> RL["Rate Limiter<br/>Sliding Window · Per-IP"]
+        RL --> IK["Idempotency Gate<br/>Idempotency-Key header"]
+        IK --> JWT["JWT Auth<br/>HS256 · 15-min Access · 30-day Refresh"]
+        JWT --> Routers["/auth · /groups · /expenses<br/>/settlements · /shopping · /friends"]
+        Routers --> SVC["Service Layer<br/>Split Engine · Balance Aggregator<br/>Transfer Minimizer · Auth Checks"]
+    end
+
+    SVC --> PG["PostgreSQL 16<br/>Alembic Migrations"]
+    SVC --> S3["AWS S3<br/>Receipts · Presigned URLs"]
+    SVC --> OCR["Tesseract OCR<br/>Concurrency-Capped"]
 ```
 
-By default, the app targets `http://127.0.0.1:8000`.
-For real devices, set `API_BASE_URL` in app configuration to your Mac LAN IP (for example `http://192.168.x.x:8000`).
+## CI/CD & Deployment
 
-## Test and Quality Commands
-
-Backend:
-
-```bash
-cd backend
-make test
-make lint-ci
-make test-pr
+```mermaid
+flowchart LR
+    Push["Push to<br/>staging branch"] --> CI["GitHub Actions CI<br/>Ruff lint · pytest 80 %<br/>Migration ↑↓↑ cycle"]
+    CI --> Build["Build Docker<br/>Image"]
+    Build --> ACR["Push to Azure<br/>Container Registry<br/>tag: sha"]
+    ACR --> Trivy["Trivy Scan<br/>Block HIGH/CRITICAL"]
+    Trivy --> Migrate["Migrate Job<br/>alembic upgrade head"]
+    Migrate --> Deploy["Deploy ACA Revision<br/>--revision-suffix sha"]
+    Deploy --> Health["/health/live<br/>/health/ready<br/>Poll ≤ 3 min"]
+    Health -- "fail" --> Rollback["Rollback to<br/>Previous Revision"]
+    Health -- "pass" --> Live["Live"]
 ```
 
-iOS scripts:
+Azure auth uses **OIDC federation** — no static credentials stored anywhere. Secrets injected as ACA secret references.
+
+Additional workflows: `security-scan.yml` (TruffleHog + pip-audit + Bandit, PR/push/weekly) · `docker.yml` (main → GHCR + Trivy).
+
+## API at a Glance
+
+40+ endpoints across 6 domain routers. OpenAPI UI at `/docs` when `ENV=local`.
+
+| Method | Endpoint | Notes |
+| ------ | -------- | ----- |
+| POST | `/auth/signup` | Rate-limited: 5/5 min per IP |
+| POST | `/auth/login` | Timing-safe; rate: 10/60 s |
+| POST | `/auth/refresh` | JTI rotation; revokes old token |
+| POST | `/groups/{id}/expenses` | Idempotent via `Idempotency-Key` |
+| GET | `/groups/{id}/balances` | Live balances + suggested transfers |
+| POST | `/groups/{id}/settlements/compute` | Immutable settlement batch |
+| POST | `/shopping-sessions/{id}/receipt` | Upload receipt (10 MB / 25 MP limit) |
+| POST | `/receipts/{id}/extract-items` | OCR extraction (idempotent) |
+| GET | `/health/live` | Liveness probe (always 200) |
+| GET | `/health/ready` | Readiness probe (DB + S3) |
+
+### Example Requests
 
 ```bash
-cd ios/ClearSplit
-./scripts/ios_build.sh
-./scripts/ios_test.sh all
-./scripts/ios_lint.sh
-```
+# 1) Login
+curl -X POST https://api.example.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"identifier": "alice@example.com", "password": "s3cret!"}'
 
-Security helpers:
+# 2) Create expense with Idempotency-Key
+curl -X POST https://api.example.com/groups/GRP_ID/expenses \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -H "Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Dinner", "amount_cents": 4500, "expense_date": "2026-02-19"}'
 
-```bash
-./scripts/secret-scan.sh
-./scripts/verify-security.sh
-```
-
-Optional pre-commit setup:
-
-```bash
-pip install pre-commit
-pre-commit install
-pre-commit run --all-files
+# 3) Get group balances
+curl https://api.example.com/groups/GRP_ID/balances \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 ```
 
 ## Documentation
 
-Start here:
-- `docs/INDEX.md`
+| Document | Path |
+| -------- | ---- |
+| Documentation Index | [docs/INDEX.md](docs/INDEX.md) |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
+| Backend Reference | [docs/backend-reference.md](docs/backend-reference.md) |
+| Workflows & Operations | [docs/workflows-and-operations.md](docs/workflows-and-operations.md) |
+| Security Policy | [SECURITY.md](SECURITY.md) |
+| App Showcase | [SHOWCASE.md](SHOWCASE.md) |
 
-Core references:
-- `docs/architecture.md`
-- `docs/backend-reference.md`
-- `docs/ios-reference.md`
-- `docs/workflows-and-operations.md`
-- `SECURITY.md`
+Full endpoint tables, ERD, request lifecycle, database schema, and env-var reference live in [docs/](docs/INDEX.md).
+
+## iOS Client
+
+Native SwiftUI app (MVVM, zero external dependencies, Keychain-backed auth). See the full design walkthrough in [SHOWCASE.md](SHOWCASE.md).
