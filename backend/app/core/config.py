@@ -51,6 +51,14 @@ class Settings(BaseSettings):
             raise ValueError(f"ENV must be one of: {allowed}")
         return normalized
 
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, value: SecretStr) -> SecretStr:
+        normalized = value.get_secret_value().strip()
+        if len(normalized) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        return SecretStr(normalized)
+
     def get_database_url(self) -> str:
         return self.database_url.get_secret_value()
 
