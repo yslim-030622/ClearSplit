@@ -172,40 +172,6 @@ async def can_manage_item(
 # Storage abstraction (S3)
 # ============================================================================
 
-    if shopping_session.status == ShoppingSessionStatus.SETTLED:
-        shopping_session.status = ShoppingSessionStatus.ACTIVE
-        shopping_session.settled_at = None
-        shopping_session.finalized_at = None
-
-
-async def can_manage_item(
-    db: AsyncSession,
-    shopping_session: ShoppingSession,
-    item: ShoppingItem,
-    requester_membership_id: UUID,
-) -> bool:
-    """Return true when requester can edit/delete/sharer-manage an item."""
-
-    if requester_membership_id == item.created_by_membership_id:
-        return True
-    if requester_membership_id == shopping_session.paid_by_membership_id:
-        return True
-
-    membership_result = await db.execute(
-        select(Membership).where(
-            Membership.id == requester_membership_id,
-            Membership.group_id == shopping_session.group_id,
-        )
-    )
-    requester_membership = membership_result.scalar_one_or_none()
-    if not requester_membership:
-        return False
-    return requester_membership.role == MembershipRole.OWNER
-
-
-# ============================================================================
-# Storage abstraction (S3)
-# ============================================================================
 
 async def _read_upload_with_size_limit(
     file: UploadFile,
