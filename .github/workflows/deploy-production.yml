@@ -1,13 +1,13 @@
-name: Deploy to ACA Staging
+name: Deploy to ACA Production
 
 on:
-  workflow_run:
-    workflows: ["Backend CI"]
-    types: [completed]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 concurrency:
-  group: deploy-aca-staging
+  group: deploy-aca-production
   cancel-in-progress: false
 
 permissions:
@@ -20,16 +20,11 @@ env:
 jobs:
   build-and-push:
     if: >
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main' &&
-       github.event.workflow_run.event == 'push')
+      startsWith(github.ref, 'refs/tags/v')
     name: Build and Push Image
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: staging
+    environment: production
     permissions:
       id-token: write
       contents: read
@@ -41,18 +36,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Resolve deploy commit SHA
         id: meta
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            DEPLOY_SHA="${{ github.event.workflow_run.head_sha }}"
-          else
-            DEPLOY_SHA="${GITHUB_SHA}"
-          fi
+          DEPLOY_SHA="${GITHUB_SHA}"
           echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate deployment configuration inputs
@@ -90,7 +81,7 @@ jobs:
 
           for key in "${required_values[@]}"; do
             if [[ -z "${!key:-}" ]]; then
-              echo "Missing required staging configuration: $key"
+              echo "Missing required production configuration: $key"
               exit 1
             fi
           done
@@ -101,7 +92,7 @@ jobs:
           fi
 
           if [[ "${DATABASE_URL}" != *"sslmode="* && "${DATABASE_URL}" != *"ssl="* ]]; then
-            echo "DATABASE_URL must explicitly include ssl or sslmode for staging."
+            echo "DATABASE_URL must explicitly include ssl or sslmode for production."
             exit 1
           fi
 
@@ -169,7 +160,7 @@ jobs:
     needs: [build-and-push]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: staging
+    environment: production
     permissions:
       id-token: write
       contents: read
@@ -200,7 +191,7 @@ jobs:
           JOB="${{ vars.ACA_MIGRATION_JOB }}"
           IMAGE="${{ needs.build-and-push.outputs.image }}"
           MIGRATION_ENV_VARS=(
-            "ENV=staging"
+            "ENV=production"
             "DATABASE_URL=secretref:database-url"
           )
 
@@ -215,7 +206,7 @@ jobs:
           fi
 
           if [[ "${MIGRATION_DATABASE_URL}" != *"sslmode="* && "${MIGRATION_DATABASE_URL}" != *"ssl="* ]]; then
-            echo "DATABASE_URL must explicitly include ssl or sslmode for staging."
+            echo "DATABASE_URL must explicitly include ssl or sslmode for production."
             exit 1
           fi
 
@@ -287,7 +278,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
-      name: staging
+      name: production
       url: ${{ steps.deploy.outputs.url }}
     permissions:
       id-token: write
@@ -347,7 +338,7 @@ jobs:
             "jwt-secret=${APP_JWT_SECRET}"
           )
           env_args=(
-            "ENV=staging"
+            "ENV=production"
             "DATABASE_URL=secretref:database-url"
             "JWT_SECRET=secretref:jwt-secret"
             "CORS_ORIGINS=${APP_CORS_ORIGINS}"

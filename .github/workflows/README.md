@@ -4,24 +4,18 @@ This directory contains GitHub Actions workflows for ClearSplit.
 
 ## Workflows
 
-### `ci.yml` - Backend CI (PR + Staging Gates)
+### `ci.yml` - Backend CI (PR + Main Gates)
 Triggers:
 - PR to `main`, `develop` for backend/workflow changes
-- Push to `staging` for backend/workflow changes
+- Push to `main` for backend/workflow changes
 - Manual dispatch
 
 Jobs:
-- `Backend Lint` (PR + staging): `ruff check app app/tests`
-- `Backend Migrations` (PR + staging): `alembic upgrade -> downgrade base -> upgrade`
+- `Backend Lint` (PR + main): `ruff check app app/tests`
+- `Backend Migrations` (PR + main): `alembic upgrade -> downgrade base -> upgrade`
 - `Backend Tests (PR)` (PR only): `pytest -m "not e2e"` + JUnit + coverage (fail-under 78%)
-- `Backend Tests (Staging Full Suite)` (staging push only): full `pytest` including `e2e` (fail-under 80%)
-- `Backend Archive Build (Staging)` (staging push only): Docker archive build verification
-
-### `docker.yml` - Docker Build & Push to GHCR
-Triggers:
-- Push to `main`
-- Tags `v*`
-- Manual dispatch
+- `Backend Tests (Main Full Suite)` (main only): full `pytest` including `e2e` (fail-under 80%)
+- `Backend Archive Build (Main)` (main only): Docker archive build verification
 
 ### `security-scan.yml` - Security Scanning
 Triggers:
@@ -30,7 +24,7 @@ Triggers:
 
 ### `deploy-staging.yml` - Azure Container Apps Staging Deployment (OIDC)
 Triggers:
-- `Backend CI` workflow completed successfully on `staging` (`workflow_run`)
+- `Backend CI` workflow completed successfully on `main` (`workflow_run`)
 - Manual dispatch
 
 Jobs:
@@ -58,6 +52,16 @@ Notes:
 - No `AZURE_CREDENTIALS` secret is required.
 - Runtime secrets (for app config) should be managed in Azure Container Apps secrets or Key Vault.
 
+### `deploy-production.yml` - Azure Container Apps Production Deployment (OIDC)
+Triggers:
+- Push tag `v*`
+- Manual dispatch (tag ref only)
+
+Behavior:
+- Same build, scan, migration, deploy, health check, and rollback flow as staging
+- Uses `environment: production` and its dedicated variables/secrets
+- Requires environment approval gate before jobs start (via required reviewers)
+
 ### `ios-pr-checks.yml` - iOS PR Quality Gates
 Triggers:
 - Pull requests targeting `main`, `develop` with iOS/workflow changes
@@ -74,7 +78,7 @@ Backend:
 ```bash
 cd backend
 make ci-pr    # PR-equivalent
-make ci-main  # Staging-equivalent full gate
+make ci-main  # Main-equivalent
 ```
 
 iOS:
@@ -92,6 +96,6 @@ For backend PR protection:
 - `Backend Migrations`
 - `Backend Tests (PR)`
 
-For `staging` push confidence:
-- `Backend Tests (Staging Full Suite)`
-- `Backend Archive Build (Staging)`
+For `main` push confidence:
+- `Backend Tests (Main Full Suite)`
+- `Backend Archive Build (Main)`
