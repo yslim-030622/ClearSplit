@@ -170,8 +170,8 @@ jobs:
             fi
 
             if [[ "$ACR_NAME" == *staging* || "$ACR_LOGIN_SERVER" == *staging* ]]; then
-              echo "Production ACR_NAME/ACR_LOGIN_SERVER appears to reference staging. Use a production registry."
-              exit 1
+              echo "WARNING: Production ACR settings appear to reference staging."
+              echo "Shared ACR usage is allowed, but this is not recommended for strict environment isolation."
             fi
 
             if [[ "$DEPLOY_MODE" == "promote" ]]; then
