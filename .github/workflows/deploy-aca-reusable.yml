@@ -364,6 +364,16 @@ jobs:
             echo "source_tag=$SOURCE_TAG"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Authenticate image pull for Trivy scan
+        shell: bash
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+          az acr login --name "$ACR_NAME"
+          docker pull "$IMAGE" >/dev/null
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
