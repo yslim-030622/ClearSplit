@@ -1,10 +1,16 @@
 name: Deploy to ACA Production
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "40-char commit SHA to promote from successful staging deploy"
+        required: true
+        type: string
+      confirm_production:
+        description: "Type YES to confirm production deployment"
+        required: true
+        type: string
 
 concurrency:
   group: deploy-aca-production
@@ -13,434 +19,106 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-
-env:
-  IMAGE_REPOSITORY: clearsplit-api
+  actions: read
 
 jobs:
-  build-and-push:
-    if: >
-      startsWith(github.ref, 'refs/tags/v')
-    name: Build and Push Image
+  validate-gates:
+    name: Validate Production Promotion Gates
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: production
-    permissions:
-      id-token: write
-      contents: read
     outputs:
-      image: ${{ steps.image.outputs.image }}
-      deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
+      source_sha: ${{ steps.validate-input.outputs.source_sha }}
+      staging_run_id: ${{ steps.check-staging.outputs.staging_run_id }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Resolve deploy commit SHA
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEPLOY_SHA="${GITHUB_SHA}"
-          echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Validate deployment configuration inputs
+      - name: Validate manual inputs and branch
+        id: validate-input
         shell: bash
         env:
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-          ACR_NAME: ${{ vars.ACR_NAME }}
-          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-          ACA_APP_NAME: ${{ vars.ACA_APP_NAME }}
-          ACA_MIGRATION_JOB: ${{ vars.ACA_MIGRATION_JOB }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
-          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CONFIRM_PRODUCTION: ${{ inputs.confirm_production }}
         run: |
           set -euo pipefail
 
-          required_values=(
-            AZURE_CLIENT_ID
-            AZURE_TENANT_ID
-            AZURE_SUBSCRIPTION_ID
-            AZURE_RESOURCE_GROUP
-            ACR_NAME
-            ACR_LOGIN_SERVER
-            ACA_APP_NAME
-            ACA_MIGRATION_JOB
-            DATABASE_URL
-            JWT_SECRET
-            CORS_ORIGINS
-            S3_BUCKET_NAME
-          )
-
-          for key in "${required_values[@]}"; do
-            if [[ -z "${!key:-}" ]]; then
-              echo "Missing required production configuration: $key"
-              exit 1
-            fi
-          done
-
-          if [[ "${DATABASE_URL}" != postgresql+asyncpg://* ]]; then
-            echo "DATABASE_URL must start with postgresql+asyncpg://"
+          if [[ "${GITHUB_REF_NAME}" != "main" ]]; then
+            echo "Production deploy is allowed only from main (current: ${GITHUB_REF_NAME})."
             exit 1
           fi
 
-          if [[ "${DATABASE_URL}" != *"sslmode="* && "${DATABASE_URL}" != *"ssl="* ]]; then
-            echo "DATABASE_URL must explicitly include ssl or sslmode for production."
+          if [[ "$CONFIRM_PRODUCTION" != "YES" ]]; then
+            echo "confirm_production must be exactly YES"
             exit 1
           fi
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a 40-character lowercase commit SHA"
+            exit 1
+          fi
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Backend CI success for SHA
+        uses: actions/github-script@v7
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          script: |
+            const sourceSha = '${{ steps.validate-input.outputs.source_sha }}';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
-      - name: Install Azure Container Apps extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          az config set extension.use_dynamic_install=no_prompt
-          az extension add --name containerapp --upgrade
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: 'ci.yml',
+              head_sha: sourceSha,
+              per_page: 100,
+            });
 
-      - name: Preflight Azure resource checks
-        shell: bash
-        run: |
-          set -euo pipefail
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          ACR_NAME="${{ vars.ACR_NAME }}"
-          APP="${{ vars.ACA_APP_NAME }}"
-          JOB="${{ vars.ACA_MIGRATION_JOB }}"
-          EXPECTED_LOGIN_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+            const successfulPushRun = runs.find(
+              (run) => run.conclusion === 'success' && run.event === 'push'
+            );
 
-          az group show --name "$RG" --query id -o tsv >/dev/null
-          az acr show --resource-group "$RG" --name "$ACR_NAME" --query id -o tsv >/dev/null
-          az containerapp show --resource-group "$RG" --name "$APP" --query id -o tsv >/dev/null
-          az containerapp job show --resource-group "$RG" --name "$JOB" --query id -o tsv >/dev/null
+            if (!successfulPushRun) {
+              core.setFailed(`No successful Backend CI push run found for SHA ${sourceSha}.`);
+              return;
+            }
 
-          ACTUAL_LOGIN_SERVER=$(az acr show \
-            --resource-group "$RG" \
-            --name "$ACR_NAME" \
-            --query loginServer -o tsv)
-          if [[ "$ACTUAL_LOGIN_SERVER" != "$EXPECTED_LOGIN_SERVER" ]]; then
-            echo "ACR login server mismatch. expected=$EXPECTED_LOGIN_SERVER actual=$ACTUAL_LOGIN_SERVER"
-            exit 1
-          fi
+            core.info(`Backend CI gate passed: ${successfulPushRun.html_url}`);
 
-      - name: Build and push image to ACR
-        id: image
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/${{ env.IMAGE_REPOSITORY }}:${{ steps.meta.outputs.deploy_sha }}"
-          az acr login --name "${{ vars.ACR_NAME }}"
-          docker build -t "$IMAGE" ./backend
-          docker push "$IMAGE"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
-      - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+      - name: Validate staging deploy success for SHA
+        id: check-staging
+        uses: actions/github-script@v7
         with:
-          scan-type: image
-          image-ref: ${{ steps.image.outputs.image }}
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+          script: |
+            const sourceSha = '${{ steps.validate-input.outputs.source_sha }}';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
-  migrate:
-    name: Run Alembic Migration Job
-    needs: [build-and-push]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: production
-    permissions:
-      id-token: write
-      contents: read
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: 'deploy-staging.yml',
+              head_sha: sourceSha,
+              per_page: 100,
+            });
 
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+            const successfulRun = runs.find((run) => run.conclusion === 'success');
 
-      - name: Install Azure Container Apps extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          az config set extension.use_dynamic_install=no_prompt
-          az extension add --name containerapp --upgrade
+            if (!successfulRun) {
+              core.setFailed(`No successful staging deployment found for SHA ${sourceSha}.`);
+              return;
+            }
 
-      - name: Run migration prechecks and Alembic upgrade
-        shell: bash
-        env:
-          MIGRATION_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          set -euo pipefail
-
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          JOB="${{ vars.ACA_MIGRATION_JOB }}"
-          IMAGE="${{ needs.build-and-push.outputs.image }}"
-          MIGRATION_ENV_VARS=(
-            "ENV=production"
-            "DATABASE_URL=secretref:database-url"
-          )
-
-          if [[ -z "${MIGRATION_DATABASE_URL:-}" ]]; then
-            echo "Missing required migration secret: DATABASE_URL"
-            exit 1
-          fi
-
-          if [[ "${MIGRATION_DATABASE_URL}" != postgresql+asyncpg://* ]]; then
-            echo "DATABASE_URL must start with postgresql+asyncpg://"
-            exit 1
-          fi
-
-          if [[ "${MIGRATION_DATABASE_URL}" != *"sslmode="* && "${MIGRATION_DATABASE_URL}" != *"ssl="* ]]; then
-            echo "DATABASE_URL must explicitly include ssl or sslmode for production."
-            exit 1
-          fi
-
-          az containerapp job secret set \
-            --resource-group "$RG" \
-            --name "$JOB" \
-            --secrets "database-url=${MIGRATION_DATABASE_URL}" >/dev/null
-
-          run_job_and_wait() {
-            local command="$1"
-            shift
-            local args=("$@")
-            local execution_name=""
-            local status=""
-            if ((${#args[@]})); then
-              az containerapp job update \
-                --resource-group "$RG" \
-                --name "$JOB" \
-                --image "$IMAGE" \
-                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
-                --command "$command" \
-                --args "${args[@]}" >/dev/null
-            else
-              az containerapp job update \
-                --resource-group "$RG" \
-                --name "$JOB" \
-                --image "$IMAGE" \
-                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
-                --command "$command" >/dev/null
-            fi
-
-            execution_name=$(az containerapp job start \
-              --resource-group "$RG" \
-              --name "$JOB" \
-              --query name -o tsv)
-
-            echo "Job execution started: $execution_name"
-
-            for attempt in {1..60}; do
-              status=$(az containerapp job execution list \
-                --resource-group "$RG" \
-                --name "$JOB" \
-                --query "[?name=='$execution_name'].properties.status | [0]" -o tsv)
-
-              if [[ "$status" == "Succeeded" ]]; then
-                echo "Execution succeeded: $execution_name"
-                return 0
-              fi
-
-              if [[ "$status" == "Failed" || "$status" == "Cancelled" || "$status" == "Stopped" ]]; then
-                echo "Execution failed: $execution_name status=$status"
-                return 1
-              fi
-
-              echo "Execution status: ${status:-Pending} (attempt $attempt/60)"
-              sleep 10
-            done
-
-            echo "Execution timed out: $execution_name"
-            return 1
-          }
-
-          run_job_and_wait python "app/scripts/migration_precheck.py"
-          run_job_and_wait alembic "upgrade" "head"
+            core.setOutput('staging_run_id', String(successfulRun.id));
+            core.info(`Staging deployment gate passed: ${successfulRun.html_url}`);
 
   deploy:
-    name: Deploy Container App
-    needs: [build-and-push, migrate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment:
-      name: production
-      url: ${{ steps.deploy.outputs.url }}
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Install Azure Container Apps extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          az config set extension.use_dynamic_install=no_prompt
-          az extension add --name containerapp --upgrade
-
-      - name: Deploy new revision
-        id: deploy
-        shell: bash
-        env:
-          APP_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          APP_JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          APP_CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
-          APP_S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
-          APP_AWS_REGION: ${{ vars.AWS_REGION }}
-          APP_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          APP_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          APP_TRUST_PROXY_HEADERS: ${{ vars.TRUST_PROXY_HEADERS }}
-          APP_TRUSTED_PROXY_IPS: ${{ vars.TRUSTED_PROXY_IPS }}
-        run: |
-          set -euo pipefail
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          APP="${{ vars.ACA_APP_NAME }}"
-          IMAGE="${{ needs.build-and-push.outputs.image }}"
-          DEPLOY_SHA="${{ needs.build-and-push.outputs.deploy_sha }}"
-
-          for key in APP_DATABASE_URL APP_JWT_SECRET APP_CORS_ORIGINS APP_S3_BUCKET_NAME; do
-            if [[ -z "${!key:-}" ]]; then
-              echo "Missing required app runtime value: $key"
-              exit 1
-            fi
-          done
-
-          if [[ -n "${APP_AWS_ACCESS_KEY_ID:-}" || -n "${APP_AWS_SECRET_ACCESS_KEY:-}" ]]; then
-            if [[ -z "${APP_AWS_ACCESS_KEY_ID:-}" || -z "${APP_AWS_SECRET_ACCESS_KEY:-}" ]]; then
-              echo "Both AWS access key and secret access key must be set together."
-              exit 1
-            fi
-          fi
-
-          secret_args=(
-            "database-url=${APP_DATABASE_URL}"
-            "jwt-secret=${APP_JWT_SECRET}"
-          )
-          env_args=(
-            "ENV=production"
-            "DATABASE_URL=secretref:database-url"
-            "JWT_SECRET=secretref:jwt-secret"
-            "CORS_ORIGINS=${APP_CORS_ORIGINS}"
-            "S3_BUCKET_NAME=${APP_S3_BUCKET_NAME}"
-          )
-
-          if [[ -n "${APP_AWS_REGION:-}" ]]; then
-            env_args+=("AWS_REGION=${APP_AWS_REGION}")
-          fi
-
-          if [[ -n "${APP_TRUST_PROXY_HEADERS:-}" ]]; then
-            env_args+=("TRUST_PROXY_HEADERS=${APP_TRUST_PROXY_HEADERS}")
-          fi
-
-          if [[ -n "${APP_TRUSTED_PROXY_IPS:-}" ]]; then
-            env_args+=("TRUSTED_PROXY_IPS=${APP_TRUSTED_PROXY_IPS}")
-          fi
-
-          if [[ -n "${APP_AWS_ACCESS_KEY_ID:-}" ]]; then
-            secret_args+=(
-              "aws-access-key-id=${APP_AWS_ACCESS_KEY_ID}"
-              "aws-secret-access-key=${APP_AWS_SECRET_ACCESS_KEY}"
-            )
-            env_args+=(
-              "AWS_ACCESS_KEY_ID=secretref:aws-access-key-id"
-              "AWS_SECRET_ACCESS_KEY=secretref:aws-secret-access-key"
-            )
-          fi
-
-          az containerapp secret set \
-            --resource-group "$RG" \
-            --name "$APP" \
-            --secrets "${secret_args[@]}" >/dev/null
-
-          PREVIOUS_IMAGE=$(az containerapp show \
-            --resource-group "$RG" \
-            --name "$APP" \
-            --query "properties.template.containers[0].image" -o tsv)
-
-          az containerapp update \
-            --resource-group "$RG" \
-            --name "$APP" \
-            --image "$IMAGE" \
-            --set-env-vars "${env_args[@]}" \
-            --revision-suffix "sha-${DEPLOY_SHA::7}"
-
-          FQDN=$(az containerapp show \
-            --resource-group "$RG" \
-            --name "$APP" \
-            --query "properties.configuration.ingress.fqdn" -o tsv)
-
-          echo "url=https://${FQDN}" >> "$GITHUB_OUTPUT"
-          echo "previous_image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify liveness/readiness and rollback on failure
-        shell: bash
-        run: |
-          set -euo pipefail
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          APP="${{ vars.ACA_APP_NAME }}"
-          BASE_URL="${{ steps.deploy.outputs.url }}"
-          PREVIOUS_IMAGE="${{ steps.deploy.outputs.previous_image }}"
-
-          check_path() {
-            local path="$1"
-            echo "Checking ${BASE_URL}${path}"
-            for attempt in {1..18}; do
-              CODE=$(curl --connect-timeout 3 --max-time 5 -sS -o /dev/null -w "%{http_code}" "${BASE_URL}${path}" || true)
-              if [[ "$CODE" == "200" ]]; then
-                echo "${path} is healthy"
-                return 0
-              fi
-
-              if [[ "$attempt" -eq 18 ]]; then
-                echo "${path} did not become healthy (last status: $CODE)"
-                return 1
-              fi
-
-              sleep 10
-            done
-          }
-
-          if check_path "/health/live" && check_path "/health/ready"; then
-            echo "New revision passed health checks"
-            exit 0
-          fi
-
-          if [[ -z "$PREVIOUS_IMAGE" ]]; then
-            echo "Health checks failed and no previous image was captured; cannot rollback safely."
-            exit 1
-          fi
-
-          echo "Health checks failed; rolling back to previous image: $PREVIOUS_IMAGE"
-          az containerapp update \
-            --resource-group "$RG" \
-            --name "$APP" \
-            --image "$PREVIOUS_IMAGE" \
-            --revision-suffix "rb-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-
-          if ! check_path "/health/live"; then
-            echo "Rollback attempted, but service did not recover liveness."
-          fi
-
-          echo "Deployment failed after rollback attempt."
-          exit 1
+    name: Deploy Production via Reusable Workflow
+    needs: [validate-gates]
+    uses: ./.github/workflows/deploy-aca-reusable.yml
+    with:
+      target_environment: production
+      deploy_mode: promote
+      source_sha: ${{ needs.validate-gates.outputs.source_sha }}
+      image_digest: ""
+      staging_run_id: ${{ needs.validate-gates.outputs.staging_run_id }}
+      build_run_id: ""
+    secrets: inherit

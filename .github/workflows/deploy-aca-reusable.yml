@@ -1,0 +1,676 @@
+name: Deploy to ACA (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      target_environment:
+        description: "Target environment name (staging|production)"
+        required: true
+        type: string
+      deploy_mode:
+        description: "build (build+push) or promote (reuse staged image)"
+        required: true
+        type: string
+      source_sha:
+        description: "Commit SHA to deploy"
+        required: true
+        type: string
+      image_digest:
+        description: "Optional digest override (sha256:...)"
+        required: false
+        type: string
+        default: ""
+      staging_run_id:
+        description: "Successful staging run id used for immutable promotion tag"
+        required: false
+        type: string
+        default: ""
+      build_run_id:
+        description: "Run id used to stamp immutable build tag"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      DATABASE_URL:
+        required: true
+      JWT_SECRET:
+        required: true
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+
+env:
+  IMAGE_REPOSITORY: clearsplit-api
+
+jobs:
+  resolve-image:
+    name: Resolve Deploy Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      deploy_sha: ${{ steps.meta.outputs.deploy_sha }}
+      image: ${{ steps.image.outputs.image }}
+      image_digest: ${{ steps.image.outputs.image_digest }}
+      source_tag: ${{ steps.image.outputs.source_tag }}
+
+    steps:
+      - name: Resolve deploy SHA
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "deploy_sha=${{ inputs.source_sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate deployment configuration inputs
+        shell: bash
+        env:
+          TARGET_ENV: ${{ inputs.target_environment }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          SOURCE_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          PROVIDED_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+          STAGING_ACR_NAME: ${{ vars.STAGING_ACR_NAME }}
+          STAGING_ACR_LOGIN_SERVER: ${{ vars.STAGING_ACR_LOGIN_SERVER }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          ACA_APP_NAME: ${{ vars.ACA_APP_NAME }}
+          ACA_MIGRATION_JOB: ${{ vars.ACA_MIGRATION_JOB }}
+          CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$TARGET_ENV" != "staging" && "$TARGET_ENV" != "production" ]]; then
+            echo "target_environment must be staging or production (got: $TARGET_ENV)"
+            exit 1
+          fi
+
+          if [[ "$DEPLOY_MODE" != "build" && "$DEPLOY_MODE" != "promote" ]]; then
+            echo "deploy_mode must be build or promote (got: $DEPLOY_MODE)"
+            exit 1
+          fi
+
+          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "source_sha must be a 40-character lowercase commit SHA."
+            exit 1
+          fi
+
+          required_values=(
+            AZURE_CLIENT_ID
+            AZURE_TENANT_ID
+            AZURE_SUBSCRIPTION_ID
+            AZURE_RESOURCE_GROUP
+            ACR_NAME
+            ACR_LOGIN_SERVER
+            ACA_APP_NAME
+            ACA_MIGRATION_JOB
+            DATABASE_URL
+            JWT_SECRET
+            CORS_ORIGINS
+            S3_BUCKET_NAME
+          )
+
+          for key in "${required_values[@]}"; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required configuration: $key"
+              exit 1
+            fi
+          done
+
+          if [[ "$DATABASE_URL" != postgresql+asyncpg://* ]]; then
+            echo "DATABASE_URL must start with postgresql+asyncpg://"
+            exit 1
+          fi
+
+          if [[ "$DATABASE_URL" != *"sslmode="* && "$DATABASE_URL" != *"ssl="* ]]; then
+            echo "DATABASE_URL must explicitly include ssl or sslmode."
+            exit 1
+          fi
+
+          if [[ "$TARGET_ENV" == "production" ]]; then
+            if [[ "${#JWT_SECRET}" -lt 32 ]]; then
+              echo "JWT_SECRET must be at least 32 characters long."
+              exit 1
+            fi
+
+            if [[ "$CORS_ORIGINS" != https://* ]]; then
+              echo "CORS_ORIGINS must start with https:// in production."
+              exit 1
+            fi
+
+            IFS=',' read -ra ORIGINS <<< "$CORS_ORIGINS"
+            for origin in "${ORIGINS[@]}"; do
+              trimmed_origin="${origin#"${origin%%[![:space:]]*}"}"
+              trimmed_origin="${trimmed_origin%"${trimmed_origin##*[![:space:]]}"}"
+              if [[ ! "$trimmed_origin" =~ ^https://[^/]+$ ]]; then
+                echo "Invalid CORS origin format (expected https://host): '$trimmed_origin'"
+                exit 1
+              fi
+            done
+
+            if [[ "$ACA_APP_NAME" == *staging* || "$ACA_MIGRATION_JOB" == *staging* ]]; then
+              echo "Production workflow cannot target staging app/job names."
+              exit 1
+            fi
+
+            if [[ "$S3_BUCKET_NAME" == *staging* ]]; then
+              echo "S3_BUCKET_NAME appears to reference staging. Use a production bucket."
+              exit 1
+            fi
+
+            if [[ "$ACR_NAME" == *staging* || "$ACR_LOGIN_SERVER" == *staging* ]]; then
+              echo "Production ACR_NAME/ACR_LOGIN_SERVER appears to reference staging. Use a production registry."
+              exit 1
+            fi
+
+            if [[ "$DEPLOY_MODE" == "promote" ]]; then
+              if [[ -z "$STAGING_RUN_ID" && -z "$PROVIDED_IMAGE_DIGEST" ]]; then
+                echo "Production promote mode requires staging_run_id or image_digest."
+                exit 1
+              fi
+
+              if [[ -z "${STAGING_ACR_NAME:-}" || -z "${STAGING_ACR_LOGIN_SERVER:-}" ]]; then
+                echo "WARNING: STAGING_ACR_NAME and STAGING_ACR_LOGIN_SERVER are not set."
+                echo "Cross-ACR image import will be skipped. Promotion will only work if the image already exists in the production ACR."
+              fi
+            fi
+          fi
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Container Apps extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          az config set extension.use_dynamic_install=no_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Preflight Azure resource checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          ACR_NAME="${{ vars.ACR_NAME }}"
+          APP="${{ vars.ACA_APP_NAME }}"
+          JOB="${{ vars.ACA_MIGRATION_JOB }}"
+          EXPECTED_LOGIN_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
+
+          az group show --name "$RG" --query id -o tsv >/dev/null
+          az acr show --resource-group "$RG" --name "$ACR_NAME" --query id -o tsv >/dev/null
+          az containerapp show --resource-group "$RG" --name "$APP" --query id -o tsv >/dev/null
+          az containerapp job show --resource-group "$RG" --name "$JOB" --query id -o tsv >/dev/null
+
+          ACTUAL_LOGIN_SERVER=$(az acr show \
+            --resource-group "$RG" \
+            --name "$ACR_NAME" \
+            --query loginServer -o tsv)
+
+          if [[ "$ACTUAL_LOGIN_SERVER" != "$EXPECTED_LOGIN_SERVER" ]]; then
+            echo "ACR login server mismatch. expected=$EXPECTED_LOGIN_SERVER actual=$ACTUAL_LOGIN_SERVER"
+            exit 1
+          fi
+
+      - name: Checkout source (build mode)
+        if: ${{ inputs.deploy_mode == 'build' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.deploy_sha }}
+
+      - name: Build and push image to ACR
+        if: ${{ inputs.deploy_mode == 'build' }}
+        id: image-build
+        shell: bash
+        env:
+          ACR_NAME: ${{ vars.ACR_NAME }}
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          TARGET_ENV: ${{ inputs.target_environment }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$BUILD_RUN_ID" ]]; then
+            BUILD_RUN_ID="$GITHUB_RUN_ID"
+          fi
+
+          PRIMARY_TAG="$DEPLOY_SHA"
+          SOURCE_TAG="${TARGET_ENV}-${DEPLOY_SHA}-${BUILD_RUN_ID}"
+
+          IMAGE_PRIMARY="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${PRIMARY_TAG}"
+          IMAGE_SOURCE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${SOURCE_TAG}"
+
+          az acr login --name "$ACR_NAME"
+          docker build -t "$IMAGE_PRIMARY" -t "$IMAGE_SOURCE" ./backend
+          docker push "$IMAGE_PRIMARY"
+          docker push "$IMAGE_SOURCE"
+
+          IMAGE_DIGEST=$(az acr repository show \
+            --name "$ACR_NAME" \
+            --image "${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+            --query digest -o tsv)
+
+          if [[ -z "$IMAGE_DIGEST" ]]; then
+            echo "Failed to resolve image digest for ${IMAGE_REPOSITORY}:${SOURCE_TAG}"
+            exit 1
+          fi
+
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "source_tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve promoted image digest
+        if: ${{ inputs.deploy_mode == 'promote' }}
+        id: image-promote
+        shell: bash
+        env:
+          TARGET_ACR_NAME: ${{ vars.ACR_NAME }}
+          DEPLOY_SHA: ${{ steps.meta.outputs.deploy_sha }}
+          PROVIDED_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id }}
+          SOURCE_ACR_NAME: ${{ vars.STAGING_ACR_NAME }}
+          SOURCE_ACR_LOGIN_SERVER: ${{ vars.STAGING_ACR_LOGIN_SERVER }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$PROVIDED_IMAGE_DIGEST" ]]; then
+            SOURCE_TAG="provided-digest"
+            IMAGE_DIGEST="$PROVIDED_IMAGE_DIGEST"
+          elif [[ -n "$STAGING_RUN_ID" ]]; then
+            SOURCE_TAG="staging-${DEPLOY_SHA}-${STAGING_RUN_ID}"
+            IMAGE_DIGEST=$(az acr repository show \
+              --name "$TARGET_ACR_NAME" \
+              --image "${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+              --query digest -o tsv 2>/dev/null || true)
+          else
+            SOURCE_TAG="$DEPLOY_SHA"
+            IMAGE_DIGEST=$(az acr repository show \
+              --name "$TARGET_ACR_NAME" \
+              --image "${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+              --query digest -o tsv 2>/dev/null || true)
+          fi
+
+          if [[ -z "$IMAGE_DIGEST" && -n "$SOURCE_TAG" && -n "$SOURCE_ACR_NAME" && -n "$SOURCE_ACR_LOGIN_SERVER" ]]; then
+            echo "Promote source tag not found in target ACR. Importing from source ACR..."
+            az acr import \
+              --name "$TARGET_ACR_NAME" \
+              --source "${SOURCE_ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+              --image "${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+              --force >/dev/null
+
+            IMAGE_DIGEST=$(az acr repository show \
+              --name "$TARGET_ACR_NAME" \
+              --image "${IMAGE_REPOSITORY}:${SOURCE_TAG}" \
+              --query digest -o tsv 2>/dev/null || true)
+          fi
+
+          if [[ -z "$IMAGE_DIGEST" ]]; then
+            echo "Failed to resolve promoted image digest. source_tag=$SOURCE_TAG"
+            echo "Use a shared ACR for staging/production or configure STAGING_ACR_NAME + STAGING_ACR_LOGIN_SERVER in production environment vars."
+            exit 1
+          fi
+
+          if [[ "$IMAGE_DIGEST" != sha256:* ]]; then
+            echo "Resolved digest has invalid format: $IMAGE_DIGEST"
+            exit 1
+          fi
+
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "source_tag=$SOURCE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set image outputs
+        id: image
+        shell: bash
+        env:
+          ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+          BUILD_DIGEST: ${{ steps.image-build.outputs.image_digest }}
+          PROMOTE_DIGEST: ${{ steps.image-promote.outputs.image_digest }}
+          BUILD_SOURCE_TAG: ${{ steps.image-build.outputs.source_tag }}
+          PROMOTE_SOURCE_TAG: ${{ steps.image-promote.outputs.source_tag }}
+        run: |
+          set -euo pipefail
+
+          IMAGE_DIGEST="$BUILD_DIGEST"
+          SOURCE_TAG="$BUILD_SOURCE_TAG"
+
+          if [[ -n "$PROMOTE_DIGEST" ]]; then
+            IMAGE_DIGEST="$PROMOTE_DIGEST"
+            SOURCE_TAG="$PROMOTE_SOURCE_TAG"
+          fi
+
+          if [[ -z "$IMAGE_DIGEST" ]]; then
+            echo "Image digest was not resolved."
+            exit 1
+          fi
+
+          IMAGE="${ACR_LOGIN_SERVER}/${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          {
+            echo "image=$IMAGE"
+            echo "image_digest=$IMAGE_DIGEST"
+            echo "source_tag=$SOURCE_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.image }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+
+  migrate:
+    name: Run Alembic Migration Job
+    needs: [resolve-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.target_environment }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Container Apps extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          az config set extension.use_dynamic_install=no_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Run migration prechecks and Alembic upgrade
+        shell: bash
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_ENV: ${{ inputs.target_environment }}
+          IMAGE: ${{ needs.resolve-image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          JOB="${{ vars.ACA_MIGRATION_JOB }}"
+          MIGRATION_ENV_VARS=(
+            "ENV=${TARGET_ENV}"
+            "DATABASE_URL=secretref:database-url"
+          )
+
+          if [[ -z "${MIGRATION_DATABASE_URL:-}" ]]; then
+            echo "Missing required migration secret: DATABASE_URL"
+            exit 1
+          fi
+
+          az containerapp job secret set \
+            --resource-group "$RG" \
+            --name "$JOB" \
+            --secrets "database-url=${MIGRATION_DATABASE_URL}" >/dev/null
+
+          run_job_and_wait() {
+            local command="$1"
+            shift
+            local args=("$@")
+            local execution_name=""
+            local status=""
+
+            if ((${#args[@]})); then
+              az containerapp job update \
+                --resource-group "$RG" \
+                --name "$JOB" \
+                --image "$IMAGE" \
+                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
+                --command "$command" \
+                --args "${args[@]}" >/dev/null
+            else
+              az containerapp job update \
+                --resource-group "$RG" \
+                --name "$JOB" \
+                --image "$IMAGE" \
+                --set-env-vars "${MIGRATION_ENV_VARS[@]}" \
+                --command "$command" >/dev/null
+            fi
+
+            execution_name=$(az containerapp job start \
+              --resource-group "$RG" \
+              --name "$JOB" \
+              --query name -o tsv)
+
+            echo "Job execution started: $execution_name"
+
+            for attempt in {1..60}; do
+              status=$(az containerapp job execution list \
+                --resource-group "$RG" \
+                --name "$JOB" \
+                --query "[?name=='$execution_name'].properties.status | [0]" -o tsv)
+
+              if [[ "$status" == "Succeeded" ]]; then
+                echo "Execution succeeded: $execution_name"
+                return 0
+              fi
+
+              if [[ "$status" == "Failed" || "$status" == "Cancelled" || "$status" == "Stopped" ]]; then
+                echo "Execution failed: $execution_name status=$status"
+                return 1
+              fi
+
+              echo "Execution status: ${status:-Pending} (attempt $attempt/60)"
+              sleep 10
+            done
+
+            echo "Execution timed out: $execution_name"
+            return 1
+          }
+
+          run_job_and_wait python "app/scripts/migration_precheck.py"
+          run_job_and_wait alembic "upgrade" "head"
+
+  deploy:
+    name: Deploy Container App
+    needs: [resolve-image, migrate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.target_environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Azure Container Apps extension
+        shell: bash
+        run: |
+          set -euo pipefail
+          az config set extension.use_dynamic_install=no_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Deploy new revision
+        id: deploy
+        shell: bash
+        env:
+          TARGET_ENV: ${{ inputs.target_environment }}
+          APP_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          APP_JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          APP_CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
+          APP_S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          APP_AWS_REGION: ${{ vars.AWS_REGION }}
+          APP_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          APP_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          APP_TRUST_PROXY_HEADERS: ${{ vars.TRUST_PROXY_HEADERS }}
+          APP_TRUSTED_PROXY_IPS: ${{ vars.TRUSTED_PROXY_IPS }}
+          IMAGE: ${{ needs.resolve-image.outputs.image }}
+          DEPLOY_SHA: ${{ needs.resolve-image.outputs.deploy_sha }}
+        run: |
+          set -euo pipefail
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          APP="${{ vars.ACA_APP_NAME }}"
+
+          for key in APP_DATABASE_URL APP_JWT_SECRET APP_CORS_ORIGINS APP_S3_BUCKET_NAME; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "Missing required app runtime value: $key"
+              exit 1
+            fi
+          done
+
+          if [[ -n "${APP_AWS_ACCESS_KEY_ID:-}" || -n "${APP_AWS_SECRET_ACCESS_KEY:-}" ]]; then
+            if [[ -z "${APP_AWS_ACCESS_KEY_ID:-}" || -z "${APP_AWS_SECRET_ACCESS_KEY:-}" ]]; then
+              echo "Both AWS access key and secret access key must be set together."
+              exit 1
+            fi
+          fi
+
+          secret_args=(
+            "database-url=${APP_DATABASE_URL}"
+            "jwt-secret=${APP_JWT_SECRET}"
+          )
+
+          env_args=(
+            "ENV=${TARGET_ENV}"
+            "DATABASE_URL=secretref:database-url"
+            "JWT_SECRET=secretref:jwt-secret"
+            "CORS_ORIGINS=${APP_CORS_ORIGINS}"
+            "S3_BUCKET_NAME=${APP_S3_BUCKET_NAME}"
+          )
+
+          if [[ -n "${APP_AWS_REGION:-}" ]]; then
+            env_args+=("AWS_REGION=${APP_AWS_REGION}")
+          fi
+
+          if [[ -n "${APP_TRUST_PROXY_HEADERS:-}" ]]; then
+            env_args+=("TRUST_PROXY_HEADERS=${APP_TRUST_PROXY_HEADERS}")
+          fi
+
+          if [[ -n "${APP_TRUSTED_PROXY_IPS:-}" ]]; then
+            env_args+=("TRUSTED_PROXY_IPS=${APP_TRUSTED_PROXY_IPS}")
+          fi
+
+          if [[ -n "${APP_AWS_ACCESS_KEY_ID:-}" ]]; then
+            secret_args+=(
+              "aws-access-key-id=${APP_AWS_ACCESS_KEY_ID}"
+              "aws-secret-access-key=${APP_AWS_SECRET_ACCESS_KEY}"
+            )
+            env_args+=(
+              "AWS_ACCESS_KEY_ID=secretref:aws-access-key-id"
+              "AWS_SECRET_ACCESS_KEY=secretref:aws-secret-access-key"
+            )
+          fi
+
+          az containerapp secret set \
+            --resource-group "$RG" \
+            --name "$APP" \
+            --secrets "${secret_args[@]}" >/dev/null
+
+          PREVIOUS_IMAGE=$(az containerapp show \
+            --resource-group "$RG" \
+            --name "$APP" \
+            --query "properties.template.containers[0].image" -o tsv)
+
+          az containerapp update \
+            --resource-group "$RG" \
+            --name "$APP" \
+            --image "$IMAGE" \
+            --set-env-vars "${env_args[@]}" \
+            --revision-suffix "sha-${DEPLOY_SHA::7}"
+
+          FQDN=$(az containerapp show \
+            --resource-group "$RG" \
+            --name "$APP" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          echo "url=https://${FQDN}" >> "$GITHUB_OUTPUT"
+          echo "previous_image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify liveness/readiness and rollback on failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          APP="${{ vars.ACA_APP_NAME }}"
+          BASE_URL="${{ steps.deploy.outputs.url }}"
+          PREVIOUS_IMAGE="${{ steps.deploy.outputs.previous_image }}"
+
+          check_path() {
+            local path="$1"
+            echo "Checking ${BASE_URL}${path}"
+
+            for attempt in {1..18}; do
+              CODE=$(curl --connect-timeout 3 --max-time 5 -sS -o /dev/null -w "%{http_code}" "${BASE_URL}${path}" || true)
+
+              if [[ "$CODE" == "200" ]]; then
+                echo "${path} is healthy"
+                return 0
+              fi
+
+              if [[ "$attempt" -eq 18 ]]; then
+                echo "${path} did not become healthy (last status: $CODE)"
+                return 1
+              fi
+
+              sleep 10
+            done
+          }
+
+          if check_path "/health/live" && check_path "/health/ready"; then
+            echo "New revision passed health checks"
+            exit 0
+          fi
+
+          if [[ -z "$PREVIOUS_IMAGE" ]]; then
+            echo "Health checks failed and no previous image was captured; cannot rollback safely."
+            exit 1
+          fi
+
+          echo "Health checks failed; rolling back to previous image: $PREVIOUS_IMAGE"
+          az containerapp update \
+            --resource-group "$RG" \
+            --name "$APP" \
+            --image "$PREVIOUS_IMAGE" \
+            --revision-suffix "rb-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+
+          if ! check_path "/health/live"; then
+            echo "Rollback attempted, but service did not recover liveness."
+          fi
+
+          echo "Deployment failed after rollback attempt."
+          exit 1
+
+      - name: Publish deployment summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ACA Deployment Summary"
+            echo ""
+            echo "- Environment: \`${{ inputs.target_environment }}\`"
+            echo "- Deploy SHA: \`${{ needs.resolve-image.outputs.deploy_sha }}\`"
+            echo "- Source Tag: \`${{ needs.resolve-image.outputs.source_tag }}\`"
+            echo "- Image Digest: \`${{ needs.resolve-image.outputs.image_digest }}\`"
+            echo "- Image: \`${{ needs.resolve-image.outputs.image }}\`"
+            echo "- App URL: \`${{ steps.deploy.outputs.url }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

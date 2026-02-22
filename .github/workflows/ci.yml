@@ -2,15 +2,17 @@ name: Backend CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - "backend/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/deploy-*.yml"
   push:
     branches: [main]
     paths:
       - "backend/**"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/deploy-*.yml"
   workflow_dispatch:
 
 concurrency:
@@ -21,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  MIN_COVERAGE_PR: "78"
+  MIN_COVERAGE_PR: "80"
   MIN_COVERAGE_MAIN: "80"
   ENV: test
   DATABASE_URL: postgresql+asyncpg://clearsplit:clearsplit@localhost:5432/clearsplit
@@ -138,11 +140,10 @@ jobs:
           asyncio.run(wait_for_db())
           PY
 
-      - name: Validate migrations from clean DB
+      - name: Validate forward-only migrations from clean DB
         run: |
           alembic upgrade head
-          alembic downgrade base
-          alembic upgrade head
+          python app/scripts/migration_precheck.py
 
   backend-test-pr:
     name: Backend Tests (PR)
@@ -227,7 +228,7 @@ jobs:
           pytest -m "not e2e" \
             --junitxml=artifacts/junit.xml \
             --cov=app \
-            --cov-fail-under=${MIN_COVERAGE_PR} \
+            --cov-fail-under="${MIN_COVERAGE_PR}" \
             --cov-report=xml:artifacts/coverage.xml \
             --cov-report=term-missing \
             --durations=20 \
@@ -265,7 +266,7 @@ jobs:
 
   backend-test-main:
     name: Backend Tests (Main Full Suite)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: [backend-lint, backend-migrations]
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -346,7 +347,7 @@ jobs:
           pytest \
             --junitxml=artifacts/junit.xml \
             --cov=app \
-            --cov-fail-under=${MIN_COVERAGE_MAIN} \
+            --cov-fail-under="${MIN_COVERAGE_MAIN}" \
             --cov-report=xml:artifacts/coverage.xml \
             --cov-report=term-missing \
             --durations=30 \
@@ -380,30 +381,4 @@ jobs:
           path: |
             backend/artifacts
             backend/.coverage
-          retention-days: 21
-
-  backend-archive-main:
-    name: Backend Archive Build (Main)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [backend-test-main]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build backend Docker image
-        run: |
-          docker build -t clearsplit-backend:${{ github.sha }} ./backend
-
-      - name: Export image metadata
-        run: |
-          mkdir -p backend-build-artifacts
-          docker image inspect clearsplit-backend:${{ github.sha }} > backend-build-artifacts/image-inspect.json
-
-      - name: Upload archive build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-main-build-artifacts
-          path: backend-build-artifacts
           retention-days: 21
