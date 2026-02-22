@@ -212,12 +212,12 @@ jobs:
           EXPECTED_LOGIN_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
 
           az group show --name "$RG" --query id -o tsv >/dev/null
-          az acr show --resource-group "$RG" --name "$ACR_NAME" --query id -o tsv >/dev/null
+          # ACR can be shared across envs and live in a different resource group.
+          az acr show --name "$ACR_NAME" --query id -o tsv >/dev/null
           az containerapp show --resource-group "$RG" --name "$APP" --query id -o tsv >/dev/null
           az containerapp job show --resource-group "$RG" --name "$JOB" --query id -o tsv >/dev/null
 
           ACTUAL_LOGIN_SERVER=$(az acr show \
-            --resource-group "$RG" \
             --name "$ACR_NAME" \
             --query loginServer -o tsv)
 
