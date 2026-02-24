@@ -58,16 +58,22 @@ struct LoginView: View {
     private var authBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.brandSubtle, Color.pageBackground],
+                colors: [Color.brandSubtle, Color.pageBackground, Color.blue100],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
             Circle()
                 .fill(Color.brandPrimary.opacity(0.12))
-                .frame(width: 240, height: 240)
-                .blur(radius: 30)
+                .frame(width: 300, height: 300)
+                .blur(radius: 60)
                 .offset(x: 120, y: -260)
+
+            Circle()
+                .fill(Color.blue400.opacity(0.08))
+                .frame(width: 300, height: 300)
+                .blur(radius: 60)
+                .offset(x: -100, y: 150)
         }
         .ignoresSafeArea()
     }

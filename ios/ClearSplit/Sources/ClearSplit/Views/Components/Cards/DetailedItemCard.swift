@@ -138,7 +138,8 @@ struct DetailedItemCard: View {
 
             VStack(alignment: .trailing, spacing: 6) {
                 Text(formatCurrency(cents: item.totalCents, currency: "USD"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(ClearSplitTheme.Typography.currencyBody)
+                    .tracking(ClearSplitTheme.Tracking.wide)
                     .foregroundColor(.gray900)
                     .fixedSize(horizontal: true, vertical: false)
 

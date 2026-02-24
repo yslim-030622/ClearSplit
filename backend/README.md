@@ -4,20 +4,24 @@ ClearSplit backend is an async FastAPI service with SQLAlchemy 2.0 + Alembic on 
 
 ## CI/CD Design
 
-Pipeline stages are split by branch intent:
+Pipeline stages follow a main-branch release model:
 
-1. PR checks (fast feedback, required)
-- `backend-lint`: syntax/undefined-name lint gate (`ruff` fatal rules only).
-- `backend-migrations`: migration up/down/up validation on clean Postgres.
-- `backend-test-pr`: non-e2e tests with coverage and JUnit output.
+1. PR to `main` checks (fast feedback, required)
+- `backend-lint`: `ruff check app app/tests`.
+- `backend-migrations`: forward-only migration apply + migration precheck on clean Postgres.
+- `backend-test-pr`: non-e2e tests with 80% coverage gate.
 
-2. Staging push checks (release safety for staging deployment)
-- `backend-test-staging`: full suite including `e2e` smoke tests.
-- `backend-archive-staging`: backend Docker archive build verification.
+2. Push to `main` checks (release safety)
+- `backend-test-main`: full suite including `e2e` smoke tests with 80% coverage gate.
+
+3. Deploy chain
+- `deploy-staging.yml`: auto-triggered only after successful `Backend CI` push run on `main`.
+- `deploy-production.yml`: manual promote only, gated by same-SHA `Backend CI` success and `deploy-staging.yml` success.
 
 Why this split:
 - PR checks stay fast and actionable for review.
-- `staging` push adds broader confidence and build artifact validation before deployment.
+- `main` push adds full-suite confidence before staging rollout.
+- Production receives only staging-validated image digests (no rebuild).
 
 ## Test Strategy
 
@@ -50,7 +54,7 @@ alembic upgrade head
 # PR-equivalent checks
 make ci-pr
 
-# Staging-equivalent checks
+# Main-push-equivalent checks
 make ci-main
 
 # Full suite only (includes e2e)
@@ -75,13 +79,13 @@ Health endpoints:
 
 ## Branching and PR Rules
 
-1. Branch from `develop` or `main` with scoped name (for example: `backend/<topic>`).
+1. Branch from `main` with scoped name (for example: `backend/<topic>`).
 2. Keep commits small and reviewable (tests + CI + docs separated when possible).
 3. PR must pass:
 - `Backend Lint`
 - `Backend Migrations`
 - `Backend Tests (PR)`
-4. Push to `staging` triggers full-suite and archive-build gates before staging deploy.
+4. Push to `main` runs full-suite gate and then staging deploy workflow.
 
 ## CI Secrets and Credentials
 
@@ -93,7 +97,7 @@ CI uses placeholders for test env values:
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 
-For Azure staging deployment, GitHub Actions uses OIDC (no static Azure client secret). Configure:
+For Azure deployments, GitHub Actions uses OIDC (no static Azure client secret). Configure per GitHub Environment (`staging`, `production`):
 
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
@@ -111,11 +115,10 @@ Runtime app secrets should be stored in Azure Container Apps secrets (or Key Vau
 1. Migration failure (`backend-migrations`)
 - Reproduce locally:
   - `alembic upgrade head`
-  - `alembic downgrade base`
-  - `alembic upgrade head`
-- Ensure new migrations are reversible.
+  - `python app/scripts/migration_precheck.py`
+- Use forward-only expand/contract migration changes. Deployment rollback does not auto-downgrade schema.
 
-2. Test failure (`backend-test-pr` / `backend-test-staging`)
+2. Test failure (`backend-test-pr` / `backend-test-main`)
 - Reproduce with same marker mode:
   - `pytest -m "not e2e" -v`
   - `pytest -v`
@@ -124,6 +127,6 @@ Runtime app secrets should be stored in Azure Container Apps secrets (or Key Vau
   - `artifacts/junit.xml`
   - `artifacts/coverage.xml`
 
-3. Archive build failure (`backend-archive-staging`)
-- Reproduce locally:
-  - `docker build -t clearsplit-backend:local ./backend`
+3. Deploy gate failure (staging/production wrappers)
+- Confirm target SHA has successful `Backend CI` push run.
+- For production, confirm same SHA has successful `deploy-staging.yml` run.

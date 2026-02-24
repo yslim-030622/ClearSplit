@@ -46,7 +46,8 @@ struct GroupDetailView: View {
                 VStack(spacing: 16) {
                     // Total Spent hero card
                     TotalSpentCard(
-                        amountText: totalSpentDisplay,
+                        amountCents: totalSpentCents,
+                        currency: group.currency,
                         subtitle: shoppingSessions.isEmpty
                             ? "No expenses yet"
                             : "Across all shopping trips"
@@ -197,19 +198,25 @@ struct GroupDetailView: View {
     // MARK: - Subviews
     
     private struct TotalSpentCard: View {
-        let amountText: String
+        let amountCents: Int
+        let currency: String
         let subtitle: String
         
         var body: some View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Total Spent")
-                    .font(.system(size: 15, weight: .regular))
+                    .font(ClearSplitTheme.Typography.overline)
+                    .textCase(.uppercase)
+                    .tracking(ClearSplitTheme.Tracking.extraWide)
                     .foregroundColor(Color.white.opacity(0.9))
                 
-                Text(amountText)
-                    .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(.white)
-                    .tracking(-1)
+                AnimatingCurrencyText(
+                    value: amountCents,
+                    currency: currency,
+                    font: ClearSplitTheme.Typography.currencyHero,
+                    tracking: ClearSplitTheme.Tracking.tight,
+                    color: .white
+                )
                 
                 Text(subtitle)
                     .font(.system(size: 15, weight: .regular))
@@ -696,7 +703,7 @@ struct GroupDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("User Not Found")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(hex: "7F1D1D"))
+                        .foregroundColor(Color.dangerHeading)
                     
                     Text("No user exists with username \"\(searchUserId)\". Please check and try again.")
                         .font(.system(size: 14, weight: .regular))
@@ -726,11 +733,11 @@ struct GroupDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Already a Member")
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(Color(hex: "78350F"))
+                        .foregroundColor(Color.warningHeading)
                     
                     Text("\(user.displayName) (\(user.email)) is already a member of this group.")
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Color(hex: "B45309"))
+                        .foregroundColor(Color.warningText)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -738,7 +745,7 @@ struct GroupDetailView: View {
             .background(Color.warningSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(hex: "FDE68A"), lineWidth: 1)
+                    .stroke(Color.warningBorder, lineWidth: 1)
             )
             .cornerRadius(12)
         }
@@ -757,11 +764,11 @@ struct GroupDetailView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("User Found")
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(Color(hex: "14532D"))
+                            .foregroundColor(Color.settledHeading)
                         
                         Text("Ready to add this user to your group.")
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color(hex: "15803D"))
+                            .foregroundColor(Color.settledText)
                     }
                 }
                 
@@ -807,10 +814,10 @@ struct GroupDetailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color(hex: "F0FDF4"))
+            .background(Color.settledSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(hex: "BBF7D0"), lineWidth: 1)
+                    .stroke(Color.settledBorder, lineWidth: 1)
             )
             .cornerRadius(12)
         }

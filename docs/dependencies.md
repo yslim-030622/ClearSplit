@@ -128,11 +128,10 @@ System packages installed:
 
 | Tool | Version | Used In | Purpose |
 |------|---------|---------|---------|
-| Docker | Latest | `docker.yml`, `deploy-staging.yml` | Container builds |
-| Docker Buildx | Latest | `docker.yml` | Multi-platform builds |
-| Trivy | Latest | `docker.yml`, `deploy-staging.yml` | Container vulnerability scanning |
+| Docker | Latest | `deploy-aca-reusable.yml` | Container builds |
+| Trivy | Latest | `deploy-aca-reusable.yml` | Container vulnerability scanning |
 | TruffleHog | Latest | `security-scan.yml` | Secret detection in git history |
-| Azure CLI | Latest | `deploy-staging.yml` | Azure Container Apps deployment |
+| Azure CLI | Latest | `deploy-aca-reusable.yml` | Azure Container Apps deployment |
 | GitHub CLI | Latest | Various workflows | GitHub Actions integration |
 
 ## Versioning Notes

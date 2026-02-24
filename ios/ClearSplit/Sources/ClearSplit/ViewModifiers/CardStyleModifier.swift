@@ -11,11 +11,15 @@ struct CardStyle: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
                     .stroke(
-                        isHovered ? Color.borderStrong : Color.borderMedium,
-                        lineWidth: isHovered ? 1.5 : 1
+                        isHovered ? Color.borderMedium : Color.borderLight,
+                        lineWidth: 0.5
                     )
             )
-            .applyElevation(isHovered ? .high : .low)
+            // Multi-layer shadow
+            .shadow(color: Color.black.opacity(isHovered ? 0.08 : 0.04), radius: isHovered ? 12 : 4, x: 0, y: isHovered ? 6 : 2)
+            .shadow(color: Color.black.opacity(isHovered ? 0.04 : 0.02), radius: isHovered ? 4 : 1, x: 0, y: 1)
+            // Hover ambient layer
+            .shadow(color: isHovered ? Color.brandPrimary.opacity(0.05) : Color.clear, radius: 20, x: 0, y: 8)
     }
 }
 
@@ -27,9 +31,9 @@ struct SectionStyle: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
-                    .stroke(Color.borderMedium, lineWidth: 1)
+                    .stroke(Color.borderSubtle, lineWidth: 0.5)
             )
-            .applyElevation(.low)
+            .shadow(color: Color.black.opacity(0.02), radius: 2, x: 0, y: 1)
     }
 }
 
@@ -44,11 +48,12 @@ struct ItemCardStyle: ViewModifier {
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
                     .stroke(
-                        isHovered ? Color.borderStrong : Color.borderMedium,
-                        lineWidth: 1
+                        isHovered ? Color.borderMedium : Color.borderLight,
+                        lineWidth: 0.5
                     )
             )
-            .applyElevation(isHovered ? .medium : .low)
+            .shadow(color: Color.black.opacity(isHovered ? 0.06 : 0.03), radius: isHovered ? 8 : 2, x: 0, y: isHovered ? 4 : 1)
+            .shadow(color: Color.black.opacity(isHovered ? 0.03 : 0.01), radius: 1, x: 0, y: 1)
     }
 }
 
@@ -60,12 +65,12 @@ struct PillStyle: ViewModifier {
         content
             .background(
                 isCurrentUser
-                    ? Color.brandPrimary.opacity(0.12)
+                    ? Color.brandPrimary.opacity(0.10)
                     : Color.cardInset
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm)
-                    .stroke(Color.borderLight, lineWidth: 1)
+                    .stroke(Color.borderSubtle, lineWidth: 0.5)
             )
     }
 }
@@ -83,8 +88,11 @@ struct AppInputFieldStyle: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
-                    .stroke(borderColor, lineWidth: isFocused || hasError ? ClearSplitTheme.Border.focus : ClearSplitTheme.Border.thin)
+                    .stroke(borderColor, lineWidth: isFocused || hasError ? 1.5 : 0.5)
             )
+            // Outer glow focus ring
+            .shadow(color: isFocused && !hasError ? Color.brandFocusRing : Color.clear, radius: 4, x: 0, y: 0)
+            .animation(.easeInOut(duration: 0.2), value: isFocused)
     }
 
     private var borderColor: Color {
@@ -92,6 +100,52 @@ struct AppInputFieldStyle: ViewModifier {
             return .red300
         }
         return isFocused ? .brandPrimary : .borderLight
+    }
+}
+
+// MARK: - Staggered Appearance Modifier
+struct StaggeredAppearance: ViewModifier {
+    let index: Int
+    @State private var isVisible = false
+    
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 12)
+            .onAppear {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8).delay(Double(index) * 0.05)) {
+                    isVisible = true
+                }
+            }
+    }
+}
+
+// MARK: - Animating Currency Text
+struct AnimatingCurrencyText: View {
+    let value: Int
+    let currency: String
+    let font: Font
+    let tracking: CGFloat
+    let color: Color
+    
+    @State private var animatedValue: Int = 0
+    
+    var body: some View {
+        Text(formatCurrency(cents: animatedValue, currency: currency))
+            .font(font)
+            .tracking(tracking)
+            .foregroundColor(color)
+            .contentTransition(.numericText())
+            .onAppear {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    animatedValue = value
+                }
+            }
+            .onChange(of: value) { newValue in
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    animatedValue = newValue
+                }
+            }
     }
 }
 
@@ -115,5 +169,9 @@ extension View {
 
     func appInputFieldStyle(isFocused: Bool = false, hasError: Bool = false) -> some View {
         modifier(AppInputFieldStyle(isFocused: isFocused, hasError: hasError))
+    }
+    
+    func staggeredAppearance(index: Int) -> some View {
+        modifier(StaggeredAppearance(index: index))
     }
 }

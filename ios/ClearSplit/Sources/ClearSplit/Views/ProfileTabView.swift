@@ -199,7 +199,8 @@ struct ProfileStatCard: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(ClearSplitTheme.Typography.title)
+                .font(ClearSplitTheme.Typography.currencyMedium)
+                .tracking(ClearSplitTheme.Tracking.wide)
                 .foregroundColor(.textPrimary)
             Text(label)
                 .font(ClearSplitTheme.Typography.subheadline)

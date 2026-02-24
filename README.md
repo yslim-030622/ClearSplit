@@ -6,16 +6,16 @@ Expense-splitting API built with **FastAPI**, **PostgreSQL 16**, and **SQLAlchem
 
 - **FastAPI + async SQLAlchemy 2.0** on Uvicorn ASGI — fully non-blocking I/O with asyncpg
 - **PostgreSQL 16** — ACID-compliant financial storage; check constraints, cascade deletes, optimistic locking
-- **Alembic migrations** — 14 revisions; CI validates full upgrade → downgrade → upgrade cycle on every push
+- **Alembic migrations** — 14 revisions; CI validates forward-only apply + precheck on every push
 - **JWT auth (HS256)** — 15-min access / 30-day refresh tokens, JTI rotation chain, timing-safe login (dummy hash on unknown users)
 - **Idempotency layer** — `Idempotency-Key` header on POST endpoints; same key + payload → cached response, different payload → 409
 - **Rate limiting** — in-memory sliding window per IP (signup 5/5 min, login 10/60 s, refresh 20/60 s)
 - **Security hardened** — CORS validated at startup, HSTS, `nosniff`, `DENY`, validation sanitizer strips passwords from 422 bodies, DB TLS enforced in non-local envs
 - **Receipt OCR pipeline** — Tesseract in-process with concurrency cap; images in S3 with presigned URLs (15-min TTL)
 - **Deterministic financial math** — all amounts as `bigint` cents; remainder distribution on splits, zero floating-point
-- **Staging on Azure Container Apps** — OIDC federation (no static creds), Trivy container scanning, automated rollback on health-check failure
-- **143+ pytest tests** — unit, integration, e2e; 80 % coverage gate on main, 78 % on PRs
-- **6 CI/CD workflows** — backend CI, staging deploy, Docker/GHCR, security scanning (TruffleHog + pip-audit + Bandit), iOS checks
+- **Staging + Production on Azure Container Apps** — OIDC federation, health-gated rollout, rollback on failure
+- **143+ pytest tests** — unit, integration, e2e; 80 % coverage gate on both PR and main
+- **7 workflow files under `.github/workflows`** — backend CI, staging deploy, production promote, reusable deploy core, security scan, iOS PR checks, iOS main checks
 
 ## Quickstart (Docker)
 
@@ -41,7 +41,7 @@ alembic upgrade head
 make run   # uvicorn --reload on :8000
 ```
 
-Key targets: `make test` · `make migrate` · `make ci-pr` (lint + tests, 78 %) · `make ci-main` (full suite, 80 %)
+Key targets: `make test` · `make migrate` · `make ci-pr` (lint + tests, 80 %) · `make ci-main` (full suite, 80 %)
 
 ## Architecture
 
@@ -68,20 +68,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Push["Push to<br/>staging branch"] --> CI["GitHub Actions CI<br/>Ruff lint · pytest 80 %<br/>Migration ↑↓↑ cycle"]
-    CI --> Build["Build Docker<br/>Image"]
-    Build --> ACR["Push to Azure<br/>Container Registry<br/>tag: sha"]
-    ACR --> Trivy["Trivy Scan<br/>Block HIGH/CRITICAL"]
-    Trivy --> Migrate["Migrate Job<br/>alembic upgrade head"]
-    Migrate --> Deploy["Deploy ACA Revision<br/>--revision-suffix sha"]
-    Deploy --> Health["/health/live<br/>/health/ready<br/>Poll ≤ 3 min"]
-    Health -- "fail" --> Rollback["Rollback to<br/>Previous Revision"]
-    Health -- "pass" --> Live["Live"]
+    PR["PR → main"] --> CIPR["Backend CI<br/>lint + migrations + tests<br/>coverage ≥80%"]
+    MainPush["Push → main"] --> CIMain["Backend CI (full suite)<br/>coverage ≥80%"]
+    CIMain --> StageDeploy["Deploy Staging<br/>Build once + Trivy + migrate + health"]
+    StageDeploy --> Proven["Immutable ACR digest<br/>staging-SHA-RUNID"]
+    Proven --> Promote["Manual Production Promote<br/>CI success + staging success gate"]
+    Promote --> ProdDeploy["Deploy Production<br/>promote digest only (no rebuild)"]
+    ProdDeploy --> Health["/health/live + /health/ready"]
+    Health -- "fail" --> Rollback["Rollback app revision"]
+    Health -- "pass" --> Live["Production Live"]
 ```
 
 Azure auth uses **OIDC federation** — no static credentials stored anywhere. Secrets injected as ACA secret references.
 
-Additional workflows: `security-scan.yml` (TruffleHog + pip-audit + Bandit, PR/push/weekly) · `docker.yml` (main → GHCR + Trivy).
+Additional workflows: `security-scan.yml` (TruffleHog + pip-audit + Bandit, PR/push/weekly).
 
 ## API at a Glance
 

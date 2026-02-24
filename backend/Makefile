@@ -24,7 +24,7 @@ migrate:
 	alembic upgrade head
 
 test-pr:
-	$(PYTEST) -m "not e2e" -v --durations=20 --cov=app --cov-report=term-missing --cov-fail-under=78
+	$(PYTEST) -m "not e2e" -v --durations=20 --cov=app --cov-report=term-missing --cov-fail-under=80
 
 test-all:
 	$(PYTEST) -v --durations=30 --cov=app --cov-report=term-missing --cov-fail-under=80

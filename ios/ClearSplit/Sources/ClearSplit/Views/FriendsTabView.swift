@@ -322,7 +322,7 @@ struct FriendsTabView: View {
                 .padding(.vertical, 28)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(filteredFriends) { friend in
+                    ForEach(Array(filteredFriends.enumerated()), id: \.element.id) { index, friend in
                         Button(action: {
                             selectedFriendID = friend.id
                             triggerImpactFeedback()
@@ -330,6 +330,7 @@ struct FriendsTabView: View {
                             FriendRow(friend: friend)
                         }
                         .buttonStyle(.plain)
+                        .staggeredAppearance(index: index)
                     }
                 }
             }

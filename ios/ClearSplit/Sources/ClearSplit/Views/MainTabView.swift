@@ -94,11 +94,12 @@ struct MainTabBar: View {
         .background(Color.cardBackground)
         .overlay(
             Rectangle()
-                .fill(Color.borderMedium)
-                .frame(height: 1),
+                .fill(Color.borderSubtle)
+                .frame(height: 0.5),
             alignment: .top
         )
-        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: -3)
+        .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: -4)
+        .shadow(color: Color.black.opacity(0.02), radius: 3, x: 0, y: -1)
     }
 
     private func triggerSelectionFeedback() {
@@ -129,10 +130,9 @@ struct TabBarButton: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scaleEffect(isPressed ? 0.95 : 1)
             .overlay(alignment: .top) {
-                Rectangle()
+                Capsule()
                     .fill(isSelected ? Color.brandPrimary : Color.clear)
-                    .frame(height: 2)
-                    .padding(.horizontal, 18)
+                    .frame(width: 24, height: 3)
             }
         }
         .buttonStyle(.plain)

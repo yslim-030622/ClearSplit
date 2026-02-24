@@ -269,10 +269,10 @@ make run
 ```bash
 make lint-ci          # Ruff linting
 make test             # Full test suite
-make test-pr          # PR gate (no e2e, 78% coverage)
-make test-all         # Staging gate (with e2e, 80% coverage)
+make test-pr          # PR gate (no e2e, 80% coverage)
+make test-all         # Main gate (with e2e, 80% coverage)
 make ci-pr            # Lint + PR tests
-make ci-main          # Lint + all tests
+make ci-main          # Lint + all tests (main push release gate)
 ```
 
 ### Migration Management
