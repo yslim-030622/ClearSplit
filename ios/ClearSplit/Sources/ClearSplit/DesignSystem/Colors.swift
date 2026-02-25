@@ -4,33 +4,33 @@ import SwiftUI
 
 public extension Color {
     // MARK: Palette
-    static let blue600 = Color(hex: "2563EB")
-    static let blue700 = Color(hex: "1D4ED8")
-    static let blue500 = Color(hex: "3B82F6")
-    static let blue400 = Color(hex: "60A5FA")
-    static let blue200 = Color(hex: "BFDBFE")
-    static let blue100 = Color(hex: "DBEAFE")
-    static let blue50 = Color(hex: "EFF6FF")
-    static let blue800 = Color(hex: "1E40AF")
-    static let blue900 = Color(hex: "1E3A8A")
-    static let green600 = Color(hex: "16A34A")
-    static let gray800 = Color(hex: "1F2937")
-    static let gray900 = Color(hex: "111827")
-    static let gray700 = Color(hex: "374151")
-    static let gray600 = Color(hex: "4B5563")
-    static let gray500 = Color(hex: "6B7280")
-    static let gray400 = Color(hex: "9CA3AF")
-    static let gray300 = Color(hex: "D1D5DB")
-    static let gray200 = Color(hex: "E5E7EB")
-    static let gray100 = Color(hex: "F3F4F6")
-    static let gray50 = Color(hex: "F9FAFB")
-    static let red500 = Color(hex: "EF4444")
-    static let red600 = Color(hex: "DC2626")
+    static let blue600 = Color(hex: "1E56E8")
+    static let blue700 = Color(hex: "1847D0")
+    static let blue500 = Color(hex: "3672F0")
+    static let blue400 = Color(hex: "5B8DF8")
+    static let blue200 = Color(hex: "BAD0FE")
+    static let blue100 = Color(hex: "DBE4FF")
+    static let blue50 = Color(hex: "EEF2FF")
+    static let blue800 = Color(hex: "183BA8")
+    static let blue900 = Color(hex: "162E7A")
+    static let green600 = Color(hex: "129645")
+    static let gray800 = Color(hex: "1C2A38")
+    static let gray900 = Color(hex: "0F1A28")
+    static let gray700 = Color(hex: "32404F")
+    static let gray600 = Color(hex: "454F60")
+    static let gray500 = Color(hex: "636D80")
+    static let gray400 = Color(hex: "949BAC")
+    static let gray300 = Color(hex: "CDD2DE")
+    static let gray200 = Color(hex: "E2E5EE")
+    static let gray100 = Color(hex: "F1F3F8")
+    static let gray50 = Color(hex: "F8F9FC")
+    static let red500 = Color(hex: "E8413E")
+    static let red600 = Color(hex: "D42424")
     static let red50 = Color(hex: "FEF2F2")
     static let red300 = Color(hex: "FCA5A5")
-    static let amber600 = Color(hex: "D97706")
+    static let amber600 = Color(hex: "C96F05")
     static let amber100 = Color(hex: "FEF3C7")
-    static let green500 = Color(hex: "10B981")
+    static let green500 = Color(hex: "0EA67A")
     static let green100 = Color(hex: "D1FAE5")
 
     // MARK: Semantic
@@ -57,6 +57,27 @@ public extension Color {
 
     static let infoSurface = Color.blue100
     static let infoBorder = Color.blue200
+    
+
+    // MARK: - Gradients
+    static let brandGradient = LinearGradient(colors: [.blue500, .blue700], startPoint: .top, endPoint: .bottom)
+    static let heroCardGradient = LinearGradient(colors: [.blue600, Color(hex: "162E7A")], startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let successGradient = LinearGradient(colors: [.green500, .green600], startPoint: .top, endPoint: .bottom)
+
+    // MARK: - Accents
+    static let brandAccentLight = Color.blue400.opacity(0.15)
+    static let brandFocusRing = Color.blue400.opacity(0.25)
+
+    // MARK: - Semantic (Additional)
+    static let settledSurface = Color(hex: "ECFDF5") // green50 roughly
+    static let settledBorder = Color(hex: "A7F3D0") // green200
+    static let settledText = Color(hex: "047857") // green700
+    static let settledHeading = Color(hex: "065F46") // green800
+    static let warningHeading = Color(hex: "B45309") // amber700
+    static let warningText = Color.amber600
+    static let warningBorder = Color(hex: "FDE68A") // amber200
+    static let dangerHeading = Color(hex: "B91C1C") // red700
+    static let infoText = Color.blue800
     
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

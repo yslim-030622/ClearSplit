@@ -80,9 +80,9 @@ struct ReceiptReviewView: View {
                     .padding(16)
                     .padding(.bottom, 80) // Space for fixed button
                 }
-                .background(Color.pageBackground)
+                .background { AppBackground() }
             }
-            
+
             // Fixed Confirm Button
             confirmButton
         }

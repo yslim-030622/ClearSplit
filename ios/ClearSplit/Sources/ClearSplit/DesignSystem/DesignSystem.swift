@@ -47,6 +47,22 @@ enum ClearSplitTheme {
         static let subheadline = Font.system(.subheadline, design: .rounded)
         static let footnote = Font.system(.footnote, design: .rounded)
         static let caption = Font.system(.caption, design: .rounded)
+
+        // New typography styles
+        static let currencyHero = Font.system(size: 48, weight: .bold, design: .rounded)
+        static let currencyLarge = Font.system(size: 28, weight: .bold, design: .rounded)
+        static let currencyMedium = Font.system(size: 20, weight: .semibold, design: .rounded)
+        static let currencyBody = Font.system(size: 17, weight: .semibold, design: .rounded)
+        static let label = Font.system(.caption, design: .rounded).weight(.semibold)
+        static let overline = Font.system(size: 11, weight: .semibold, design: .rounded)
+    }
+
+    enum Tracking {
+        static let tight: CGFloat = -0.5       // hero text, large currency
+        static let normal: CGFloat = 0          // body text
+        static let wide: CGFloat = 0.3          // currency amounts in body context
+        static let extraWide: CGFloat = 0.8     // small labels, overlines
+        static let caps: CGFloat = 1.2          // all-caps labels
     }
 }
 

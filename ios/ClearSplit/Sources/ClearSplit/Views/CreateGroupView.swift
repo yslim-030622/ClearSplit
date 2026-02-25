@@ -12,8 +12,7 @@ struct CreateGroupView: View {
 
     var body: some View {
         ZStack {
-            Color.pageBackground
-                .ignoresSafeArea()
+            AppBackground()
 
             VStack(spacing: 0) {
                 customBackButton

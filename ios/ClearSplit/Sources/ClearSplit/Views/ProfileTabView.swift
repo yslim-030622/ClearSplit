@@ -42,23 +42,26 @@ struct ProfileTabView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: TabLayoutMetrics.sectionSpacing) {
-                    profileCard
-                    statsCards
-                    accountInfoCard
-                    settingsCard
-                    logoutButton
+            ZStack {
+                AppBackground()
+
+                ScrollView {
+                    VStack(spacing: TabLayoutMetrics.sectionSpacing) {
+                        profileCard
+                        statsCards
+                        accountInfoCard
+                        settingsCard
+                        logoutButton
+                    }
+                    .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+                    .padding(.top, TabLayoutMetrics.topPadding)
+                    .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
                 }
-                .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
-                .padding(.top, TabLayoutMetrics.topPadding)
-                .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
+                .background(Color.clear)
             }
-            .background(Color.pageBackground)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
         }
-        .background(Color.pageBackground.ignoresSafeArea())
         .alert("Log Out", isPresented: $showLogoutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Log Out", role: .destructive) {
@@ -199,7 +202,8 @@ struct ProfileStatCard: View {
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(ClearSplitTheme.Typography.title)
+                .font(ClearSplitTheme.Typography.currencyMedium)
+                .tracking(ClearSplitTheme.Tracking.wide)
                 .foregroundColor(.textPrimary)
             Text(label)
                 .font(ClearSplitTheme.Typography.subheadline)

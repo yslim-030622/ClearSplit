@@ -63,7 +63,7 @@ struct BalancesSettlementView: View {
             }
             .padding(16)
         }
-        .background(Color.pageBackground.ignoresSafeArea())
+        .background { AppBackground() }
         .navigationTitle("Balances & Settlement")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
@@ -109,8 +109,9 @@ struct BalancesSettlementView: View {
                     .foregroundColor(Color.textTertiary)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(individualBalances) { balance in
+                    ForEach(Array(individualBalances.enumerated()), id: \.element.id) { index, balance in
                         IndividualBalanceRow(balance: balance)
+                            .staggeredAppearance(index: index)
                     }
                 }
             }
@@ -449,8 +450,9 @@ private struct IndividualBalanceRow: View {
                     .font(.system(size: 13))
                     .foregroundColor(Color.textTertiary)
                 Text("+$\(balance.balance, specifier: "%.2f")")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(Color(hex: "10B981"))
+                    .font(ClearSplitTheme.Typography.currencyBody)
+                    .tracking(ClearSplitTheme.Tracking.wide)
+                    .foregroundColor(Color.success)
             }
 
         case .owes:
@@ -459,7 +461,8 @@ private struct IndividualBalanceRow: View {
                     .font(.system(size: 13))
                     .foregroundColor(Color.textTertiary)
                 Text("$\(abs(balance.balance), specifier: "%.2f")")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(ClearSplitTheme.Typography.currencyBody)
+                    .tracking(ClearSplitTheme.Tracking.wide)
                     .foregroundColor(Color.danger)
             }
 
@@ -491,7 +494,7 @@ private struct SettlementCard: View {
 
                 Image(systemName: settlement.isSettled ? "arrow.right.circle.fill" : "arrow.right")
                     .font(.system(size: 18))
-                    .foregroundColor(settlement.isSettled ? Color(hex: "10B981") : Color.textMuted)
+                    .foregroundColor(settlement.isSettled ? Color.success : Color.textMuted)
 
                 Spacer()
 
@@ -508,7 +511,8 @@ private struct SettlementCard: View {
 
             HStack {
                 Text("$\(settlement.amount, specifier: "%.2f")")
-                    .font(.system(size: 28, weight: .bold))
+                    .font(ClearSplitTheme.Typography.currencyLarge)
+                    .tracking(ClearSplitTheme.Tracking.wide)
                     .foregroundColor(Color.textPrimary)
 
                 Spacer()
@@ -521,11 +525,11 @@ private struct SettlementCard: View {
             }
         }
         .padding(16)
-        .background(settlement.isSettled ? Color(hex: "F0FDF4") : Color.cardBackground)
+        .background(settlement.isSettled ? Color.settledSurface : Color.cardBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(
-                    settlement.isSettled ? Color(hex: "86EFAC") : Color.borderMedium,
+                    settlement.isSettled ? Color.settledBorder : Color.borderMedium,
                     lineWidth: 1.5
                 )
         )
@@ -596,7 +600,7 @@ private struct AllSettledCard: View {
                 .overlay(
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundColor(Color(hex: "10B981"))
+                        .foregroundColor(Color.success)
                 )
 
             Text("All Settled Up!")
@@ -611,15 +615,23 @@ private struct AllSettledCard: View {
         .padding(.vertical, 32)
         .padding(.horizontal, 20)
         .background(
-            LinearGradient(
-                colors: [Color(hex: "F0FDF4"), Color.successSurface],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            ZStack {
+                LinearGradient(
+                    colors: [Color.white, Color.settledSurface, Color.successSurface],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [Color.white.opacity(0.8), .clear],
+                    center: .topLeading,
+                    startRadius: 0,
+                    endRadius: 150
+                )
+            }
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(hex: "86EFAC"), lineWidth: 2)
+                .stroke(Color.settledBorder, lineWidth: 2)
         )
         .cornerRadius(16)
     }
@@ -630,7 +642,7 @@ private struct InfoCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("How settlements work")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(Color(hex: "1E3A8A"))
+                .foregroundColor(Color.infoText)
 
             VStack(alignment: .leading, spacing: 4) {
                 InfoRow(text: "Balances are calculated from all shopping sessions")
@@ -656,10 +668,10 @@ private struct InfoRow: View {
         HStack(alignment: .top, spacing: 6) {
             Text("•")
                 .font(.system(size: 14))
-                .foregroundColor(Color(hex: "1E40AF"))
+                .foregroundColor(Color.infoText)
             Text(text)
                 .font(.system(size: 14))
-                .foregroundColor(Color(hex: "1E40AF"))
+                .foregroundColor(Color.infoText)
         }
     }
 }
@@ -673,7 +685,7 @@ private struct SuccessToast: View {
                 .foregroundColor(Color.success)
             Text(message)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(Color(hex: "064E3B"))
+                .foregroundColor(Color.settledHeading)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 14)
@@ -681,7 +693,7 @@ private struct SuccessToast: View {
         .background(Color.successSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(hex: "86EFAC"), lineWidth: 1)
+                .stroke(Color.settledBorder, lineWidth: 1)
         )
         .cornerRadius(10)
         .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 2)

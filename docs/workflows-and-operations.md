@@ -100,12 +100,12 @@ make lint-ci                # Ruff syntax and style checks
 
 # Testing
 make test                   # Full test suite
-make test-pr                # PR gate: no e2e, 78% coverage minimum
-make test-all               # Staging gate: with e2e, 80% coverage minimum
+make test-pr                # PR gate: no e2e, 80% coverage minimum
+make test-all               # Main gate: with e2e, 80% coverage minimum
 
 # Combined gates
 make ci-pr                  # Lint + PR tests
-make ci-main                # Lint + staging tests
+make ci-main                # Lint + main tests
 
 # Direct pytest
 pytest -m "not e2e" -v --durations=20     # PR equivalent
@@ -163,15 +163,14 @@ cd backend
 alembic upgrade head
 ```
 
-### Validate Migration Reversibility
+### Validate Forward-only Migration Apply
 
 ```bash
 alembic upgrade head
-alembic downgrade base
-alembic upgrade head
+python backend/app/scripts/migration_precheck.py
 ```
 
-This is what CI does on every PR to catch irreversible migrations.
+This is what CI validates on every PR and main push. Deployment rollback does not auto-downgrade DB schema.
 
 ### Generate New Migration
 
@@ -193,24 +192,69 @@ This checks for case-insensitive duplicate emails/usernames before related const
 
 ### Backend CI (`ci.yml`)
 
-**Triggers**: PRs to main/develop, push to staging, manual dispatch
+**Triggers**: PR to main, push to main, manual dispatch
 
 | Job | Gate | What it does |
 |-----|------|-------------|
-| Backend Lint | PR + Staging | `ruff check app app/tests` |
-| Backend Migrations | PR + Staging | `alembic upgrade -> downgrade base -> upgrade` on clean PostgreSQL 16 |
-| Backend Tests (PR) | PR only | `pytest -m "not e2e"` with 78% coverage minimum |
-| Backend Tests (Staging) | Staging push | Full `pytest` including e2e with 80% coverage minimum |
-| Backend Archive Build | Staging push | Docker image build verification |
+| Backend Lint | PR + Main | `ruff check app app/tests` |
+| Backend Migrations | PR + Main | `alembic upgrade head` + migration precheck on clean PostgreSQL 16 |
+| Backend Tests (PR) | PR only | `pytest -m "not e2e"` with 80% coverage minimum |
+| Backend Tests (Main Full Suite) | Main push/manual | Full `pytest` including e2e with 80% coverage minimum |
 
-### Docker Build (`docker.yml`)
+### Reusable Deployment Core (`deploy-aca-reusable.yml`)
 
-**Triggers**: Push to main, `v*` tags, manual dispatch
+Reusable workflow that both staging and production wrappers call.
 
-- Builds Docker image with Buildx (linux/amd64)
-- Tags: branch, semver, commit SHA, latest
-- Pushes to GitHub Container Registry (GHCR)
-- Trivy scan for HIGH/CRITICAL vulnerabilities (fails build if found)
+**Modes**:
+- `build`: build/push image to ACR, resolve digest, deploy
+- `promote`: reuse existing ACR digest (no rebuild), deploy
+
+**Shared responsibilities**:
+1. Validate configuration and runtime safety constraints
+2. Azure preflight checks
+3. Trivy scan on resolved image digest
+4. Migration precheck + `alembic upgrade head`
+5. ACA deploy + health checks + rollback
+6. Deployment summary publication
+
+### Staging Deployment (`deploy-staging.yml`)
+
+**Triggers**: Backend CI success on main push (`workflow_run`), manual dispatch (main only)
+
+**Gates**:
+- Resolve source SHA
+- Require successful `ci.yml` push run for same SHA
+
+**Flow**:
+1. Build and push image once to ACR
+2. Stamp immutable source tag (`staging-<sha>-<run_id>`)
+3. Run migration job
+4. Deploy + health checks + rollback on failure
+
+### Production Deployment (`deploy-production.yml`)
+
+**Triggers**: Manual dispatch only (`workflow_dispatch`)
+
+**Required inputs**:
+- `source_sha` (40-char commit SHA)
+- `confirm_production` (`YES`)
+
+**Gates**:
+1. Main branch only
+2. Successful `ci.yml` push run for `source_sha`
+3. Successful `deploy-staging.yml` run for `source_sha`
+
+**Flow**:
+1. Promote staging-validated digest (no Docker rebuild)
+2. If target ACR does not have that immutable tag yet, import it from staging ACR (`STAGING_ACR_NAME` + `STAGING_ACR_LOGIN_SERVER` optional vars)
+3. Run migration job
+4. Deploy + health checks + rollback on failure
+
+**Production safety guards**:
+- `DATABASE_URL` must be `postgresql+asyncpg://` with explicit `ssl`/`sslmode`
+- `JWT_SECRET` minimum length check (`>= 32`)
+- `CORS_ORIGINS` must be HTTPS origins (host-only)
+- Staging-like app/job/bucket names are rejected
 
 ### iOS PR Checks (`ios-pr-checks.yml`)
 
@@ -226,7 +270,7 @@ This checks for case-insensitive duplicate emails/usernames before related const
 
 - Full validation: lint + build + all tests + unsigned archive
 - Optional TestFlight upload via `deploy_testflight` input flag
-- Requires App Store Connect API credentials (ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_CONTENT)
+- Requires App Store Connect API credentials (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT`)
 
 ### Security Scan (`security-scan.yml`)
 
@@ -239,23 +283,16 @@ This checks for case-insensitive duplicate emails/usernames before related const
 | Code Security | Bandit | Python code security patterns |
 | Summary | — | Aggregated results published to GitHub |
 
-### Staging Deployment (`deploy-staging.yml`)
+### Shared Environment Constraint (Azure for Students)
 
-**Triggers**: Backend CI success on staging push, manual dispatch
+`Azure for Students` may limit Container Apps Environments to one per region.
+If staging and production share one environment (for example `cae-clearsplit-staging`), isolate operations by:
 
-**Authentication**: Azure OIDC (no static credentials)
-
-**Steps**:
-1. **Build & Push**: Docker image to Azure Container Registry (ACR) with Trivy scan
-2. **Migrate**: ACA migration container job runs precheck + `alembic upgrade head`
-3. **Deploy**: New ACA revision with health check verification
-4. **Verify**: `/health/live` and `/health/ready` endpoint checks
-5. **Rollback**: Automatic revert to previous image if health checks fail
-
-**Required configuration**:
-- Azure: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`
-- Container: `ACR_NAME`, `ACR_LOGIN_SERVER`, `ACA_APP_NAME`, `ACA_MIGRATION_JOB`
-- App secrets: `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `S3_BUCKET_NAME`
+1. Separate app/job names per environment (for example `clearsplit-backend-staging` vs `clearsplit-api-production`)
+2. Separate GitHub environments (`staging` vs `production`) and distinct vars/secrets
+3. Separate data planes (`DATABASE_URL`, `S3_BUCKET_NAME`) so production never points to staging data
+4. Separate URLs/FQDNs for staging and production apps
+5. Pre-deploy cross-check: app name, migration job name, DB URL, and bucket name all match target environment
 
 ### Local CI Equivalents
 
@@ -263,14 +300,13 @@ This checks for case-insensitive duplicate emails/usernames before related const
 # Backend
 cd backend
 make ci-pr       # Matches PR gate
-make ci-main     # Matches staging gate
+make ci-main     # Matches main push gate
 
 # iOS
 cd ios/ClearSplit
 bundle exec fastlane ios ci_pr       # Matches PR gate
 bundle exec fastlane ios ci_main     # Matches main gate
 ```
-
 ## Operational Scripts
 
 ### Security Scans
@@ -334,10 +370,9 @@ Requires S3-related environment variables (`S3_BUCKET_NAME`, AWS credentials).
 Reproduce locally:
 ```bash
 alembic upgrade head
-alembic downgrade base
-alembic upgrade head
+python backend/app/scripts/migration_precheck.py
 ```
-Ensure new migrations are reversible. Check CI artifacts for `pytest.log` and `junit.xml`.
+Use expand/contract compatibility for schema changes; deployment rollback never downgrades DB automatically. Check CI artifacts for `pytest.log` and `junit.xml`.
 
 ### iOS CI Failures
 

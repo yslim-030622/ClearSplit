@@ -22,14 +22,20 @@ struct TotalAmountHeroCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // Label
             Text("Total Amount")
-                .font(ClearSplitTheme.Typography.subheadline)
+                .font(ClearSplitTheme.Typography.overline)
+                .textCase(.uppercase)
+                .tracking(ClearSplitTheme.Tracking.extraWide)
                 .foregroundColor(.white.opacity(0.9))
                 .padding(.bottom, 8)
 
             // Amount
-            Text(formatCurrency(cents: totalCents, currency: "USD"))
-                .font(ClearSplitTheme.Typography.hero)
-                .foregroundColor(.white)
+            AnimatingCurrencyText(
+                value: totalCents,
+                currency: "USD",
+                font: ClearSplitTheme.Typography.currencyHero,
+                tracking: ClearSplitTheme.Tracking.tight,
+                color: .white
+            )
                 .padding(.bottom, 12)
 
             // Paid by

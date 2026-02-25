@@ -27,11 +27,13 @@ public struct PrimaryActionButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
-                    .fill(isEnabled ? Color.brandPrimary : Color.interactiveDisabled)
+                    .fill(isEnabled ? AnyShapeStyle(Color.brandGradient) : AnyShapeStyle(Color.interactiveDisabled))
             )
-            .applyElevation(isEnabled ? .medium : .none)
+            .shadow(color: isEnabled ? Color.brandPrimary.opacity(0.15) : .clear, radius: 8, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(isEnabled ? 0.05 : 0), radius: 2, x: 0, y: 1)
+            .brightness(configuration.isPressed ? -0.05 : 0)
             .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -54,10 +56,11 @@ public struct SecondaryActionButtonStyle: ButtonStyle {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
-                    .stroke(Color.borderMedium, lineWidth: ClearSplitTheme.Border.thin)
+                    .stroke(configuration.isPressed ? Color.borderStrong : Color.borderMedium, lineWidth: 0.75)
             )
+            .shadow(color: Color.black.opacity(0.02), radius: 2, x: 0, y: 1)
             .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
 
@@ -78,13 +81,14 @@ public struct TonalActionButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
-                    .fill(tint.opacity(isEnabled ? 0.12 : 0.06))
+                    .fill(tint.opacity(isEnabled ? 0.08 : 0.06))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md)
-                    .stroke(tint.opacity(isEnabled ? 0.22 : 0.1), lineWidth: ClearSplitTheme.Border.thin)
+                    .stroke(tint.opacity(isEnabled ? 0.15 : 0.1), lineWidth: 0.75)
             )
+            .brightness(configuration.isPressed ? -0.05 : 0)
             .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }

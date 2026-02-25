@@ -16,7 +16,7 @@ struct LoginView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                authBackground
+                AppBackground()
 
                 VStack(spacing: 0) {
                     Spacer()
@@ -24,12 +24,12 @@ struct LoginView: View {
                     headerSection
 
                     Spacer()
-                        .frame(height: 32)
+                        .frame(height: 40)
 
                     formCard
 
                     Spacer()
-                        .frame(height: 32)
+                        .frame(height: 24)
 
                     signUpSection
 
@@ -55,51 +55,57 @@ struct LoginView: View {
         !viewModel.isLoading && !viewModel.email.isEmpty && !viewModel.password.isEmpty
     }
 
-    private var authBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.brandSubtle, Color.pageBackground],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(Color.brandPrimary.opacity(0.12))
-                .frame(width: 240, height: 240)
-                .blur(radius: 30)
-                .offset(x: 120, y: -260)
-        }
-        .ignoresSafeArea()
-    }
-
     private var headerSection: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+        VStack(spacing: 24) {
+            // Split icon mark
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [Color.blue500, Color.blue700],
+                            colors: [Color.blue500, Color.blue600],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 64, height: 64)
-                    .applyElevation(.medium)
+                    .frame(width: 24, height: 40)
+                    .rotationEffect(.degrees(-8))
 
-                Image(systemName: "doc.text.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundColor(.textOnBrand)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.blue600, Color.blue800],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 24, height: 40)
+                    .rotationEffect(.degrees(8))
             }
-            .accessibilityLabel("ClearSplit logo")
+            .shadow(color: Color.blue600.opacity(0.3), radius: 12, y: 4)
 
-            Text("ClearSplit")
-                .font(ClearSplitTheme.Typography.hero)
-                .foregroundColor(.textPrimary)
+            VStack(spacing: 6) {
+                HStack(spacing: 0) {
+                    Text("Clear")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(.textPrimary)
 
-            Text("Clearly split with your friends")
-                .font(ClearSplitTheme.Typography.subheadline)
-                .foregroundColor(.textSecondary)
+                    Text("Split")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.blue500, Color.blue700],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
+
+                Text("Split expenses, not friendships")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.textTertiary)
+            }
         }
+        .accessibilityLabel("ClearSplit logo")
     }
 
     private var formCard: some View {
@@ -151,10 +157,21 @@ struct LoginView: View {
     }
 
     private var signUpSection: some View {
-        VStack(spacing: 12) {
-            Text("Don't have an account?")
-                .font(ClearSplitTheme.Typography.subheadline)
-                .foregroundColor(.textSecondary)
+        VStack(spacing: 16) {
+            // Divider with text
+            HStack(spacing: 12) {
+                Rectangle()
+                    .fill(Color.borderLight)
+                    .frame(height: 0.5)
+
+                Text("or")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(.textMuted)
+
+                Rectangle()
+                    .fill(Color.borderLight)
+                    .frame(height: 0.5)
+            }
 
             Button {
                 showSignUp = true

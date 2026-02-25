@@ -8,7 +8,7 @@
 ├── ios/                  # SwiftUI iOS client and build automation
 ├── docs/                 # Project documentation
 ├── scripts/              # Repo-level helper scripts (security, S3 testing)
-├── .github/workflows/    # 7 CI/CD pipelines
+├── .github/workflows/    # 8 files (7 YAML workflows + this README)
 ├── docker-compose.yml    # Local dev: PostgreSQL 16 + API with live reload
 ├── .pre-commit-config.yaml  # Pre-commit hooks (ruff, secrets, formatting)
 ├── .env.example          # Environment variable template
@@ -185,11 +185,12 @@ scripts/
 
 ```
 .github/workflows/
-├── ci.yml                  # Backend CI: lint + migrations + tests (PR and staging gates)
-├── docker.yml              # Docker build and push to GHCR with Trivy scan
+├── ci.yml                  # Backend CI: main-branch release gate (PR/main)
+├── deploy-aca-reusable.yml # Reusable ACA deploy workflow (build/promote modes)
 ├── ios-pr-checks.yml       # iOS PR: SwiftLint + build + unit tests
 ├── ios-main-checks.yml     # iOS main: full validation + optional TestFlight
 ├── security-scan.yml       # Security: TruffleHog + pip-audit + Bandit
-├── deploy-staging.yml      # Azure Container Apps staging deployment
+├── deploy-staging.yml      # Staging wrapper (build + deploy via reusable)
+├── deploy-production.yml   # Production wrapper (gated promote via reusable)
 └── README.md               # Workflow documentation
 ```

@@ -19,9 +19,6 @@ public struct ExtractedItemsReviewView: View {
     @State private var showingAddSheet = false
     @State private var itemToDelete: EditableExtractedItem?
 
-    private let headerGradientStart = Color.brandPrimary
-    private let headerGradientEnd = Color.brandPrimaryPressed
-
     private var totalAmountCents: Int {
         extractedItems.reduce(0) { $0 + $1.totalCents }
     }
@@ -33,8 +30,7 @@ public struct ExtractedItemsReviewView: View {
     public var body: some View {
         NavigationStack {
             ZStack {
-                Color.pageBackground
-                    .ignoresSafeArea()
+                AppBackground()
 
                 content
 
@@ -142,26 +138,32 @@ public struct ExtractedItemsReviewView: View {
                 headerSection
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: ClearSplitTheme.Spacing.sm) {
+                        itemsSectionHeader
+
                         if extractedItems.isEmpty {
                             emptyItemsCard
                         } else {
-                            ForEach(Array(extractedItems.enumerated()), id: \.element.id) { index, item in
-                                ExtractedReviewItemCard(
-                                    item: item,
-                                    index: index + 1,
-                                    onEdit: {
-                                        editingItem = item
-                                    },
-                                    onDelete: {
-                                        itemToDelete = item
-                                    }
-                                )
+                            VStack(spacing: ClearSplitTheme.Spacing.sm) {
+                                ForEach(Array(extractedItems.enumerated()), id: \.element.id) { index, item in
+                                    ExtractedReviewItemCard(
+                                        item: item,
+                                        index: index + 1,
+                                        onEdit: {
+                                            editingItem = item
+                                        },
+                                        onDelete: {
+                                            itemToDelete = item
+                                        }
+                                    )
+                                }
                             }
                         }
 
                         addItemButton
                     }
+                    .padding(ClearSplitTheme.Spacing.md)
+                    .sectionStyle()
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                     .padding(.bottom, 100)
@@ -171,55 +173,86 @@ public struct ExtractedItemsReviewView: View {
     }
 
     private var headerSection: some View {
-        LinearGradient(
-            colors: [headerGradientStart, headerGradientEnd],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .frame(height: 180)
-        .overlay(
-            VStack(spacing: 16) {
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Total Amount")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(.white.opacity(0.9))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Total Amount")
+                        .font(ClearSplitTheme.Typography.overline)
+                        .textCase(.uppercase)
+                        .tracking(ClearSplitTheme.Tracking.extraWide)
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.bottom, 8)
 
-                        Text(totalAmountText)
-                            .font(.system(size: 40, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("Items")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(.white.opacity(0.9))
-
-                        Text("\(extractedItems.count)")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundColor(.white)
-                    }
+                    AnimatingCurrencyText(
+                        value: totalAmountCents,
+                        currency: "USD",
+                        font: ClearSplitTheme.Typography.currencyHero,
+                        tracking: ClearSplitTheme.Tracking.tight,
+                        color: .white
+                    )
                 }
 
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundColor(.white.opacity(0.92))
+                Spacer()
 
-                    Text("Review and edit the items extracted from your receipt. Items with lower confidence may need verification.")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundColor(.white.opacity(0.92))
-                        .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("Items")
+                        .font(ClearSplitTheme.Typography.overline)
+                        .textCase(.uppercase)
+                        .tracking(ClearSplitTheme.Tracking.extraWide)
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.bottom, 8)
+
+                    Text("\(extractedItems.count)")
+                        .font(ClearSplitTheme.Typography.currencyLarge)
+                        .foregroundColor(.white)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.16))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            .padding(24)
+            .padding(.bottom, 16)
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(.white.opacity(0.9))
+
+                Text("Review and edit the items extracted from your receipt. Items with lower confidence may need verification.")
+                    .font(ClearSplitTheme.Typography.footnote)
+                    .foregroundColor(.white.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(ClearSplitTheme.Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.md))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(ClearSplitTheme.Spacing.lg)
+        .background(
+            LinearGradient(
+                colors: [Color.brandPrimary, Color.brandPrimaryPressed],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         )
+        .cornerRadius(ClearSplitTheme.Radius.xl + 4, corners: [.bottomLeft, .bottomRight])
+    }
+
+    private var itemsSectionHeader: some View {
+        HStack(alignment: .center) {
+            Text("Items")
+                .font(ClearSplitTheme.Typography.sectionTitle)
+                .foregroundColor(.textPrimary)
+
+            Spacer()
+
+            Text("\(extractedItems.count)")
+                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
+                .foregroundColor(.textSecondary)
+                .frame(minWidth: 24, minHeight: 24)
+                .padding(.horizontal, 6)
+                .background(Color.gray100)
+                .clipShape(Circle())
+        }
+        .padding(.bottom, 4)
     }
 
     private var emptyItemsCard: some View {
@@ -228,37 +261,29 @@ public struct ExtractedItemsReviewView: View {
                 .font(.system(size: 28, weight: .regular))
                 .foregroundColor(.textTertiary)
             Text("No items extracted yet")
-                .font(.system(size: 16, weight: .semibold))
+                .font(ClearSplitTheme.Typography.bodyStrong)
                 .foregroundColor(.textPrimary)
             Text("Add an item manually to continue.")
-                .font(.system(size: 13, weight: .regular))
+                .font(ClearSplitTheme.Typography.footnote)
                 .foregroundColor(.textSecondary)
         }
-        .padding(20)
+        .padding(ClearSplitTheme.Spacing.md)
         .frame(maxWidth: .infinity)
-        .background(Color.cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.borderMedium, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .itemCardStyle()
     }
 
     private var addItemButton: some View {
         Button(action: { showingAddSheet = true }) {
             HStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.body.weight(.semibold))
                 Text("Add Item")
                     .font(ClearSplitTheme.Typography.bodyStrong)
             }
             .foregroundColor(.textOnBrand)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
-            .background(Color.brandPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(ScaleButtonStyle())
+        .buttonStyle(PrimaryActionButtonStyle())
     }
 
     private var confirmButton: some View {
@@ -277,7 +302,7 @@ public struct ExtractedItemsReviewView: View {
                             .tint(.textOnBrand)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.body.weight(.semibold))
                     }
 
                     Text("Confirm \(extractedItems.count) \(extractedItems.count == 1 ? "Item" : "Items") (\(totalAmountText))")
@@ -287,7 +312,7 @@ public struct ExtractedItemsReviewView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
                 .background(extractedItems.isEmpty ? Color.textMuted : Color.brandPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
             }
             .disabled(extractedItems.isEmpty || isConfirming)
             .buttonStyle(ScaleButtonStyle())
@@ -504,6 +529,24 @@ private extension EditableExtractedItem {
         let totalText = formatCurrency(cents: totalCents, currency: "USD")
         return "\(unitText) × \(quantity) = \(totalText)"
     }
+
+    var displayName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return name }
+
+        // Remove trailing "$"
+        let withoutTrailingCurrency = trimmed.replacingOccurrences(
+            of: #"\s*\$$"#, with: "", options: .regularExpression
+        )
+
+        // Remove leading quantity prefix (e.g. "1 ")
+        let quantityPrefix = "\(quantity) "
+        if withoutTrailingCurrency.hasPrefix(quantityPrefix) {
+            return String(withoutTrailingCurrency.dropFirst(quantityPrefix.count))
+        }
+
+        return withoutTrailingCurrency
+    }
 }
 
 private struct ExtractedReviewItemCard: View {
@@ -513,74 +556,91 @@ private struct ExtractedReviewItemCard: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: ClearSplitTheme.Spacing.sm) {
+            // Index badge
             ZStack {
                 Circle()
                     .fill(Color.brandPrimary.opacity(0.1))
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
 
                 Text("\(index)")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(ClearSplitTheme.Typography.label)
                     .foregroundColor(.brandPrimary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(item.name)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.textPrimary)
+                // Name + Price
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.displayName)
+                        .font(ClearSplitTheme.Typography.bodyStrong)
+                        .foregroundColor(.textPrimary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
 
-                Text(item.priceBreakdownText)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.textSecondary)
+                    Spacer(minLength: 8)
 
-                HStack(spacing: 4) {
-                    if item.confidenceLevel.requiresWarning {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10, weight: .medium))
+                    Text(formatCurrency(cents: item.totalCents, currency: "USD"))
+                        .font(ClearSplitTheme.Typography.currencyBody)
+                        .tracking(ClearSplitTheme.Tracking.wide)
+                        .foregroundColor(.textPrimary)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+
+                // Price breakdown (only if qty > 1)
+                if item.quantity > 1 {
+                    Text(item.priceBreakdownText)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.textSecondary)
+                }
+
+                // Confidence badge + Action buttons
+                HStack(spacing: 0) {
+                    HStack(spacing: 4) {
+                        if item.confidenceLevel.requiresWarning {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        Text(item.confidenceLevel.title)
+                            .font(ClearSplitTheme.Typography.overline)
                     }
-                    Text(item.confidenceLevel.title)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundColor(item.confidenceLevel.badgeText)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background(item.confidenceLevel.badgeBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
+                    .foregroundColor(item.confidenceLevel.badgeText)
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(item.confidenceLevel.badgeBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            Spacer()
+                    Spacer()
 
-            HStack(spacing: 8) {
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    onEdit()
-                }) {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.brandPrimary)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
+                    HStack(spacing: 4) {
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            onEdit()
+                        }) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.blue500)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
 
-                Button(action: {
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onDelete()
-                }) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.danger)
-                        .frame(width: 32, height: 32)
+                        Button(action: {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            onDelete()
+                        }) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.red500)
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(16)
-        .background(Color.cardBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.borderMedium, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .itemCardStyle()
     }
 }
 

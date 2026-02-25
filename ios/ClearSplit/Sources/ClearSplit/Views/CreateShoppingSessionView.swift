@@ -38,8 +38,7 @@ struct CreateShoppingSessionView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.pageBackground
-                .ignoresSafeArea()
+                AppBackground()
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {

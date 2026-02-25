@@ -8,7 +8,6 @@ struct FriendsTabView: View {
     @StateObject private var viewModel: FriendsViewModel
     @State private var searchQuery = ""
     @State private var showAddFriend = false
-    @State private var inputType: FriendInputType = .email
     @State private var newFriendInput = ""
     @State private var selectedFriendID: UUID?
 
@@ -46,39 +45,43 @@ struct FriendsTabView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: TabLayoutMetrics.sectionSpacing) {
-                    searchField
+            ZStack {
+                AppBackground()
 
-                    if showAddFriend {
-                        addFriendForm
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
+                ScrollView {
+                    VStack(spacing: TabLayoutMetrics.sectionSpacing) {
+                        searchField
 
-                    if viewModel.isLoading && allFriends.isEmpty && friendRequests.isEmpty {
-                        loadingCard
-                    } else {
-                        if !friendRequests.isEmpty {
-                            friendRequestsSection
+                        if showAddFriend {
+                            addFriendForm
+                                .transition(.move(edge: .top).combined(with: .opacity))
                         }
 
-                        if !viewModel.outgoingRequests.isEmpty {
-                            outgoingRequestsSection
+                        if viewModel.isLoading && allFriends.isEmpty && friendRequests.isEmpty {
+                            loadingCard
+                        } else {
+                            if !friendRequests.isEmpty {
+                                friendRequestsSection
+                            }
+
+                            if !viewModel.outgoingRequests.isEmpty {
+                                outgoingRequestsSection
+                            }
+
+                            friendsListSection
                         }
 
-                        friendsListSection
+                        infoBox
                     }
-
-                    infoBox
+                    .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+                    .padding(.top, TabLayoutMetrics.topPadding)
+                    .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
                 }
-                .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
-                .padding(.top, TabLayoutMetrics.topPadding)
-                .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
+                .refreshable {
+                    await viewModel.load()
+                }
+                .background(Color.clear)
             }
-            .refreshable {
-                await viewModel.load()
-            }
-            .background(Color.pageBackground)
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -87,7 +90,6 @@ struct FriendsTabView: View {
                 }
             }
         }
-        .background(Color.pageBackground.ignoresSafeArea())
         .task {
             await viewModel.load()
         }
@@ -151,16 +153,8 @@ struct FriendsTabView: View {
                 .font(ClearSplitTheme.Typography.sectionTitle)
                 .foregroundColor(.textPrimary)
 
-            HStack(spacing: 8) {
-                inputTypeButton(.email, title: "Email / Username")
-                inputTypeButton(.id, title: "User ID")
-            }
-            .padding(4)
-            .background(Color.cardInset)
-            .cornerRadius(8)
-
             TextField(
-                inputType == .email ? "Enter email or username" : "Enter user ID",
+                "Enter email or username",
                 text: $newFriendInput
             )
             .font(ClearSplitTheme.Typography.subheadline)
@@ -172,13 +166,9 @@ struct FriendsTabView: View {
             )
             .cornerRadius(10)
             .textInputAutocapitalization(.never)
-            .keyboardType(inputType == .email ? .emailAddress : .default)
+            .keyboardType(.default)
 
-            Text(
-                inputType == .email
-                    ? "Enter your friend's email address or username"
-                    : "Enter your friend's user ID"
-            )
+            Text("Enter your friend's email address or username")
             .font(ClearSplitTheme.Typography.caption)
             .foregroundColor(.textTertiary)
 
@@ -322,7 +312,7 @@ struct FriendsTabView: View {
                 .padding(.vertical, 28)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(filteredFriends) { friend in
+                    ForEach(Array(filteredFriends.enumerated()), id: \.element.id) { index, friend in
                         Button(action: {
                             selectedFriendID = friend.id
                             triggerImpactFeedback()
@@ -330,6 +320,7 @@ struct FriendsTabView: View {
                             FriendRow(friend: friend)
                         }
                         .buttonStyle(.plain)
+                        .staggeredAppearance(index: index)
                     }
                 }
             }
@@ -375,30 +366,11 @@ struct FriendsTabView: View {
         newFriendInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func inputTypeButton(_ type: FriendInputType, title: String) -> some View {
-        Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                inputType = type
-                newFriendInput = ""
-            }
-        }) {
-            Text(title)
-                .font(ClearSplitTheme.Typography.subheadline.weight(.medium))
-                .foregroundColor(inputType == type ? .brandPrimary : .textTertiary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-                .background(inputType == type ? Color.cardBackground : Color.clear)
-                .cornerRadius(6)
-                .shadow(color: inputType == type ? Color.black.opacity(0.05) : .clear, radius: 2, x: 0, y: 1)
-        }
-        .buttonStyle(.plain)
-    }
-
     private func sendFriendRequest() {
         guard !sanitizedNewFriendInput.isEmpty else { return }
         let requestInput = sanitizedNewFriendInput
         Task {
-            let success = await viewModel.sendFriendRequest(input: requestInput, inputType: inputType)
+            let success = await viewModel.sendFriendRequest(input: requestInput)
             guard success else { return }
             await MainActor.run {
                 withAnimation(.spring()) {
@@ -444,11 +416,6 @@ struct FriendsTabView: View {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
 #endif
     }
-}
-
-enum FriendInputType {
-    case email
-    case id
 }
 
 struct FriendDetailSheet: View {

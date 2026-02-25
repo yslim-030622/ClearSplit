@@ -34,33 +34,19 @@ final class FriendsViewModel: ObservableObject {
         }
     }
 
-    func sendFriendRequest(input: String, inputType: FriendInputType) async -> Bool {
+    func sendFriendRequest(input: String) async -> Bool {
         guard !isSubmittingRequest else { return false }
 
         let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else { return false }
-
-        var toUserID: UUID?
-        var identifier: String?
-
-        switch inputType {
-        case .id:
-            guard let parsed = UUID(uuidString: trimmedInput) else {
-                errorMessage = "Enter a valid user ID."
-                return false
-            }
-            toUserID = parsed
-        case .email:
-            identifier = trimmedInput
-        }
 
         isSubmittingRequest = true
         defer { isSubmittingRequest = false }
 
         do {
             _ = try await appState.friendsService.sendFriendRequest(
-                toUserID: toUserID,
-                identifier: identifier
+                toUserID: nil,
+                identifier: trimmedInput
             )
             try await refreshLists()
             return true

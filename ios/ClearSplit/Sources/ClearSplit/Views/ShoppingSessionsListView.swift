@@ -27,8 +27,7 @@ struct ShoppingSessionsListView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color.pageBackground
-                .ignoresSafeArea()
+            AppBackground()
 
             if viewModel.isLoading && viewModel.sessions.isEmpty {
                 ScrollView {
@@ -246,7 +245,8 @@ struct ShoppingSessionCard: View {
                 Spacer()
 
                 Text(session.formattedTotal)
-                    .font(ClearSplitTheme.Typography.title)
+                    .font(ClearSplitTheme.Typography.currencyMedium)
+                    .tracking(ClearSplitTheme.Tracking.wide)
                     .foregroundColor(Color.textPrimary)
             }
             .padding(20)
@@ -355,27 +355,33 @@ extension View {
 
 struct ShimmerModifier: ViewModifier {
     @State private var phase: CGFloat = 0
+    @Environment(\.colorScheme) var colorScheme
 
     func body(content: Content) -> some View {
+        let shimmerColor = Color.white.opacity(colorScheme == .dark ? 0.08 : 0.6)
+        
         content
             .overlay(
                 GeometryReader { geometry in
                     LinearGradient(
                         gradient: Gradient(colors: [
                             Color.clear,
-                            Color.white.opacity(0.3),
-                            Color.clear,
+                            shimmerColor.opacity(0.3),
+                            shimmerColor,
+                            shimmerColor.opacity(0.3),
+                            Color.clear
                         ]),
                         startPoint: .leading,
                         endPoint: .trailing
                     )
-                    .frame(width: geometry.size.width * 2)
-                    .offset(x: -geometry.size.width + phase * geometry.size.width * 2)
+                    .frame(width: geometry.size.width * 2.5)
+                    .offset(x: -geometry.size.width * 1.5 + phase * geometry.size.width * 3)
                 }
             )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
             .onAppear {
                 withAnimation(
-                    Animation.linear(duration: 1.5)
+                    Animation.easeInOut(duration: 1.8)
                         .repeatForever(autoreverses: false)
                 ) {
                     phase = 1

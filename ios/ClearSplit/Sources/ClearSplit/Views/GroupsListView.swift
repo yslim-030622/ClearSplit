@@ -14,8 +14,7 @@ struct GroupsListView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                Color.pageBackground
-                    .ignoresSafeArea()
+                AppBackground()
 
                 content
 
@@ -121,6 +120,7 @@ struct GroupsListView: View {
         List {
             ForEach(Array(viewModel.groups.enumerated()), id: \.element.id) { index, group in
                 GroupCard(group: group, appState: appState)
+                    .staggeredAppearance(index: index)
                     .listRowSeparator(.hidden)
                     .listRowInsets(
                         EdgeInsets(
@@ -164,11 +164,18 @@ struct GroupsListView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 54)
             .background(
-                LinearGradient(
-                    colors: [Color.brandPrimary, Color.brandPrimaryPressed],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
+                ZStack {
+                    LinearGradient(
+                        colors: [Color.brandPrimary, Color.brandPrimaryPressed],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.15), Color.clear],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                }
             )
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .applyElevation(.medium)
@@ -244,7 +251,8 @@ struct GroupCard: View {
                                 .foregroundColor(.textTertiary)
                         } else {
                             Text(balanceText)
-                                .font(ClearSplitTheme.Typography.sectionTitle)
+                                .font(ClearSplitTheme.Typography.currencyBody)
+                                .tracking(ClearSplitTheme.Tracking.wide)
                                 .foregroundColor(balanceColor)
                         }
                     }

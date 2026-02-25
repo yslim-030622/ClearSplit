@@ -106,13 +106,15 @@ struct DetailedItemCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             topSection
 
             if isEditing {
                 inlineEditor
             } else {
-                priceBreakdownRow
+                if item.quantity > 1 {
+                    priceBreakdownRow
+                }
                 sharedBySection
                 yourShareRow
             }
@@ -127,37 +129,43 @@ struct DetailedItemCard: View {
     }
 
     private var topSection: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(displayItemName)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.gray900)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(displayItemName)
+                    .font(ClearSplitTheme.Typography.bodyStrong)
+                    .foregroundColor(.gray900)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
 
-            Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 6) {
                 Text(formatCurrency(cents: item.totalCents, currency: "USD"))
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(ClearSplitTheme.Typography.currencyBody)
+                    .tracking(ClearSplitTheme.Tracking.wide)
                     .foregroundColor(.gray900)
                     .fixedSize(horizontal: true, vertical: false)
+            }
 
-                actionButtons
+            if !isEditing {
+                HStack(spacing: 0) {
+                    Spacer()
+                    actionButtons
+                }
             }
         }
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             if isEditing {
                 Button(action: {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     cancelInlineEdit()
                 }) {
                     Image(systemName: "xmark.circle")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray500)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -168,9 +176,9 @@ struct DetailedItemCard: View {
                     startInlineEdit()
                 }) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.blue500)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -182,9 +190,9 @@ struct DetailedItemCard: View {
                     onDelete()
                 }) {
                     Image(systemName: "trash")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.red500)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -201,18 +209,27 @@ struct DetailedItemCard: View {
     }
 
     private var sharedBySection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Shared by:")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.gray600)
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .padding(.bottom, 8)
 
             if sharedByParticipants.isEmpty {
-                Text("No participants")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(.gray400)
-                    .italic()
+                HStack(spacing: 6) {
+                    Text("Shared by:")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.gray600)
+                    Text("No participants")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(.gray400)
+                        .italic()
+                }
             } else {
                 FlowLayout(spacing: 6) {
+                    Text("Shared by:")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.gray600)
+                        .padding(.vertical, ClearSplitTheme.Spacing.xs - 1)
+
                     ForEach(sharedByParticipants) { participant in
                         ParticipantPill(
                             title: participant.displayName,
@@ -228,13 +245,18 @@ struct DetailedItemCard: View {
         HStack(spacing: 0) {
             Spacer()
             Text("Your share:")
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.gray600)
-            Text(" ")
+            Text("  ")
             Text(formatCurrency(cents: yourShareCents, currency: "USD"))
-                .font(.system(size: 15, weight: .semibold))
+                .font(ClearSplitTheme.Typography.currencyBody)
+                .tracking(ClearSplitTheme.Tracking.wide)
                 .foregroundColor(.gray900)
         }
+        .padding(.horizontal, ClearSplitTheme.Spacing.sm)
+        .padding(.vertical, ClearSplitTheme.Spacing.xs)
+        .background(Color.cardInset)
+        .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.sm))
     }
 
     private var inlineEditor: some View {
