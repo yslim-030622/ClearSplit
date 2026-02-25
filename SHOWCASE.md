@@ -1,6 +1,6 @@
 # ClearSplit iOS App — Design & Functionality Showcase
 
-> **"Clearly split with your friends."**
+> **"Split expenses, not friendships."**
 
 ClearSplit is a native iOS app built for people who share expenses — roommates splitting groceries, friends going out for dinner, or travel groups pooling costs. It takes the awkwardness out of "who owes what" by tracking every item, every receipt, and every payment in one place. No spreadsheets, no mental math, no guesswork.
 
@@ -21,12 +21,10 @@ This document walks through the actual iOS screens, explains what each one does,
 ## 1. Welcome & Login
 
 <p align="center">
-  <img src="docs/images/screenshots/02_login.png" width="300" alt="Login screen" />
+  <img src="docs/images/screenshots/01_login.png" width="300" alt="Login screen" />
 </p>
 
-The first thing you see when you open ClearSplit. Clean, focused, no distractions — just your email and password.
-
-The app's tagline sits right below the logo: *"clearly split with your friends"*. It sets the tone for the whole experience.
+The first thing you see when you open ClearSplit. The brand logo and tagline — *"Split expenses, not friendships"* — set the tone. Below that, a clean login form with email and password fields.
 
 **What happens when you tap "Log In":**
 
@@ -35,215 +33,184 @@ The app's tagline sits right below the logo: *"clearly split with your friends"*
 - On success, you get back a JWT access token (15-min TTL) and a refresh token (30-day TTL, rotated on each use). Both are stored securely in the iOS Keychain — not UserDefaults, not in memory.
 - The app then calls `GET /auth/me` to pull your full profile and bootstraps the main view.
 
-If you close and reopen the app later, it silently restores your session from the Keychain without asking you to log in again.
+If you close and reopen the app later, it silently restores your session from the Keychain without asking you to log in again. The "Create Account" button at the bottom takes new users to the signup flow.
 
 ---
 
-## 2. Create Account
+## 2. Friends
 
 <p align="center">
-  <img src="docs/images/screenshots/01_create_account.png" width="300" alt="Create Account screen" />
+  <img src="docs/images/screenshots/02_friends.png" width="300" alt="Friends screen" />
 </p>
 
-New here? The sign-up form collects just what's needed — name, username, email, and password. No phone number, no social login clutter.
+The Friends tab is your social hub — everything in one place. From top to bottom:
 
-**What's validated before the request even leaves your phone:**
-
-- Username must be alphanumeric (underscores and hyphens allowed)
-- Password needs at least 8 characters
-- Confirm password must match
-
-**On the backend side (`POST /auth/signup`):**
-
-- Username and email are normalized to lowercase and checked for uniqueness.
-- Password is hashed with bcrypt before storage — the plaintext never touches the database.
-- A signup rate limit (5 requests per 5 minutes per IP) prevents abuse.
-- On success, the response includes tokens and user data, so you're logged in immediately — no "check your email" step.
-
----
-
-## 3. My Groups
-
-<p align="center">
-  <img src="docs/images/screenshots/03_my_groups.png" width="300" alt="My Groups screen" />
-</p>
-
-This is your home base after logging in. Every group you belong to shows up here as a card, with the member count and a quick status — "All settled up" means nobody owes anyone. That's the goal.
-
-**How it works:**
-
-- `GET /groups` returns all groups where you're a member (owner, member, or viewer).
-- Each card shows the group name and member count, pulled from the memberships table.
-- The "All settled up" badge comes from the balance data — when every member's net balance is zero, the group is settled.
-- Pull down to refresh. Tap a group to dive into its details. The blue "Create New Group" button at the bottom creates a new one via `POST /groups`, and you're automatically added as the owner.
-
-The bottom tab bar gives you three main areas: **Groups**, **Friends**, and **Profile**. Groups is where you'll spend most of your time.
-
----
-
-## 4. Group Overview
-
-<p align="center">
-  <img src="docs/images/screenshots/04_group_overview.png" width="300" alt="Group Overview screen" />
-</p>
-
-Tap into a group and you get the full picture at a glance. The blue hero card at the top shows the **total spent across all shopping trips** — a number computed by summing every shopping session's items.
-
-Below that, you see:
-
-- **Members** — who's in the group, with avatars built from initials. The "You" badge marks your own entry. The "+ Add" button lets owners invite new members by username.
-- **Shopping Sessions** — where the actual expense tracking happens. Each shopping trip (grocery run, dinner out, etc.) is its own session.
-- **Balances & Settlement** — the bottom line: who owes who, and how to settle up.
-
-**Backend integration:**
-
-- Group details come from `GET /groups/{id}` with membership data from `GET /groups/{id}/members`.
-- The total spent is calculated client-side by aggregating shopping session totals.
-- Only owners can add members (role-based access enforced on both client and server).
-
----
-
-## 5. Shopping Sessions
-
-<p align="center">
-  <img src="docs/images/screenshots/05_shopping_sessions.png" width="300" alt="Shopping Sessions screen" />
-</p>
-
-Each shopping session represents one trip or one bill. The card shows:
-
-- **Session title** and **total amount**
-- **Date** of the shopping trip
-- **Number of items** added
-- **Who paid** — because that matters for splitting
-
-The blue "+" button in the top right creates a new session via `POST /groups/{id}/shopping-sessions`. You pick a title, set who paid, and optionally add a date. The payer is always the creator — you can only create sessions where you're the one who paid.
-
-**Backend flow:**
-
-- `GET /groups/{id}/shopping-sessions` lists all sessions with their items, participants, and receipt metadata eagerly loaded in one query.
-- Sessions have three statuses: **Active** (editable), **Finalized** (locked for settlement), and **Settled** (all payments complete).
-- Swipe left on a session to delete it — cascades through items, splits, and receipts.
-
----
-
-## 6. Session Detail — Participants & Receipts
-
-<p align="center">
-  <img src="docs/images/screenshots/06_session_participants.png" width="300" alt="Session Participants screen" />
-</p>
-
-Inside a session, you get the full breakdown. The blue header shows the **total amount** and **who paid**.
-
-Below that:
-
-- **Participants** — the people sharing this bill. Tap "Edit" to change who's included via `PUT /shopping-sessions/{id}/participants`. Only the payer can modify participants.
-- **Receipts** — upload a photo of the receipt. The backend stores it in AWS S3 with presigned URLs (15-minute TTL) for secure, temporary access. There's even an OCR pipeline (`POST /receipts/{id}/extract-items`) that can pull item names and prices from the receipt image using Tesseract.
-- **Items** — the actual things purchased, with prices and per-person shares.
-
-The receipt thumbnail you see is fetched via `GET /receipts/{id}/download-url`, which returns a short-lived S3 presigned URL. The image itself never passes through the API server on download.
-
----
-
-## 7. Session Detail — Items & Splits
-
-<p align="center">
-  <img src="docs/images/screenshots/07_session_items.png" width="300" alt="Session Items screen" />
-</p>
-
-This is where the splitting actually happens. Each item card shows:
-
-- **Item name** and **total price**
-- **Quantity** and unit breakdown
-- **Who's sharing it** — shown as name badges
-- **Your share** — calculated and shown in the bottom-right of each card
-
-In this example, "Tacos Del Mal Shrimp" costs $14.98 and is shared by Eunshin Park and You — so your share is $7.49. Same logic for the salad ($6.25 each) and the beverage ($0.99 each).
-
-**How splits are calculated:**
-
-The backend uses **deterministic integer arithmetic** to avoid floating-point rounding errors. When $14.98 (1498 cents) is split between 2 people:
-- Each person gets `1498 / 2 = 749 cents` ($7.49)
-- If there's a remainder (say splitting $14.99 between 2), the extra cent goes to the first person in the list — the payer gets preference for the remainder.
-
-This is handled by `PUT /items/{id}/sharers` on the backend, which recalculates splits every time you change who's sharing an item. The edit (pencil) and delete (trash) icons let you modify items inline.
-
----
-
-## 8. Friends
-
-<p align="center">
-  <img src="docs/images/screenshots/08_friends.png" width="300" alt="Friends screen" />
-</p>
-
-The Friends tab is your social layer. At the top, you'll see **Friend Requests** — incoming requests with accept (checkmark) and decline (X) buttons.
-
-Below that is your **My Friends** list. In this screenshot, it's empty — but once you accept requests or add friends, they'll show up here with search functionality.
+- **Search bar** — filter your friends list by name or username.
+- **Add New Friend** — type an email or username and send a friend request directly, no separate modal needed.
+- **Pending Requests** — shows outgoing requests waiting for acceptance, with a count badge.
+- **My Friends** — your accepted friends with avatars, display names, and usernames. Tap a friend to see shared groups and history.
 
 The blue info banner at the bottom explains why friends matter: *"Add friends to easily create groups and split expenses together."*
 
 **Backend integration:**
 
-- `GET /friends/requests/incoming` fetches pending requests.
-- `POST /friends/requests/{id}/accept` or `/decline` handles the response.
 - `GET /friends` lists accepted friendships with optional search (`?q=...`).
-- Friendships are stored as normalized pairs (lower UUID first) to prevent duplicates — you can't have two friendship records between the same two people.
+- `POST /friends/requests` sends a new friend request.
+- `GET /friends/requests/incoming` and `/outgoing` fetch pending requests.
+- `POST /friends/requests/{id}/accept` or `/decline` handles responses.
+- Friendships are stored as normalized pairs (lower UUID first) to prevent duplicates.
 
 ---
 
-## 9. Add Friend
+## 3. Profile
 
 <p align="center">
-  <img src="docs/images/screenshots/09_add_friend_modal.png" width="300" alt="Add Friend modal" />
-</p>
-
-Tap the "+ Add" button and this form slides in. You can find friends by **email/username** or by **User ID** — toggle between the two input modes at the top.
-
-Type in their identifier, hit "Send Request", and a friend request is created via `POST /friends/requests`. The other person will see it in their Friend Requests section.
-
-**What the backend checks:**
-
-- You can't send a request to yourself
-- You can't send a duplicate request to someone you've already friended or have a pending request with
-- The identifier is normalized (lowercased) before lookup
-- Rate limiting prevents spam
-
----
-
-## 10. Profile
-
-<p align="center">
-  <img src="docs/images/screenshots/10_profile.png" width="300" alt="Profile screen" />
+  <img src="docs/images/screenshots/03_profile.png" width="300" alt="Profile screen" />
 </p>
 
 The Profile tab shows your identity and activity summary:
 
-- **Avatar** with your initials (generated client-side from your first and last name)
-- **Full name** and **member since** date
-- **Edit Profile** button for updating your details
-- **Stats cards**: number of groups you belong to, and total amount split across all groups
-- **Account Information**: your registered email
-- **Settings**: app configuration and logout
+- **Avatar** with your initials on a gradient background, generated client-side from your first and last name.
+- **Full name** and **member since** date.
+- **Edit Profile** button for updating your details.
+- **Stats cards** — two side-by-side cards showing the number of groups you belong to and total amount split across all groups.
+- **Account Information** — your registered email with an icon.
+- **Settings** navigation row and **Log Out** button.
 
-The stats are computed client-side from the groups and session data already loaded in the `AppState`. The "2 Groups" and "$29.47 Total Split" reflect real data from the backend — it's not a static mock.
+The stats are computed client-side from the groups and session data already loaded in the `AppState`. Every number reflects real data from the backend — nothing is mocked.
 
 ---
 
-## 11. Balances & Settlement
+## 4. Upload Receipt
 
 <p align="center">
-  <img src="docs/images/screenshots/11_balances_settlement.png" width="300" alt="Balances & Settlement screen" />
+  <img src="docs/images/screenshots/04_upload_receipt.png" width="300" alt="Upload Receipt screen" />
+</p>
+
+Inside a shopping session, you can upload a receipt photo to automatically extract items. This screen presents two options:
+
+- **Take Photo** — opens the camera to capture a receipt.
+- **Choose from Gallery** — pick an existing photo from your library.
+
+The "Tips for Best Results" section at the bottom guides users for optimal OCR accuracy: good lighting, flat receipt, all items visible, total amount included.
+
+**Backend flow:**
+
+- `POST /shopping-sessions/{id}/receipt` uploads the image to AWS S3 with presigned URLs.
+- The backend validates file size (10 MB max) and image dimensions (25 MP max).
+- The receipt image is stored in S3 — it never proxies through the API server on download.
+
+---
+
+## 5. Receipt Preview
+
+<p align="center">
+  <img src="docs/images/screenshots/05_receipt_preview.png" width="300" alt="Receipt Preview screen" />
+</p>
+
+After selecting or capturing a photo, you see a full preview of the receipt image. The dismiss button (X) in the corner lets you remove the photo if it's not clear enough.
+
+Two actions at the bottom:
+
+- **Use This Photo** — confirms the selection and triggers the upload + OCR extraction pipeline.
+- **Choose Different Photo** — goes back to pick another image.
+
+This confirmation step prevents accidental uploads and lets users verify the receipt is legible before processing.
+
+---
+
+## 6. Review Items
+
+<p align="center">
+  <img src="docs/images/screenshots/06_review_items.png" width="300" alt="Review Items screen" />
+</p>
+
+Once OCR extraction completes, you see all extracted items ready for review. The hero card at the top shows the **total amount** and **item count**.
+
+The info banner explains: *"Review and edit the items extracted from your receipt. Items with lower confidence may need verification."*
+
+Each item card shows:
+
+- **Sequence number** — order from the receipt.
+- **Item name** and **price** — extracted by Tesseract OCR.
+- **Confidence badge** — "High confidence" in green means the OCR is confident in the extraction.
+- **Edit** (pencil) and **delete** (trash) icons — fix any OCR mistakes before confirming.
+
+At the bottom, **"+ Add Item"** lets you manually add anything the OCR missed, and **"Confirm Items"** finalizes the extraction and adds all items to the shopping session.
+
+**Backend integration:**
+
+- `POST /receipts/{id}/extract-items` runs Tesseract OCR with a concurrency cap (default 2 concurrent extractions).
+- Each extracted item includes a confidence score and the raw line from the receipt.
+- Confirmed items are created via `POST /shopping-sessions/{id}/items`.
+
+---
+
+## 7. Shopping Sessions
+
+<p align="center">
+  <img src="docs/images/screenshots/07_shopping_sessions.png" width="300" alt="Shopping Sessions screen" />
+</p>
+
+Each shopping session represents one trip or one bill. The card shows:
+
+- **Session title** and **total amount** — prominently displayed.
+- **Date** of the shopping trip (calendar icon).
+- **Number of items** added (cart icon).
+- **Who paid** — shown at the bottom right of each card.
+
+The blue "+" button in the top right creates a new session. The floating help button (?) at the bottom right provides contextual guidance.
+
+**Backend flow:**
+
+- `GET /groups/{id}/shopping-sessions` lists all sessions with items, participants, and receipt metadata eagerly loaded.
+- `POST /groups/{id}/shopping-sessions` creates a new session. The payer is always the creator.
+- Sessions have three statuses: **Active** (editable), **Finalized** (locked for settlement), and **Settled** (all payments complete).
+- Swipe left to delete — cascades through items, splits, and receipts.
+
+---
+
+## 8. Session Detail
+
+<p align="center">
+  <img src="docs/images/screenshots/08_session_detail.png" width="300" alt="Session Detail screen" />
+</p>
+
+Inside a session, you get the full breakdown. The blue hero card shows the **total amount** and **who paid**.
+
+Below that:
+
+- **Participants** — the people sharing this bill, shown as avatars with names in a horizontal grid. The count badge and "Edit" link let owners manage who's included. "You" is highlighted with a distinct avatar color.
+- **Receipts** — uploaded receipt thumbnails. Tap to view the full image, fetched via a presigned S3 URL with 15-minute TTL.
+- **Items** — the actual purchases with prices. Each item shows its name, total price, and action icons (edit/delete).
+
+**Backend integration:**
+
+- `GET /shopping-sessions/{id}` returns the full session with items, participants, and receipts.
+- `PUT /shopping-sessions/{id}/participants` updates who's sharing (payer-only action).
+- `GET /receipts/{id}/download-url` returns a short-lived S3 presigned URL for receipt images.
+
+---
+
+## 9. Balances & Settlement
+
+<p align="center">
+  <img src="docs/images/screenshots/09_balances_settlement.png" width="300" alt="Balances & Settlement screen" />
 </p>
 
 This is where everything comes together. The settlement screen answers the only question that matters: **who owes who, and how much?**
 
 **Individual Balances** shows each member's net position:
-- "You" owes **$14.73** (shown in red)
-- Eunshin Park gets back **+$14.73** (shown in green)
+- "You" owes **$24.99** (shown in red)
+- Yeongseok Lim gets back **+$41.04** (shown in green)
+- Hansoo Lim owes **$16.05** (shown in red)
 
-**Suggested Payments** shows the simplest way to settle up:
-- You pay Eunshin Park $14.73. One payment. Done.
+**Suggested Payments** shows the simplest way to settle up — a transfer visualization with avatars:
+- You → Yeongseok Lim: **$24.99**
 
-The "Mark as Paid" button records the payment via `POST /groups/{id}/settlement-payments` with `auto_confirm: true`.
+The **"Mark as Paid"** button records the payment. Once confirmed, the transfer row shows a confirmation badge with a timestamp.
+
+The light blue explainer card at the bottom — *"How settlements work"* — walks users through the process: balances computed from all sessions, each person pays their share, and payments are marked as settled.
 
 **How balances are calculated on the backend (`GET /groups/{id}/balances`):**
 
@@ -252,25 +219,7 @@ The settlement service aggregates across all data sources:
 2. **Expense splits** — what each person owes
 3. **Shopping session items** — item-level shares from all active sessions
 
-It computes a net balance per member (paid minus owed), then runs a **transfer minimization algorithm** to suggest the fewest payments needed to settle everyone up. The light blue explainer card at the bottom walks users through how it works — no finance degree required.
-
----
-
-## 12. Add Member
-
-<p align="center">
-  <img src="docs/images/screenshots/12_add_member_modal.png" width="300" alt="Add Member modal" />
-</p>
-
-Group owners can add new members through this modal. Type a username, hit Search, and the backend runs a preview check via `POST /groups/{id}/members/preview` — it tells you whether the user exists, whether they're already in the group, and their current role if applicable.
-
-If everything checks out, confirm and the member is added via `POST /groups/{id}/members` with a default "member" role.
-
-**Security considerations:**
-
-- Only group owners can add members (enforced server-side with role checks)
-- The preview endpoint is rate-limited to prevent username/email enumeration
-- Member search uses case-insensitive matching
+It computes a net balance per member (paid minus owed), then runs a **transfer minimization algorithm** to suggest the fewest payments needed to settle everyone up.
 
 ---
 
@@ -278,13 +227,13 @@ If everything checks out, confirm and the member is added via `POST /groups/{id}
 
 A few things that shaped how these screens look and feel:
 
-**Minimal, card-based layout** — Every piece of information lives in a card. Cards create visual hierarchy without needing heavy borders or backgrounds. They also translate well to different screen sizes.
+**Minimal, card-based layout** — Every piece of information lives in a card with consistent spacing and rounded corners. Cards create visual hierarchy without needing heavy borders or backgrounds, and they translate well to different screen sizes.
 
-**Blue as the primary accent** — The brand blue (`#4A6CF7`-ish) is used sparingly: CTAs, active tabs, hero cards, and the logo. Everything else is neutral whites and grays. This keeps the interface calm — fitting for an app that deals with money.
+**Brand blue as the primary accent** — The brand blue (#1E56E8) is used sparingly: CTAs, active tabs, hero cards, and the logo. Everything else is neutral surfaces and grays. This keeps the interface calm — fitting for an app that deals with money.
 
-**Progressive disclosure** — The group overview doesn't dump everything on you. It shows the summary first (total spent, members), and lets you drill into sessions, items, and settlements one level at a time.
+**Progressive disclosure** — The app doesn't dump everything on you. It shows summaries first and lets you drill into sessions, items, receipts, and settlements one level at a time.
 
-**Real data, always** — Every number on screen comes from the backend. There are no hardcoded placeholders. The $29.47 total, the $14.73 balance, the item prices — all computed from actual database records through the API.
+**Real data, always** — Every number on screen comes from the backend. There are no hardcoded placeholders. The totals, balances, and item prices are all computed from actual database records through the API.
 
 **Zero external dependencies on iOS** — The entire app is built with Foundation and SwiftUI. No Alamofire, no Kingfisher, no third-party UI kit. This keeps the binary small, builds fast, and avoids supply chain risk.
 
@@ -306,13 +255,13 @@ Sign Up / Log In
 Members  Shopping    Balances &
    |    Sessions     Settlement
    |       |              |
-Add     Create         View who
-Member  Session       owes what
+  Add    Create         View who
+ Member  Session       owes what
            |              |
       Add Items      Mark as Paid
       Set Sharers
       Upload Receipt
-      (OCR Extract)
+      (OCR → Review Items)
 ```
 
 Every arrow in this flow is a real API call. Every screen is a real SwiftUI view. Every number is computed from PostgreSQL through FastAPI.
@@ -326,19 +275,13 @@ For reference, here's a mapping of every screen to the backend endpoints it talk
 | Screen | Endpoints |
 |--------|-----------|
 | Login | `POST /auth/login`, `GET /auth/me` |
-| Sign Up | `POST /auth/signup` |
-| My Groups | `GET /groups` |
-| Group Overview | `GET /groups/{id}`, `GET /groups/{id}/members`, `GET /groups/{id}/shopping-sessions` |
-| Shopping Sessions | `GET /groups/{id}/shopping-sessions`, `POST /groups/{id}/shopping-sessions` |
-| Session Detail | `GET /shopping-sessions/{id}`, `PUT /shopping-sessions/{id}/participants` |
-| Items & Splits | `POST /shopping-sessions/{id}/items`, `PUT /items/{id}/sharers`, `PATCH /items/{id}` |
-| Receipts | `POST /shopping-sessions/{id}/receipt`, `GET /receipts/{id}/download-url`, `POST /receipts/{id}/extract-items` |
-| Friends | `GET /friends`, `GET /friends/requests/incoming`, `GET /friends/requests/outgoing` |
-| Add Friend | `POST /friends/requests`, `POST /friends/requests/{id}/accept` |
+| Friends | `GET /friends`, `GET /friends/requests/incoming`, `GET /friends/requests/outgoing`, `POST /friends/requests`, `POST /friends/requests/{id}/accept` |
 | Profile | `GET /auth/me` (cached in AppState) |
-| Balances | `GET /groups/{id}/balances` |
-| Settlement | `POST /groups/{id}/settlement-payments`, `POST /settlement-payments/{id}/confirm` |
-| Add Member | `POST /groups/{id}/members/preview`, `POST /groups/{id}/members` |
+| Upload Receipt | `POST /shopping-sessions/{id}/receipt` |
+| Review Items | `POST /receipts/{id}/extract-items`, `POST /shopping-sessions/{id}/items` |
+| Shopping Sessions | `GET /groups/{id}/shopping-sessions`, `POST /groups/{id}/shopping-sessions` |
+| Session Detail | `GET /shopping-sessions/{id}`, `PUT /shopping-sessions/{id}/participants`, `GET /receipts/{id}/download-url` |
+| Balances & Settlement | `GET /groups/{id}/balances`, `POST /groups/{id}/settlement-payments`, `POST /settlement-payments/{id}/confirm` |
 
 ---
 

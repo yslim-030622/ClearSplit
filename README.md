@@ -15,18 +15,18 @@ I built ClearSplit because splitting expenses with my college friend group was c
 ## App Preview
 
 <p align="center">
-  <img src="docs/images/screenshots/02_login.png" width="180" alt="Login" />
+  <img src="docs/images/screenshots/01_login.png" width="180" alt="Login" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/04_group_overview.png" width="180" alt="Group Overview" />
+  <img src="docs/images/screenshots/07_shopping_sessions.png" width="180" alt="Shopping Sessions" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/07_session_items.png" width="180" alt="Session Items" />
+  <img src="docs/images/screenshots/08_session_detail.png" width="180" alt="Session Detail" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/11_balances_settlement.png" width="180" alt="Balances & Settlement" />
+  <img src="docs/images/screenshots/09_balances_settlement.png" width="180" alt="Balances & Settlement" />
 </p>
 
-<p align="center"><i>Login · Group Overview · Item Splits · Settlement</i></p>
+<p align="center"><i>Login · Shopping Sessions · Session Detail · Settlement</i></p>
 
-> Full 12-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
+> Full 9-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
 
 ## Architecture Overview
 
@@ -484,13 +484,13 @@ make run   # uvicorn --reload on :8000
 
 Native SwiftUI app with zero external dependencies. MVVM architecture, Keychain-backed auth with silent token refresh, and protocol-based services for testability. The networking layer — including multipart uploads, automatic 401 retry, and concurrent refresh deduplication — is built on Foundation alone.
 
-See the full 12-screen walkthrough: **[SHOWCASE.md](SHOWCASE.md)**
+See the full 9-screen walkthrough: **[SHOWCASE.md](SHOWCASE.md)**
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [SHOWCASE.md](SHOWCASE.md) | iOS app walkthrough — 12 screens with backend integration details |
+| [SHOWCASE.md](SHOWCASE.md) | iOS app walkthrough — 9 screens with backend integration details |
 | [docs/architecture.md](docs/architecture.md) | System topology, layer architecture, domain flows |
 | [docs/backend-reference.md](docs/backend-reference.md) | Full API surface, env vars, data model, auth rules |
 | [docs/workflows-and-operations.md](docs/workflows-and-operations.md) | CI/CD pipelines, deployment flows, troubleshooting |

@@ -191,6 +191,7 @@ struct GroupCard: View {
     @ObservedObject var appState: AppState
     @State private var isHovered = false
     @State private var hasRequestedMembers = false
+    @State private var showGroupDetail = false
 
     private var memberCount: Int {
         if let loadedCount = appState.membershipsByGroupId[group.id]?.count {
@@ -212,7 +213,9 @@ struct GroupCard: View {
     }
     
     var body: some View {
-        NavigationLink(destination: GroupDetailView(appState: appState, group: group)) {
+        Button {
+            showGroupDetail = true
+        } label: {
             HStack(spacing: 0) {
                 // Left: Group info
                 VStack(alignment: .leading, spacing: 6) {
@@ -268,6 +271,9 @@ struct GroupCard: View {
             .itemCardStyle(isHovered: isHovered)
         }
         .buttonStyle(PlainButtonStyle())
+        .navigationDestination(isPresented: $showGroupDetail) {
+            GroupDetailView(appState: appState, group: group)
+        }
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
