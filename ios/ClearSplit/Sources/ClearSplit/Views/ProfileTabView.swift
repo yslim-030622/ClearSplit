@@ -42,23 +42,26 @@ struct ProfileTabView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: TabLayoutMetrics.sectionSpacing) {
-                    profileCard
-                    statsCards
-                    accountInfoCard
-                    settingsCard
-                    logoutButton
+            ZStack {
+                AppBackground()
+
+                ScrollView {
+                    VStack(spacing: TabLayoutMetrics.sectionSpacing) {
+                        profileCard
+                        statsCards
+                        accountInfoCard
+                        settingsCard
+                        logoutButton
+                    }
+                    .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
+                    .padding(.top, TabLayoutMetrics.topPadding)
+                    .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
                 }
-                .padding(.horizontal, TabLayoutMetrics.horizontalPadding)
-                .padding(.top, TabLayoutMetrics.topPadding)
-                .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
+                .background(Color.clear)
             }
-            .background(Color.clear)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
         }
-        .background { AppBackground() }
         .alert("Log Out", isPresented: $showLogoutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Log Out", role: .destructive) {

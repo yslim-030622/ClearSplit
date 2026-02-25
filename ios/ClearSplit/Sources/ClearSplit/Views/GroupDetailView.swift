@@ -137,7 +137,7 @@ struct GroupDetailView: View {
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: 20, weight: .medium))
-                        .foregroundColor(Color.gray600)
+                        .foregroundColor(Color.textSecondary)
                 }
                 .buttonStyle(ScaleButtonStyle())
             }
@@ -207,7 +207,7 @@ struct GroupDetailView: View {
                     .font(ClearSplitTheme.Typography.overline)
                     .textCase(.uppercase)
                     .tracking(ClearSplitTheme.Tracking.extraWide)
-                    .foregroundColor(Color.white.opacity(0.9))
+                    .foregroundColor(Color.white.opacity(0.95))
                 
                 AnimatingCurrencyText(
                     value: amountCents,
@@ -219,7 +219,7 @@ struct GroupDetailView: View {
                 
                 Text(subtitle)
                     .font(.system(size: 15, weight: .regular))
-                    .foregroundColor(Color.white.opacity(0.8))
+                    .foregroundColor(Color.white.opacity(0.9))
                     .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -389,7 +389,7 @@ struct GroupDetailView: View {
                     if let email = email {
                         Text(email)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(Color.textTertiary)
+                            .foregroundColor(Color.textSecondary)
                             .lineLimit(1)
                     }
                 }
@@ -401,7 +401,7 @@ struct GroupDetailView: View {
                     Button(action: onRemove) {
                         Image(systemName: "xmark")
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(isHovered ? Color.danger : Color.textMuted)
+                            .foregroundColor(isHovered ? Color.danger : Color.textTertiary)
                             .frame(width: 28, height: 28)
                             .background(isHovered ? Color.dangerSurface : Color.clear)
                             .cornerRadius(8)
@@ -861,21 +861,21 @@ struct GroupDetailView: View {
                         .foregroundColor(iconColor)
                 }
                 
-                            VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(Color.gray900)
+                        .foregroundColor(Color.textPrimary)
                     
                     Text(subtitle)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Color.gray600)
+                        .foregroundColor(Color.textSecondary)
                 }
                 
                             Spacer()
                 
-                            Image(systemName: "chevron.right")
+                Image(systemName: "chevron.right")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundColor(Color.gray400)
+                    .foregroundColor(Color.textTertiary)
             }
             .padding(20)
             .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
