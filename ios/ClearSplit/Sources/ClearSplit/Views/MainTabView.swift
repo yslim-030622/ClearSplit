@@ -58,10 +58,9 @@ struct MainTabView: View {
             MainTabBar(selectedTab: $selectedTab)
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        .background(
-            Color.pageBackground
-                .ignoresSafeArea()
-        )
+        .background {
+            AppBackground()
+        }
     }
 
     private func tabView<Content: View>(_ tab: MainTab, @ViewBuilder content: () -> Content) -> some View {

@@ -27,8 +27,7 @@ struct ShoppingSessionsListView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color.pageBackground
-                .ignoresSafeArea()
+            AppBackground()
 
             if viewModel.isLoading && viewModel.sessions.isEmpty {
                 ScrollView {

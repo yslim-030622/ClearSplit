@@ -54,11 +54,11 @@ struct ProfileTabView: View {
                 .padding(.top, TabLayoutMetrics.topPadding)
                 .padding(.bottom, TabLayoutMetrics.bottomPaddingForTabBar)
             }
-            .background(Color.pageBackground)
+            .background(Color.clear)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
         }
-        .background(Color.pageBackground.ignoresSafeArea())
+        .background { AppBackground() }
         .alert("Log Out", isPresented: $showLogoutAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Log Out", role: .destructive) {

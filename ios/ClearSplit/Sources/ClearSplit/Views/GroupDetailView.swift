@@ -39,9 +39,8 @@ struct GroupDetailView: View {
     
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Color.pageBackground
-                .ignoresSafeArea()
-            
+            AppBackground()
+
             ScrollView {
                 VStack(spacing: 16) {
                     // Total Spent hero card

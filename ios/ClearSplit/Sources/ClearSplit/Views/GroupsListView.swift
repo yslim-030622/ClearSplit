@@ -14,8 +14,7 @@ struct GroupsListView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                Color.pageBackground
-                    .ignoresSafeArea()
+                AppBackground()
 
                 content
 

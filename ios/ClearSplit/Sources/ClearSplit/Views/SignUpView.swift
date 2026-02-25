@@ -21,7 +21,7 @@ struct SignUpView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                authBackground
+                AppBackground()
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
@@ -161,29 +161,6 @@ struct SignUpView: View {
         !viewModel.email.isEmpty &&
         !viewModel.password.isEmpty &&
         !viewModel.confirmPassword.isEmpty
-    }
-
-    private var authBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.brandSubtle, Color.pageBackground, Color.blue100],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(Color.brandPrimary.opacity(0.10))
-                .frame(width: 300, height: 300)
-                .blur(radius: 60)
-                .offset(x: 110, y: -300)
-
-            Circle()
-                .fill(Color.blue400.opacity(0.08))
-                .frame(width: 300, height: 300)
-                .blur(radius: 60)
-                .offset(x: -100, y: 150)
-        }
-        .ignoresSafeArea()
     }
 
     private var cancelButtonRow: some View {

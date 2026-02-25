@@ -113,7 +113,7 @@ struct ShoppingSessionDetailView: View {
                         .padding(.bottom, 24)
                     }
                 }
-                .background(Color.pageBackground)
+                .background { AppBackground() }
                 .sheet(isPresented: $showingReceiptUpload) {
                     ReceiptUploadView(
                         sessionId: session.id,

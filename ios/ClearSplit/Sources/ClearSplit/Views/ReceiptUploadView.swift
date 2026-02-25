@@ -19,8 +19,7 @@ struct ReceiptUploadView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.pageBackground
-                    .ignoresSafeArea()
+                AppBackground()
 
                 ScrollView {
                     VStack(spacing: 0) {

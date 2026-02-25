@@ -63,7 +63,7 @@ struct BalancesSettlementView: View {
             }
             .padding(16)
         }
-        .background(Color.pageBackground.ignoresSafeArea())
+        .background { AppBackground() }
         .navigationTitle("Balances & Settlement")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {

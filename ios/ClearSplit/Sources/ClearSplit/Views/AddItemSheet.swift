@@ -98,7 +98,7 @@ struct AddItemSheet: View {
                 }
                 .padding(16)
             }
-            .background(Color.pageBackground)
+            .background { AppBackground() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {

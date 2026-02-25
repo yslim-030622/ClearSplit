@@ -78,7 +78,7 @@ struct FriendsTabView: View {
             .refreshable {
                 await viewModel.load()
             }
-            .background(Color.pageBackground)
+            .background(Color.clear)
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -87,7 +87,7 @@ struct FriendsTabView: View {
                 }
             }
         }
-        .background(Color.pageBackground.ignoresSafeArea())
+        .background { AppBackground() }
         .task {
             await viewModel.load()
         }
