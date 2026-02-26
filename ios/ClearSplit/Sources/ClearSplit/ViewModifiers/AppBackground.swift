@@ -10,7 +10,7 @@ struct AppBackground: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.blue400.opacity(0.35), Color.blue400.opacity(0)],
+                        colors: [Color.blue400.opacity(0.45), Color.blue400.opacity(0)],
                         center: .center,
                         startRadius: 0,
                         endRadius: 180
@@ -22,7 +22,7 @@ struct AppBackground: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.blue600.opacity(0.20), Color.blue600.opacity(0)],
+                        colors: [Color.blue600.opacity(0.28), Color.blue600.opacity(0)],
                         center: .center,
                         startRadius: 0,
                         endRadius: 200
@@ -34,7 +34,7 @@ struct AppBackground: View {
             Circle()
                 .fill(
                     RadialGradient(
-                        colors: [Color.blue200.opacity(0.40), Color.blue100.opacity(0)],
+                        colors: [Color.blue200.opacity(0.50), Color.blue100.opacity(0)],
                         center: .center,
                         startRadius: 0,
                         endRadius: 160

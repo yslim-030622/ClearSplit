@@ -42,6 +42,8 @@ struct ShoppingSessionDetailView: View {
                             groupMemberships: appState.membershipsByGroupId[session.groupId] ?? [],
                             currentUserId: currentUserId
                         )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
 
                         // Content Area
                         VStack(spacing: 16) {

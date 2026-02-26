@@ -27,13 +27,14 @@ struct CardStyle: ViewModifier {
 struct SectionStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Color.sectionBackground)
+            .background(Color.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: ClearSplitTheme.Radius.lg)
-                    .stroke(Color.borderSubtle, lineWidth: 0.5)
+                    .stroke(Color.borderLight, lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.02), radius: 2, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(0.04), radius: 4, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.02), radius: 1, x: 0, y: 1)
     }
 }
 

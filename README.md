@@ -17,16 +17,16 @@ I built ClearSplit because splitting expenses with my college friend group was c
 <p align="center">
   <img src="docs/images/screenshots/01_login.png" width="180" alt="Login" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/07_shopping_sessions.png" width="180" alt="Shopping Sessions" />
+  <img src="docs/images/screenshots/08_group_overview_full.png" width="180" alt="Group Overview" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/08_session_detail.png" width="180" alt="Session Detail" />
+  <img src="docs/images/screenshots/07_shopping_sessions.png" width="180" alt="Shopping Sessions" />
   &nbsp;&nbsp;
   <img src="docs/images/screenshots/09_balances_settlement.png" width="180" alt="Balances & Settlement" />
 </p>
 
-<p align="center"><i>Login · Shopping Sessions · Session Detail · Settlement</i></p>
+<p align="center"><i>Login · Group Overview · Shopping Sessions · Settlement</i></p>
 
-> Full 9-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
+> Full 10-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
 
 ## Architecture Overview
 
@@ -484,7 +484,7 @@ make run   # uvicorn --reload on :8000
 
 Native SwiftUI app with zero external dependencies. MVVM architecture, Keychain-backed auth with silent token refresh, and protocol-based services for testability. The networking layer — including multipart uploads, automatic 401 retry, and concurrent refresh deduplication — is built on Foundation alone.
 
-See the full 9-screen walkthrough: **[SHOWCASE.md](SHOWCASE.md)**
+See the full 10-screen walkthrough: **[SHOWCASE.md](SHOWCASE.md)**
 
 ## Documentation
 

@@ -13,10 +13,10 @@ extension Color {
         Color(UIColor { traitCollection in
             traitCollection.userInterfaceStyle == .dark
                 ? UIColor(red: 0.078, green: 0.082, blue: 0.094, alpha: 1.0) // #141518
-                : UIColor(red: 0.957, green: 0.961, blue: 0.980, alpha: 1.0) // #F4F5FA
+                : UIColor(red: 0.918, green: 0.925, blue: 0.961, alpha: 1.0) // #EAECF5
         })
 #else
-        Color(red: 0.957, green: 0.961, blue: 0.980)
+        Color(red: 0.918, green: 0.925, blue: 0.961)
 #endif
     }()
 
@@ -26,10 +26,10 @@ extension Color {
         Color(UIColor { traitCollection in
             traitCollection.userInterfaceStyle == .dark
                 ? UIColor(red: 0.114, green: 0.122, blue: 0.141, alpha: 1.0) // #1D1F24
-                : UIColor(red: 0.973, green: 0.976, blue: 0.992, alpha: 1.0) // #F8F9FD
+                : UIColor(red: 0.941, green: 0.945, blue: 0.973, alpha: 1.0) // #F0F1F8
         })
 #else
-        Color(red: 0.973, green: 0.976, blue: 0.992)
+        Color(red: 0.941, green: 0.945, blue: 0.973)
 #endif
     }()
 

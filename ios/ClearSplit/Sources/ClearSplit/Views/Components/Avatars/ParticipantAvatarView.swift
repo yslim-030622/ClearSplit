@@ -27,6 +27,7 @@ struct ParticipantAvatarView: View {
                 .minimumScaleFactor(0.9)
         }
         .frame(width: 72)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var displayName: String {

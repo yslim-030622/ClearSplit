@@ -58,7 +58,8 @@ struct TotalAmountHeroCard: View {
                 endPoint: .bottom
             )
         )
-        .cornerRadius(ClearSplitTheme.Radius.xl + 4, corners: [.bottomLeft, .bottomRight])
+        .cornerRadius(20)
+        .shadow(color: Color.blue600.opacity(0.25), radius: 12, x: 0, y: 4)
     }
 
     private var paidByText: String {

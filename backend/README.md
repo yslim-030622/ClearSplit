@@ -6,29 +6,30 @@ ClearSplit is a Full stack expense splitting app — FastAPI backend, PostgreSQL
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.122-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
-![Azure](https://img.shields.io/badge/Azure-Container_Apps-0078D4?logo=microsoftazure&logoColor=white)
+![Azure](https://img.shields.io/badge/Azure-Container_Apps-0078D4?logo=microsoftazure&logoColor=white)\
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI/CD-2088FF?logo=githubactions&logoColor=white)
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-F05138?logo=swift&logoColor=white)
 
-I built ClearSplit after getting frustrated with how messy it was to split expenses with my college friends. 
-Zelle let you request money, but they don’t show what you’re actually paying for. There’s no receipt detail, no item breakdown, no real transparency. Usually one person does the math on their phone, everyone just trusts it, and mistakes slip through and embrass moment happens.
+I built ClearSplit after getting frustrated with how messy it was to split expenses with my college friends. 😥\
+Zelle let you request money, but they don’t show what you’re actually paying for. There’s no receipt detail, no item breakdown, no real transparency.\
+Usually one person does the math on their phone, everyone just trusts it, and mistakes slip through and embrass moment happens.\
 ClearSplit fixes that by letting everyone upload receipts, see every item clearly, and understand exactly what they owe — and why.
 
 ## App Preview
 
 <p align="center">
-  <img src="docs/images/screenshots/02_login.png" width="180" alt="Login" />
+  <img src="docs/images/screenshots/01_login.png" width="180" alt="Login" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/04_group_overview.png" width="180" alt="Group Overview" />
+  <img src="docs/images/screenshots/08_group_overview_full.png" width="180" alt="Group Overview" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/07_session_items.png" width="180" alt="Session Items" />
+  <img src="docs/images/screenshots/07_shopping_sessions.png" width="180" alt="Shopping Sessions" />
   &nbsp;&nbsp;
-  <img src="docs/images/screenshots/11_balances_settlement.png" width="180" alt="Balances & Settlement" />
+  <img src="docs/images/screenshots/09_balances_settlement.png" width="180" alt="Balances & Settlement" />
 </p>
 
-<p align="center"><i>Login · Group Overview · Item Splits · Settlement</i></p>
+<p align="center"><i>Login · Group Overview · Shopping Sessions · Settlement</i></p>
 
-> Full 12-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
+> Full 10-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
 
 ## Architecture Overview
 
@@ -53,101 +54,135 @@ flowchart TD
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Backend | FastAPI 0.122 + Uvicorn ASGI | Async-native, auto-generated OpenAPI docs |
-| Database | PostgreSQL 16 + async SQLAlchemy 2.0 | ACID transactions, asyncpg for non-blocking I/O |
-| Auth | JWT (HS256) + bcrypt | Stateless access tokens, rotating refresh with JTI tracking |
-| Storage | AWS S3 + presigned URLs | Receipt images never proxy through the API on download |
-| OCR | Tesseract (pytesseract + Pillow) | In-process — no external API dependency or per-call cost |
-| Infra | Azure Container Apps + Docker | Health-gated rollouts, auto-scaling, no VM management |
-| CI/CD | GitHub Actions (7 workflows) | OIDC federation — zero static credentials in the pipeline |
-| iOS | SwiftUI + MVVM | Zero external dependencies, Keychain-backed auth storage |
-
+| Layer          | Technology                                   | Why it’s used                                                                 |
+|---------------|----------------------------------------------|--------------------------------------------------------------------------------|
+| API           | FastAPI (async) + Uvicorn                    | High-performance async API with automatic OpenAPI documentation                |
+| Data          | PostgreSQL 16                                | Strong consistency + transactional guarantees |
+| ORM           | SQLAlchemy 2 (async) + asyncpg               | Asynchronous database access with a well-established ORM                  |
+| Auth          | JWT access + rotating refresh (JTI) + bcrypt | Stateless access tokens + revocable refresh tokens + secure password hashing |
+| Object Storage| S3 + presigned URLs                          | Direct client uploads and downloads via presigned URLs              |
+| OCR           | Tesseract (pytesseract + Pillow)             | Runs locally/in-container; no external OCR dependency                        |
+| Infra         | Docker + Azure Container Apps                | Managed container platform with autoscaling and health-based deployments             |
+| CI/CD         | GitHub Actions + OIDC                        | Builds and deploys without storing cloud secrets in the repository                        |
+| iOS           | SwiftUI + MVVM + Keychain                    | Native UI with maintainable state + secure token storage                     |
 ## Design Decisions
 
-| Decision | Why | Alternative Considered |
-|----------|-----|----------------------|
-| Integer cents over floats | Deterministic splits — zero rounding errors when dividing $14.99 between 3 people | `Decimal` type; still requires careful rounding policy |
-| Async SQLAlchemy 2.0 with asyncpg | Non-blocking DB I/O under concurrent requests on a single Uvicorn process | Sync SQLAlchemy; simpler but blocks the event loop on every query |
-| Refresh token rotation with JTI tracking | Detect token replay — if a revoked token is reused, the server rejects it immediately | Single long-lived token; no replay detection |
-| `Idempotency-Key` header on mutations | Safe retries on network failure — same key returns cached response, different payload returns 409 | Client-side deduplication; can't protect against server-side double-writes |
-| OIDC federation for CI/CD | Zero static credentials stored anywhere — GitHub proves identity to Azure per-run | Service principal with client secret; works but secret rotation is manual |
-| Immutable settlement batches | Audit trail — once transfers are computed, the snapshot can't be retroactively edited | Mutable settlement records; simpler but no provenance |
-| Promote (not rebuild) for production | The exact image that passed staging tests is what runs in production — no "works on my CI" gap | Rebuild from same commit; functionally equivalent but not binary-identical |
-| In-process Tesseract with concurrency cap | No external OCR service dependency, controlled resource usage (default 2 concurrent) | Cloud OCR API (Google Vision, AWS Textract); better accuracy but adds cost and external dependency |
+## Key Design Decisions
 
+| Decision | Why | Alternative |
+|----------|-----|------------|
+| Integer cents (no floats) | Avoids rounding errors in money calculations | Decimal type |
+| Async SQLAlchemy + asyncpg | Non-blocking DB access under concurrency | Sync ORM |
+| Refresh token rotation (JTI) | Detects and blocks token replay | Long-lived token |
+| `Idempotency-Key` on writes | Safe retries without duplicate writes | Client-side dedup |
+| OIDC for CI/CD | No stored cloud secrets | Service principal + secret |
+| Immutable settlement batches | Preserves audit history | Mutable records |
+| Promote, don’t rebuild | Same tested image goes to production | Rebuild from commit |
+| In-process Tesseract | No external OCR dependency | Cloud OCR API |
 ## CI/CD Pipeline
 
-7 workflow files under `.github/workflows/`. The pipeline gates production behind both CI success _and_ staging success for the same commit — you can't skip staging.
+7 GitHub Actions workflows with a two-gate deployment pipeline — production requires both CI and staging to pass on the same commit.
 
 ```mermaid
 flowchart TD
-    subgraph trigger["Triggers"]
-        PR["Pull Request"]
-        Push["Push to main"]
-        Manual["Manual Dispatch"]
-    end
+    %% ─── Triggers ───
+    PR(Pull Request)
+    Push(Push to main)
+    Manual(Manual Dispatch)
 
-    subgraph ci["Backend CI · ci.yml"]
-        Lint["Ruff Lint"]
-        Migrate["Alembic Migrations<br/>upgrade + precheck on clean PG 16"]
-        TestPR["Tests — PR<br/>non-e2e · 80% coverage gate"]
-        TestMain["Tests — Main<br/>full suite · 80% coverage gate"]
-    end
+    %% ─── CI ───
+    Lint[Ruff Lint]
+    Migrate[Alembic Migrations\nupgrade + precheck · PG 16]
+    TestPR[Tests — PR\nnon-e2e · 80% coverage]
+    TestMain[Tests — Main\nfull suite · 80% coverage]
 
-    subgraph security["Security Scan · security-scan.yml"]
-        TH["TruffleHog<br/>secret scanning"]
-        PA["pip-audit<br/>CVE detection"]
-        BN["Bandit<br/>static analysis"]
-    end
+    %% ─── Security ───
+    TH[TruffleHog\nsecret scanning]
+    PA[pip-audit\nCVE detection]
+    BN[Bandit\nstatic analysis]
 
-    subgraph staging["Staging Deploy · deploy-staging.yml"]
-        Build["Build + Push to ACR"]
-        Trivy["Trivy Container Scan"]
-        StageMigrate["Run Migrations"]
-        StageHealth["Health Check<br/>/health/live + /health/ready"]
-        StageRollback["Rollback on Failure"]
-        Digest["Immutable Digest<br/>staging-SHA-RUNID"]
-    end
+    %% ─── Staging ───
+    Build[Build + Push to ACR]
+    Trivy[Trivy Container Scan]
+    StageMigrate[Run Migrations]
+    StageHealth{Health Check\n/health/live · /health/ready}
+    StageRollback[Rollback]:::fail
+    Digest[Immutable Digest\nstaging-SHA-RUNID]:::pass
 
-    subgraph production["Production Promote · deploy-production.yml"]
-        Gate["Guard Gate<br/>CI ✓ · Staging ✓ · confirm_production=YES"]
-        Promote["Promote Digest<br/>no rebuild"]
-        ProdMigrate["Run Migrations"]
-        ProdHealth["Health Check"]
-        ProdRollback["Rollback on Failure"]
-        Live["Production Live"]
-    end
+    %% ─── Production ───
+    Gate{Guard Gate\nCI ✓ · Staging ✓\nconfirm_production = YES}
+    Promote[Promote Digest\nno rebuild]
+    ProdMigrate[Run Migrations]
+    ProdHealth{Health Check}
+    ProdRollback[Rollback]:::fail
+    Live([Production Live]):::live
 
+    %% ─── Flow ───
     PR --> Lint & Migrate & TestPR
     PR --> TH & PA & BN
     Push --> Lint & Migrate & TestMain
     Push --> TH & PA & BN
-    TestMain --> Build
+
+    TestMain -- main branch --> Build
     Build --> Trivy --> StageMigrate --> StageHealth
-    StageHealth -- "fail" --> StageRollback
-    StageHealth -- "pass" --> Digest
+    StageHealth -- fail --> StageRollback
+    StageHealth -- pass --> Digest
 
     Manual --> Gate
     Digest --> Gate
     Gate --> Promote --> ProdMigrate --> ProdHealth
-    ProdHealth -- "fail" --> ProdRollback
-    ProdHealth -- "pass" --> Live
+    ProdHealth -- fail --> ProdRollback
+    ProdHealth -- pass --> Live
+
+    %% ─── Styles ───
+    classDef fail fill:#fee2e2,stroke:#f87171,color:#991b1b
+    classDef pass fill:#d1fae5,stroke:#34d399,color:#065f46
+    classDef live fill:#d1fae5,stroke:#059669,color:#065f46,stroke-width:3px
+
+    style PR fill:#eef2ff,stroke:#818cf8,color:#3730a3
+    style Push fill:#eef2ff,stroke:#818cf8,color:#3730a3
+    style Manual fill:#eef2ff,stroke:#818cf8,color:#3730a3
+
+    style Lint fill:#ecfeff,stroke:#22d3ee,color:#155e75
+    style Migrate fill:#ecfeff,stroke:#22d3ee,color:#155e75
+    style TestPR fill:#ecfeff,stroke:#22d3ee,color:#155e75
+    style TestMain fill:#ecfeff,stroke:#22d3ee,color:#155e75
+
+    style TH fill:#fffbeb,stroke:#fbbf24,color:#92400e
+    style PA fill:#fffbeb,stroke:#fbbf24,color:#92400e
+    style BN fill:#fffbeb,stroke:#fbbf24,color:#92400e
+
+    style Build fill:#ecfdf5,stroke:#34d399,color:#065f46
+    style Trivy fill:#ecfdf5,stroke:#34d399,color:#065f46
+    style StageMigrate fill:#ecfdf5,stroke:#34d399,color:#065f46
+    style StageHealth fill:#ecfdf5,stroke:#34d399,color:#065f46
+
+    style Gate fill:#fef3c7,stroke:#f59e0b,color:#92400e,stroke-width:2px
+    style Promote fill:#fef2f2,stroke:#f87171,color:#991b1b
+    style ProdMigrate fill:#fef2f2,stroke:#f87171,color:#991b1b
+    style ProdHealth fill:#fef2f2,stroke:#f87171,color:#991b1b
 ```
 
 Key points:
 
-- **OIDC federation** — GitHub Actions authenticates to Azure per-run. No stored service principal secrets.
-- **Build once, promote** — the staging image digest is promoted to production without rebuilding.
-- **80% coverage gate** — enforced on both PR and main push. Blocks merge if tests drop below.
-- **Trivy scan** — container vulnerability scanning before any deployment.
-- **Health-gated rollout** — `/health/live` and `/health/ready` must pass; auto-rollback on failure.
-- **Security scan** runs on every PR, every push, and weekly on cron (TruffleHog + pip-audit + Bandit).
+- **Zero stored secrets** — OIDC federation lets GitHub Actions authenticate to Azure per-run, eliminating long-lived service principal credentials.
+- **Build once, promote** — the exact image digest verified in staging is promoted to production unchanged.
+- **Mandatory 80% coverage** — PRs and pushes to main are blocked if test coverage falls below threshold.
+- **Pre-deploy vulnerability scanning** — Trivy scans every container image before it reaches any environment.
+- **Self-healing deployments** — rollout waits on liveness and readiness probes; failures trigger automatic rollback.
+- **Layered security scanning** — TruffleHog, pip-audit, and Bandit run on every PR, push, and weekly schedule.
 
 ## Database Schema
 
-19 tables across 5 domains, managed by 14 Alembic migrations.
+19 tables across 6 domains, managed by 14 Alembic migrations.
+| Domain | Tables |
+|---|---|
+| Auth | `users`, `refresh_tokens`, `idempotency_keys` |
+| Social | `groups`, `memberships`, `friendships` |
+| Expenses | `expenses`, `expense_splits` |
+| Shopping | `shopping_sessions`, `shopping_items`, `shopping_item_splits`, `shopping_session_participants` |
+| Receipts | `receipt_uploads`, `receipt_extracted_items` |
+| Settlements | `settlement_batches`, `settlements`, `settlement_payments`, `settlement_payment_sessions`, `activity_logs` |
 
 ```mermaid
 erDiagram
@@ -309,7 +344,6 @@ erDiagram
 ## Request Lifecycle
 
 Every request passes through the middleware chain before reaching a route handler. The chain is ordered — if rate limiting rejects you, the JWT check never runs.
-
 ```mermaid
 flowchart LR
     Req["Incoming<br/>Request"] --> CORS["CORS<br/>Origin Validation"]
@@ -323,10 +357,11 @@ flowchart LR
     DB --> Res["Response<br/>Sanitized errors<br/>No password leakage"]
 ```
 
-**Trade-off note:** Rate limiting is process-local (in-memory sliding window per IP). This works fine for a single-replica deployment. Horizontal scaling would need a shared store like Redis.
+> **Trade-off:** Rate limiting is process-local (in-memory sliding window per IP) — sufficient for single-replica deployments. Horizontal scaling would require a shared store such as Redis.
+
+---
 
 ## Auth Flow
-
 ```mermaid
 sequenceDiagram
     participant C as iOS Client
@@ -360,30 +395,27 @@ sequenceDiagram
     B-->>C: 401 Unauthorized
 ```
 
-Key details:
-
-- **Timing-safe login** — the server always runs bcrypt verification, even for non-existent users (uses a dummy hash). This prevents timing side-channels that leak whether an account exists.
-- **JTI rotation chain** — each refresh token has a unique ID. On refresh, the old JTI is revoked and the new one is recorded. Replaying a revoked token gets rejected.
-- **Keychain storage** — tokens are stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not in UserDefaults or memory.
-
+- **Timing-safe login** — bcrypt verification always runs, even for non-existent users (dummy hash fallback). Prevents timing side-channels that reveal whether an account exists.
+- **JTI rotation** — each refresh token carries a unique ID. On refresh, the old JTI is revoked and a new one is issued. Replaying a revoked token is rejected immediately.
+- **Secure Keychain storage** — tokens persist under `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, never in UserDefaults or memory.
 ## API Highlights
 
-47 endpoints across 6 domain routers. Full OpenAPI docs at `/docs` in local environment.
+47 endpoints across 6 domain routers. Full OpenAPI docs available at `/docs`.
 
-| Method | Endpoint | What's Interesting |
-|--------|----------|--------------------|
-| POST | `/auth/signup` | Rate-limited: 5 req / 5 min per IP |
-| POST | `/auth/login` | Timing-safe; rate: 10 / 60s per IP |
-| POST | `/auth/refresh` | JTI rotation — revokes old token, issues new |
-| POST | `/groups/{id}/expenses` | Idempotent via `Idempotency-Key` header |
-| GET | `/groups/{id}/balances` | Live balance aggregation + transfer minimization |
-| POST | `/groups/{id}/settlements/compute` | Immutable batch snapshot (idempotent) |
-| PUT | `/items/{id}/sharers` | Recalculates deterministic integer-cent splits |
-| POST | `/shopping-sessions/{id}/receipt` | S3 upload with 10 MB / 25 MP validation |
-| POST | `/receipts/{id}/extract-items` | OCR extraction with concurrency cap (default 2) |
-| GET | `/receipts/{id}/download-url` | Presigned S3 URL (15-min TTL) |
-| GET | `/health/ready` | Readiness probe — checks DB + S3 connectivity |
-| POST | `/groups/{id}/members/preview` | Rate-limited preview before adding (30 / 60s) |
+| Method | Endpoint | Notes |
+|--------|----------|-------|
+| POST | `/auth/signup` | Rate-limited to 5 requests / 5 min per IP |
+| POST | `/auth/login` | Always runs bcrypt to prevent user enumeration; 10 req / 60s |
+| POST | `/auth/refresh` | Issues new token and invalidates the old one on every call |
+| POST | `/groups/{id}/expenses` | Safe to retry — duplicate requests return the original response |
+| GET | `/groups/{id}/balances` | Computes live balances and minimizes the number of transfers to settle |
+| POST | `/groups/{id}/settlements/compute` | Creates an immutable snapshot; re-calling returns the same result |
+| PUT | `/items/{id}/sharers` | Splits cost in integer cents with no rounding drift |
+| POST | `/shopping-sessions/{id}/receipt` | Validates file size (10 MB) and resolution (25 MP) before uploading to S3 |
+| POST | `/receipts/{id}/extract-items` | Runs OCR with a concurrency cap to prevent runaway API costs |
+| GET | `/receipts/{id}/download-url` | Returns a short-lived presigned URL (expires in 15 min) |
+| GET | `/health/ready` | Confirms DB and S3 are reachable before accepting traffic |
+| POST | `/groups/{id}/members/preview` | Dry-run endpoint — shows result before committing the action |
 
 ## Testing
 

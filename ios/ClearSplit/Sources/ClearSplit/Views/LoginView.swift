@@ -56,49 +56,17 @@ struct LoginView: View {
     }
 
     private var headerSection: some View {
-        VStack(spacing: 24) {
-            // Split icon mark
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.blue500, Color.blue600],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 24, height: 40)
-                    .rotationEffect(.degrees(-8))
-
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.blue600, Color.blue800],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 24, height: 40)
-                    .rotationEffect(.degrees(8))
+        VStack(spacing: 20) {
+            // Eyes
+            HStack(spacing: 16) {
+                eyeShape(colors: [Color.blue500, Color.blue600], rotation: -10)
+                eyeShape(colors: [Color.blue600, Color.blue800], rotation: 10)
             }
             .shadow(color: Color.blue600.opacity(0.3), radius: 12, y: 4)
 
-            VStack(spacing: 6) {
-                HStack(spacing: 0) {
-                    Text("Clear")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-
-                    Text("Split")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.blue500, Color.blue700],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                }
+            VStack(spacing: 8) {
+                // Curved "ClearSplit" smile
+                smileyText
 
                 Text("Split expenses, not friendships")
                     .font(.system(size: 15, weight: .medium, design: .rounded))
@@ -106,6 +74,54 @@ struct LoginView: View {
             }
         }
         .accessibilityLabel("ClearSplit logo")
+    }
+
+    private func eyeShape(colors: [Color], rotation: Double) -> some View {
+        ZStack {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: colors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 26, height: 38)
+
+            // Gleam highlight
+            Circle()
+                .fill(Color.white.opacity(0.45))
+                .frame(width: 8, height: 8)
+                .offset(x: -4, y: -8)
+        }
+        .rotationEffect(.degrees(rotation))
+    }
+
+    private var smileyText: some View {
+        let characters = Array("ClearSplit")
+
+        return ZStack {
+            ForEach(Array(0..<characters.count), id: \.self) { i in
+                smileyCharacter(characters[i], index: i, total: characters.count)
+            }
+        }
+        .frame(height: 60)
+    }
+
+    private func smileyCharacter(_ char: Character, index: Int, total: Int) -> some View {
+        let radius: Double = 400
+        let totalAngle: Double = 30
+        let angle = -totalAngle / 2.0 + Double(index) * totalAngle / Double(total - 1)
+        let rad = angle * .pi / 180
+
+        return Text(String(char))
+            .font(.system(size: 36, weight: .bold, design: .rounded))
+            .foregroundColor(index >= 5 ? .brandPrimary : .textPrimary)
+            .rotationEffect(.degrees(-angle))
+            .offset(
+                x: radius * sin(rad),
+                y: radius * (cos(rad) - 1)
+            )
     }
 
     private var formCard: some View {

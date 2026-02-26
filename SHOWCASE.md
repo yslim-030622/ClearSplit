@@ -24,7 +24,7 @@ This document walks through the actual iOS screens, explains what each one does,
   <img src="docs/images/screenshots/01_login.png" width="300" alt="Login screen" />
 </p>
 
-The first thing you see when you open ClearSplit. The brand logo and tagline — *"Split expenses, not friendships"* — set the tone. Below that, a clean login form with email and password fields.
+The first thing you see when you open ClearSplit. The smiley logo — two capsule-shaped eyes with a curved "ClearSplit" text forming a smile — sets a friendly tone, paired with the tagline *"Split expenses, not friendships"*. Below that, a clean login form with email and password fields.
 
 **What happens when you tap "Log In":**
 
@@ -37,116 +37,31 @@ If you close and reopen the app later, it silently restores your session from th
 
 ---
 
-## 2. Friends
+## 2. Group Overview
 
 <p align="center">
-  <img src="docs/images/screenshots/02_friends.png" width="300" alt="Friends screen" />
+  <img src="docs/images/screenshots/08_group_overview_full.png" width="300" alt="Group Overview screen" />
 </p>
 
-The Friends tab is your social hub — everything in one place. From top to bottom:
+Tap into a group and you get the full picture at a glance. The blue hero card at the top shows the **total spent across all shopping trips** — a number computed by summing every shopping session's items.
 
-- **Search bar** — filter your friends list by name or username.
-- **Add New Friend** — type an email or username and send a friend request directly, no separate modal needed.
-- **Pending Requests** — shows outgoing requests waiting for acceptance, with a count badge.
-- **My Friends** — your accepted friends with avatars, display names, and usernames. Tap a friend to see shared groups and history.
+Below that:
 
-The blue info banner at the bottom explains why friends matter: *"Add friends to easily create groups and split expenses together."*
+- **Members** — who's in the group, with gradient avatars built from initials. The "+ Add" button lets owners invite new members by username.
+- **Shopping Sessions** — a navigation row that takes you to the session list, where the actual expense tracking happens.
+- **Balances & Settlement** — a navigation row to the bottom line: who owes who, and how to settle up.
+
+The settings gear icon in the top right provides group configuration options. Every number on this screen recalculates automatically from the backend data as sessions are added and items are split.
 
 **Backend integration:**
 
-- `GET /friends` lists accepted friendships with optional search (`?q=...`).
-- `POST /friends/requests` sends a new friend request.
-- `GET /friends/requests/incoming` and `/outgoing` fetch pending requests.
-- `POST /friends/requests/{id}/accept` or `/decline` handles responses.
-- Friendships are stored as normalized pairs (lower UUID first) to prevent duplicates.
+- Group details come from `GET /groups/{id}` with membership data from `GET /groups/{id}/members`.
+- The total spent is calculated client-side by aggregating shopping session totals.
+- Only owners can add or remove members (role-based access enforced on both client and server).
 
 ---
 
-## 3. Profile
-
-<p align="center">
-  <img src="docs/images/screenshots/03_profile.png" width="300" alt="Profile screen" />
-</p>
-
-The Profile tab shows your identity and activity summary:
-
-- **Avatar** with your initials on a gradient background, generated client-side from your first and last name.
-- **Full name** and **member since** date.
-- **Edit Profile** button for updating your details.
-- **Stats cards** — two side-by-side cards showing the number of groups you belong to and total amount split across all groups.
-- **Account Information** — your registered email with an icon.
-- **Settings** navigation row and **Log Out** button.
-
-The stats are computed client-side from the groups and session data already loaded in the `AppState`. Every number reflects real data from the backend — nothing is mocked.
-
----
-
-## 4. Upload Receipt
-
-<p align="center">
-  <img src="docs/images/screenshots/04_upload_receipt.png" width="300" alt="Upload Receipt screen" />
-</p>
-
-Inside a shopping session, you can upload a receipt photo to automatically extract items. This screen presents two options:
-
-- **Take Photo** — opens the camera to capture a receipt.
-- **Choose from Gallery** — pick an existing photo from your library.
-
-The "Tips for Best Results" section at the bottom guides users for optimal OCR accuracy: good lighting, flat receipt, all items visible, total amount included.
-
-**Backend flow:**
-
-- `POST /shopping-sessions/{id}/receipt` uploads the image to AWS S3 with presigned URLs.
-- The backend validates file size (10 MB max) and image dimensions (25 MP max).
-- The receipt image is stored in S3 — it never proxies through the API server on download.
-
----
-
-## 5. Receipt Preview
-
-<p align="center">
-  <img src="docs/images/screenshots/05_receipt_preview.png" width="300" alt="Receipt Preview screen" />
-</p>
-
-After selecting or capturing a photo, you see a full preview of the receipt image. The dismiss button (X) in the corner lets you remove the photo if it's not clear enough.
-
-Two actions at the bottom:
-
-- **Use This Photo** — confirms the selection and triggers the upload + OCR extraction pipeline.
-- **Choose Different Photo** — goes back to pick another image.
-
-This confirmation step prevents accidental uploads and lets users verify the receipt is legible before processing.
-
----
-
-## 6. Review Items
-
-<p align="center">
-  <img src="docs/images/screenshots/06_review_items.png" width="300" alt="Review Items screen" />
-</p>
-
-Once OCR extraction completes, you see all extracted items ready for review. The hero card at the top shows the **total amount** and **item count**.
-
-The info banner explains: *"Review and edit the items extracted from your receipt. Items with lower confidence may need verification."*
-
-Each item card shows:
-
-- **Sequence number** — order from the receipt.
-- **Item name** and **price** — extracted by Tesseract OCR.
-- **Confidence badge** — "High confidence" in green means the OCR is confident in the extraction.
-- **Edit** (pencil) and **delete** (trash) icons — fix any OCR mistakes before confirming.
-
-At the bottom, **"+ Add Item"** lets you manually add anything the OCR missed, and **"Confirm Items"** finalizes the extraction and adds all items to the shopping session.
-
-**Backend integration:**
-
-- `POST /receipts/{id}/extract-items` runs Tesseract OCR with a concurrency cap (default 2 concurrent extractions).
-- Each extracted item includes a confidence score and the raw line from the receipt.
-- Confirmed items are created via `POST /shopping-sessions/{id}/items`.
-
----
-
-## 7. Shopping Sessions
+## 3. Shopping Sessions
 
 <p align="center">
   <img src="docs/images/screenshots/07_shopping_sessions.png" width="300" alt="Shopping Sessions screen" />
@@ -170,29 +85,92 @@ The blue "+" button in the top right creates a new session. The floating help bu
 
 ---
 
-## 8. Session Detail
+## 4. Create Session
 
 <p align="center">
-  <img src="docs/images/screenshots/08_session_detail.png" width="300" alt="Session Detail screen" />
+  <img src="docs/images/screenshots/02_create_session.png" width="300" alt="Create Session screen" />
 </p>
 
-Inside a session, you get the full breakdown. The blue hero card shows the **total amount** and **who paid**.
+Tapping the "+" button opens the session creation form. You fill in:
 
-Below that:
+- **Trip Title** — a memorable name for the shopping trip (e.g., "Weekly Groceries", "Costco Run").
+- **Date** — optional date picker that defaults to today. A full calendar view lets you pick any date.
 
-- **Participants** — the people sharing this bill, shown as avatars with names in a horizontal grid. The count badge and "Edit" link let owners manage who's included. "You" is highlighted with a distinct avatar color.
-- **Receipts** — uploaded receipt thumbnails. Tap to view the full image, fetched via a presigned S3 URL with 15-minute TTL.
-- **Items** — the actual purchases with prices. Each item shows its name, total price, and action icons (edit/delete).
+The info banner at the bottom explains the next steps: *"After creating this session, you'll be able to add items, upload receipts, and set who shares each item."*
 
-**Backend integration:**
+**Backend flow:**
 
-- `GET /shopping-sessions/{id}` returns the full session with items, participants, and receipts.
-- `PUT /shopping-sessions/{id}/participants` updates who's sharing (payer-only action).
-- `GET /receipts/{id}/download-url` returns a short-lived S3 presigned URL for receipt images.
+- `POST /groups/{id}/shopping-sessions` creates the session with the provided title, date, and automatically sets the creator as the payer.
+- The session starts in **Active** status, ready for items and receipts.
 
 ---
 
-## 9. Balances & Settlement
+## 5. Upload Receipt
+
+<p align="center">
+  <img src="docs/images/screenshots/03_upload_receipt.png" width="300" alt="Upload Receipt screen" />
+</p>
+
+Inside a shopping session, you can upload a receipt photo to automatically extract items. This screen presents two options:
+
+- **Take Photo** — opens the camera to capture a receipt.
+- **Choose from Gallery** — pick an existing photo from your library.
+
+The "Tips for Best Results" section at the bottom guides users for optimal OCR accuracy: good lighting, flat receipt, all items visible, total amount included.
+
+**Backend flow:**
+
+- `POST /shopping-sessions/{id}/receipt` uploads the image to AWS S3 with presigned URLs.
+- The backend validates file size (10 MB max) and image dimensions (25 MP max).
+- The receipt image is stored in S3 — it never proxies through the API server on download.
+
+---
+
+## 6. Receipt Preview
+
+<p align="center">
+  <img src="docs/images/screenshots/04_receipt_preview.png" width="300" alt="Receipt Preview screen" />
+</p>
+
+After selecting or capturing a photo, you see a full preview of the receipt image. The dismiss button (X) in the corner lets you remove the photo if it's not clear enough.
+
+Two actions at the bottom:
+
+- **Use This Photo** — confirms the selection and triggers the upload + OCR extraction pipeline.
+- **Choose Different Photo** — goes back to pick another image.
+
+This confirmation step prevents accidental uploads and lets users verify the receipt is legible before processing.
+
+---
+
+## 7. Review Items
+
+<p align="center">
+  <img src="docs/images/screenshots/05_review_items.png" width="300" alt="Review Items screen" />
+</p>
+
+Once OCR extraction completes, you see all extracted items ready for review. The hero card at the top shows the **total amount** ($29.47) and **item count** (3).
+
+The info banner explains: *"Review and edit the items extracted from your receipt. Items with lower confidence may need verification."*
+
+Each item card shows:
+
+- **Sequence number** — order from the receipt.
+- **Item name** and **price** — extracted by Tesseract OCR.
+- **Confidence badge** — "High confidence" in green means the OCR is confident in the extraction.
+- **Edit** (pencil) and **delete** (trash) icons — fix any OCR mistakes before confirming.
+
+At the bottom, **"+ Add Item"** lets you manually add anything the OCR missed, and **"Confirm Items"** finalizes the extraction and adds all items to the shopping session.
+
+**Backend integration:**
+
+- `POST /receipts/{id}/extract-items` runs Tesseract OCR with a concurrency cap (default 2 concurrent extractions).
+- Each extracted item includes a confidence score and the raw line from the receipt.
+- Confirmed items are created via `POST /shopping-sessions/{id}/items`.
+
+---
+
+## 8. Balances & Settlement
 
 <p align="center">
   <img src="docs/images/screenshots/09_balances_settlement.png" width="300" alt="Balances & Settlement screen" />
@@ -201,12 +179,12 @@ Below that:
 This is where everything comes together. The settlement screen answers the only question that matters: **who owes who, and how much?**
 
 **Individual Balances** shows each member's net position:
-- "You" owes **$24.99** (shown in red)
-- Yeongseok Lim gets back **+$41.04** (shown in green)
-- Hansoo Lim owes **$16.05** (shown in red)
+- "You" owes **$19.71** (shown in red)
+- Hansoo Lim gets back **+$19.71** (shown in green)
+- Yeongseok Lim is **Settled** (shown with a green checkmark)
 
 **Suggested Payments** shows the simplest way to settle up — a transfer visualization with avatars:
-- You → Yeongseok Lim: **$24.99**
+- You → Hansoo Lim: **$19.71**
 
 The **"Mark as Paid"** button records the payment. Once confirmed, the transfer row shows a confirmation badge with a timestamp.
 
@@ -223,11 +201,30 @@ It computes a net balance per member (paid minus owed), then runs a **transfer m
 
 ---
 
+## 9. Profile
+
+<p align="center">
+  <img src="docs/images/screenshots/10_profile.png" width="300" alt="Profile screen" />
+</p>
+
+The Profile tab shows your identity and activity summary:
+
+- **Avatar** with your initials on a gradient background, generated client-side from your first and last name.
+- **Full name** and **member since** date.
+- **Edit Profile** button for updating your details.
+- **Stats cards** — two side-by-side cards showing the number of groups you belong to and total amount split across all groups.
+- **Account Information** — your registered email with an icon.
+- **Settings** navigation row and **Log Out** button.
+
+The stats are computed client-side from the groups and session data already loaded in the `AppState`. Every number reflects real data from the backend — nothing is mocked.
+
+---
+
 ## Design Philosophy
 
 A few things that shaped how these screens look and feel:
 
-**Minimal, card-based layout** — Every piece of information lives in a card with consistent spacing and rounded corners. Cards create visual hierarchy without needing heavy borders or backgrounds, and they translate well to different screen sizes.
+**Minimal, card-based layout** — Every piece of information lives in a white card on a tinted background with consistent spacing and rounded corners. Cards create clear visual hierarchy with subtle shadows and borders, and they translate well to different screen sizes.
 
 **Brand blue as the primary accent** — The brand blue (#1E56E8) is used sparingly: CTAs, active tabs, hero cards, and the logo. Everything else is neutral surfaces and grays. This keeps the interface calm — fitting for an app that deals with money.
 
@@ -275,13 +272,14 @@ For reference, here's a mapping of every screen to the backend endpoints it talk
 | Screen | Endpoints |
 |--------|-----------|
 | Login | `POST /auth/login`, `GET /auth/me` |
-| Friends | `GET /friends`, `GET /friends/requests/incoming`, `GET /friends/requests/outgoing`, `POST /friends/requests`, `POST /friends/requests/{id}/accept` |
-| Profile | `GET /auth/me` (cached in AppState) |
-| Upload Receipt | `POST /shopping-sessions/{id}/receipt` |
-| Review Items | `POST /receipts/{id}/extract-items`, `POST /shopping-sessions/{id}/items` |
+| Group Overview | `GET /groups/{id}`, `GET /groups/{id}/members`, `GET /groups/{id}/shopping-sessions` |
 | Shopping Sessions | `GET /groups/{id}/shopping-sessions`, `POST /groups/{id}/shopping-sessions` |
-| Session Detail | `GET /shopping-sessions/{id}`, `PUT /shopping-sessions/{id}/participants`, `GET /receipts/{id}/download-url` |
+| Create Session | `POST /groups/{id}/shopping-sessions` |
+| Upload Receipt | `POST /shopping-sessions/{id}/receipt` |
+| Receipt Preview | (client-side only — image selected from camera/gallery) |
+| Review Items | `POST /receipts/{id}/extract-items`, `POST /shopping-sessions/{id}/items` |
 | Balances & Settlement | `GET /groups/{id}/balances`, `POST /groups/{id}/settlement-payments`, `POST /settlement-payments/{id}/confirm` |
+| Profile | `GET /auth/me` (cached in AppState) |
 
 ---
 
