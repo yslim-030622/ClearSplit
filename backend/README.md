@@ -31,6 +31,32 @@ ClearSplit fixes that by letting everyone upload receipts, see every item clearl
 
 > Full 10-screen walkthrough with backend integration details: **[SHOWCASE.md](SHOWCASE.md)**
 
+## CI/CD Pipeline
+
+7 GitHub Actions workflows. Push to main triggers the full pipeline — production requires both CI and staging to pass on the same commit.
+
+```mermaid
+flowchart LR
+    A["Push / PR"] --> B["CI<br/>Lint · Tests (80%)<br/>Security Scan"]
+    B -->|main| C["Build & Scan<br/>Docker → ACR · Trivy"]
+    C --> D["Staging<br/>Migrate · Health Check"]
+    D --> E{"Guard Gate<br/>CI ✓ · Staging ✓"}
+    E -->|manual| F(["Production<br/>Promote same image"])
+
+    style A fill:#eef2ff,stroke:#818cf8,color:#3730a3
+    style B fill:#ecfeff,stroke:#22d3ee,color:#155e75
+    style C fill:#ecfdf5,stroke:#34d399,color:#065f46
+    style D fill:#ecfdf5,stroke:#34d399,color:#065f46
+    style E fill:#fef3c7,stroke:#f59e0b,color:#92400e,stroke-width:2px
+    style F fill:#d1fae5,stroke:#059669,color:#065f46,stroke-width:3px
+```
+
+- **Zero stored secrets** — OIDC federation authenticates GitHub Actions to Azure per-run.
+- **Build once, promote** — the exact image digest verified in staging is promoted to production unchanged.
+- **80% coverage gate** — PRs and pushes to main are blocked below threshold.
+- **Pre-deploy scanning** — Trivy + TruffleHog + pip-audit + Bandit on every pipeline run.
+- **Self-healing deploys** — health probes gate rollout; failures trigger automatic rollback.
+
 ## Architecture Overview
 
 ```mermaid
@@ -65,7 +91,6 @@ flowchart TD
 | Infra         | Docker + Azure Container Apps                | Managed container platform with autoscaling and health-based deployments             |
 | CI/CD         | GitHub Actions + OIDC                        | Builds and deploys without storing cloud secrets in the repository                        |
 | iOS           | SwiftUI + MVVM + Keychain                    | Native UI with maintainable state + secure token storage                     |
-## Design Decisions
 
 ## Key Design Decisions
 
@@ -79,98 +104,6 @@ flowchart TD
 | Immutable settlement batches | Preserves audit history | Mutable records |
 | Promote, don’t rebuild | Same tested image goes to production | Rebuild from commit |
 | In-process Tesseract | No external OCR dependency | Cloud OCR API |
-## CI/CD Pipeline
-
-7 GitHub Actions workflows with a two-gate deployment pipeline — production requires both CI and staging to pass on the same commit.
-
-```mermaid
-flowchart TD
-    %% ─── Triggers ───
-    PR(Pull Request)
-    Push(Push to main)
-    Manual(Manual Dispatch)
-
-    %% ─── CI ───
-    Lint[Ruff Lint]
-    Migrate[Alembic Migrations\nupgrade + precheck · PG 16]
-    TestPR[Tests — PR\nnon-e2e · 80% coverage]
-    TestMain[Tests — Main\nfull suite · 80% coverage]
-
-    %% ─── Security ───
-    TH[TruffleHog\nsecret scanning]
-    PA[pip-audit\nCVE detection]
-    BN[Bandit\nstatic analysis]
-
-    %% ─── Staging ───
-    Build[Build + Push to ACR]
-    Trivy[Trivy Container Scan]
-    StageMigrate[Run Migrations]
-    StageHealth{Health Check\n/health/live · /health/ready}
-    StageRollback[Rollback]:::fail
-    Digest[Immutable Digest\nstaging-SHA-RUNID]:::pass
-
-    %% ─── Production ───
-    Gate{Guard Gate\nCI ✓ · Staging ✓\nconfirm_production = YES}
-    Promote[Promote Digest\nno rebuild]
-    ProdMigrate[Run Migrations]
-    ProdHealth{Health Check}
-    ProdRollback[Rollback]:::fail
-    Live([Production Live]):::live
-
-    %% ─── Flow ───
-    PR --> Lint & Migrate & TestPR
-    PR --> TH & PA & BN
-    Push --> Lint & Migrate & TestMain
-    Push --> TH & PA & BN
-
-    TestMain -- main branch --> Build
-    Build --> Trivy --> StageMigrate --> StageHealth
-    StageHealth -- fail --> StageRollback
-    StageHealth -- pass --> Digest
-
-    Manual --> Gate
-    Digest --> Gate
-    Gate --> Promote --> ProdMigrate --> ProdHealth
-    ProdHealth -- fail --> ProdRollback
-    ProdHealth -- pass --> Live
-
-    %% ─── Styles ───
-    classDef fail fill:#fee2e2,stroke:#f87171,color:#991b1b
-    classDef pass fill:#d1fae5,stroke:#34d399,color:#065f46
-    classDef live fill:#d1fae5,stroke:#059669,color:#065f46,stroke-width:3px
-
-    style PR fill:#eef2ff,stroke:#818cf8,color:#3730a3
-    style Push fill:#eef2ff,stroke:#818cf8,color:#3730a3
-    style Manual fill:#eef2ff,stroke:#818cf8,color:#3730a3
-
-    style Lint fill:#ecfeff,stroke:#22d3ee,color:#155e75
-    style Migrate fill:#ecfeff,stroke:#22d3ee,color:#155e75
-    style TestPR fill:#ecfeff,stroke:#22d3ee,color:#155e75
-    style TestMain fill:#ecfeff,stroke:#22d3ee,color:#155e75
-
-    style TH fill:#fffbeb,stroke:#fbbf24,color:#92400e
-    style PA fill:#fffbeb,stroke:#fbbf24,color:#92400e
-    style BN fill:#fffbeb,stroke:#fbbf24,color:#92400e
-
-    style Build fill:#ecfdf5,stroke:#34d399,color:#065f46
-    style Trivy fill:#ecfdf5,stroke:#34d399,color:#065f46
-    style StageMigrate fill:#ecfdf5,stroke:#34d399,color:#065f46
-    style StageHealth fill:#ecfdf5,stroke:#34d399,color:#065f46
-
-    style Gate fill:#fef3c7,stroke:#f59e0b,color:#92400e,stroke-width:2px
-    style Promote fill:#fef2f2,stroke:#f87171,color:#991b1b
-    style ProdMigrate fill:#fef2f2,stroke:#f87171,color:#991b1b
-    style ProdHealth fill:#fef2f2,stroke:#f87171,color:#991b1b
-```
-
-Key points:
-
-- **Zero stored secrets** — OIDC federation lets GitHub Actions authenticate to Azure per-run, eliminating long-lived service principal credentials.
-- **Build once, promote** — the exact image digest verified in staging is promoted to production unchanged.
-- **Mandatory 80% coverage** — PRs and pushes to main are blocked if test coverage falls below threshold.
-- **Pre-deploy vulnerability scanning** — Trivy scans every container image before it reaches any environment.
-- **Self-healing deployments** — rollout waits on liveness and readiness probes; failures trigger automatic rollback.
-- **Layered security scanning** — TruffleHog, pip-audit, and Bandit run on every PR, push, and weekly schedule.
 
 ## Database Schema
 
@@ -369,30 +302,26 @@ sequenceDiagram
     participant K as Keychain
     participant DB as PostgreSQL
 
-    Note over C,B: Signup / Login
-    C->>B: POST /auth/login {identifier, password}
-    B->>DB: Lookup user (case-insensitive)
-    Note over B: Timing-safe compare<br/>(dummy hash if user not found)
-    B->>DB: Create refresh token (JTI tracked)
-    B-->>C: {access_token (15min), refresh_token (30d)}
-    C->>K: Store tokens in Keychain
+    Note over C,DB: Login
+    C->>B: credentials
+    B->>DB: lookup · timing-safe bcrypt
+    B->>DB: create JTI
+    B-->>C: access (15m) + refresh (30d)
+    C->>K: store tokens
 
-    Note over C,B: Authenticated Request
-    C->>K: Read access token
-    C->>B: GET /groups (Bearer token)
-    B-->>C: 200 OK
+    Note over C,DB: Authenticated Request
+    C->>B: Bearer JWT
+    B-->>C: response
 
-    Note over C,B: Token Refresh (silent)
-    C->>B: POST /auth/refresh {refresh_token}
-    B->>DB: Verify JTI · check not revoked
-    B->>DB: Revoke old token · issue new JTI
-    B-->>C: {new access_token, new refresh_token}
-    C->>K: Replace tokens in Keychain
+    Note over C,DB: Silent Refresh
+    C->>B: refresh token
+    B->>DB: verify JTI · revoke old · issue new
+    B-->>C: new token pair
+    C->>K: replace tokens
 
-    Note over C,B: Replay Detection
-    C->>B: POST /auth/refresh {old_refresh_token}
-    B->>DB: JTI already revoked
-    B-->>C: 401 Unauthorized
+    Note over C,DB: Replay Detection
+    C->>B: revoked token
+    B-->>C: 401
 ```
 
 - **Timing-safe login** — bcrypt verification always runs, even for non-existent users (dummy hash fallback). Prevents timing side-channels that reveal whether an account exists.
