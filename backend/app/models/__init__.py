@@ -1,6 +1,7 @@
 """SQLAlchemy models for ClearSplit."""
 
 from app.models.activity_log import ActivityLog
+from app.models.async_job import AsyncJob
 from app.models.expense import Expense
 from app.models.expense_split import ExpenseSplit
 from app.models.friendship import Friendship, FriendshipStatus
@@ -26,6 +27,7 @@ from app.models.user import User
 
 __all__ = [
     "ActivityLog",
+    "AsyncJob",
     "Expense",
     "ExpenseSplit",
     "Friendship",

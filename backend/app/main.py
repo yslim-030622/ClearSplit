@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
-from app.api import auth, expenses, friends, groups, shopping
+from app.api import auth, expenses, friends, groups, jobs, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
 from app.core.cache import close_redis
@@ -144,6 +144,7 @@ app.include_router(groups.router)
 app.include_router(expenses.router)
 app.include_router(settlements.router)
 app.include_router(shopping.router)
+app.include_router(jobs.router)
 
 
 # Separate route for GET /expenses/{expense_id} (not under /groups prefix)
