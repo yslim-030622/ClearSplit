@@ -11,7 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import text
 
-from app.api import auth, expenses, friends, groups, jobs, shopping
+import time
+
+from app.api import auth, expenses, friends, groups, jobs, metrics, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
 from app.core.cache import close_redis
@@ -106,6 +108,32 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    """Track request count and latency for Prometheus (outermost middleware)."""
+    from app.api.metrics import REQUEST_COUNT, REQUEST_LATENCY
+
+    if not get_settings().prometheus_enabled:
+        return await call_next(request)
+
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start
+
+    endpoint = request.url.path
+    REQUEST_COUNT.labels(
+        method=request.method,
+        endpoint=endpoint,
+        status=response.status_code,
+    ).inc()
+    REQUEST_LATENCY.labels(
+        method=request.method,
+        endpoint=endpoint,
+    ).observe(duration)
+
+    return response
+
+
 def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
     """Remove raw user input values from validation errors before returning."""
     sanitized: list[dict] = []
@@ -145,6 +173,7 @@ app.include_router(expenses.router)
 app.include_router(settlements.router)
 app.include_router(shopping.router)
 app.include_router(jobs.router)
+app.include_router(metrics.router)
 
 
 # Separate route for GET /expenses/{expense_id} (not under /groups prefix)

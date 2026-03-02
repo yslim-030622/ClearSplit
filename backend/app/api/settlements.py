@@ -26,6 +26,7 @@ from app.schemas.settlement import (
     SettlementSuggestionRead,
     SettlementUpdate,
 )
+from app.api.metrics import CACHE_HIT, CACHE_MISS
 from app.core.cache import (
     balances_key,
     cache_get_json,
@@ -86,7 +87,10 @@ async def get_group_balances(
     # 1. Try cache first
     cached = await cache_get_json(balances_key(group_id))
     if cached is not None:
+        CACHE_HIT.labels(cache_name="balances").inc()
         return GroupBalancesRead.model_validate(cached)
+
+    CACHE_MISS.labels(cache_name="balances").inc()
 
     # 2. Compute from DB
     memberships, balances, transfers = await compute_group_balances(session, group_id)
