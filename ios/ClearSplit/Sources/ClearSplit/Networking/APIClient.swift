@@ -141,6 +141,58 @@ final class APIClient {
         return try await performUpload(request, body: body, retryingOn401: true)
     }
 
+    /// Decode raw Data into a Decodable type using the client's configured decoder
+    /// (decoder has snake_case conversion and custom date parsing already applied).
+    /// Use this after `requestRaw` when you need to branch on status code.
+    func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        try decoder.decode(type, from: data)
+    }
+
+    /// Perform a request and return the raw HTTP status code + data,
+    /// allowing the caller to decode based on status code.
+    func requestRaw(_ apiRequest: APIRequest<Data>) async throws -> (statusCode: Int, data: Data) {
+        let request = try await buildRequest(apiRequest)
+        let (data, response): (Data, URLResponse)
+
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.network(error)
+        }
+
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.server(status: -1, message: "Invalid response")
+        }
+
+        // Handle 401 retry
+        if http.statusCode == 401, apiRequest.requiresAuth {
+            let refreshed = try await auth.refresh { current in
+                try await self.refreshTokens(refreshToken: current.refreshToken)
+            }
+            var retryRequest = request
+            retryRequest.setValue("Bearer \(refreshed.accessToken)", forHTTPHeaderField: "Authorization")
+            let (retryData, retryResponse) = try await session.data(for: retryRequest)
+            guard let retryHttp = retryResponse as? HTTPURLResponse else {
+                throw APIError.server(status: -1, message: "Invalid response")
+            }
+            guard (200..<300).contains(retryHttp.statusCode) else {
+                throw APIError.server(status: retryHttp.statusCode, message: String(data: retryData, encoding: .utf8))
+            }
+            return (retryHttp.statusCode, retryData)
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            var errorMessage: String?
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let detail = json["detail"] as? String {
+                errorMessage = detail
+            }
+            throw APIError.server(status: http.statusCode, message: errorMessage)
+        }
+
+        return (http.statusCode, data)
+    }
+
     private func perform<T: Decodable>(_ apiRequest: APIRequest<T>, retryingOn401: Bool) async throws -> T {
         var request = try await buildRequest(apiRequest)
         

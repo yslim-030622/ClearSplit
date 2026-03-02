@@ -15,6 +15,7 @@ public struct ExtractedItemsReviewView: View {
     @State private var error: String?
     @State private var isConfirming = false
     @State private var loadRequestVersion = 0
+    @State private var extractionTask: Task<Void, Never>?
     @State private var editingItem: EditableExtractedItem?
     @State private var showingAddSheet = false
     @State private var itemToDelete: EditableExtractedItem?
@@ -59,8 +60,12 @@ public struct ExtractedItemsReviewView: View {
                 }
             }
         }
-        .task(id: receiptUploadId) {
-            await loadExtractedItems()
+        .onAppear {
+            extractionTask = Task { await loadExtractedItems() }
+        }
+        .onDisappear {
+            extractionTask?.cancel()
+            extractionTask = nil
         }
         .sheet(item: $editingItem) { item in
             EditExtractedItemSheet(item: item) { updatedItem in

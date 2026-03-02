@@ -98,21 +98,74 @@ final class ShoppingService: ShoppingServicing {
     func extractReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
         print("[ShoppingService] Triggering OCR extraction for receipt: \(receiptUploadId)")
         let path = "receipts/\(receiptUploadId.uuidString)/extract-items"
-        do {
-            let items: [ReceiptExtractedItem] = try await client.request(APIRequest(
-                path: path,
-                method: "POST"
-            ))
-            print("[ShoppingService] ✅ Successfully extracted \(items.count) items")
+
+        let (statusCode, data) = try await client.requestRaw(APIRequest<Data>(
+            path: path,
+            method: "POST"
+        ))
+
+        if statusCode == 200 {
+            // Items already extracted — decode array directly using the client helper
+            let items = try client.decode([ReceiptExtractedItem].self, from: data)
+            print("[ShoppingService] ✅ Returned \(items.count) existing items (200)")
             return items
-        } catch {
-            if isCancellationError(error) {
-                print("[ShoppingService] ℹ️ OCR extraction request was cancelled")
-            } else {
-                print("[ShoppingService] ❌ Failed to extract items: \(error)")
-            }
-            throw error
         }
+
+        if statusCode == 202 {
+            // Job enqueued — poll until done
+            let jobResponse = try client.decode(JobAcceptedResponse.self, from: data)
+            print("[ShoppingService] ⏳ OCR job enqueued: \(jobResponse.jobId), polling...")
+            return try await pollForExtractedItems(
+                jobId: jobResponse.jobId,
+                receiptUploadId: receiptUploadId
+            )
+        }
+
+        throw APIError.server(status: statusCode, message: "Unexpected status from extract-items")
+    }
+
+    private func pollForExtractedItems(
+        jobId: UUID,
+        receiptUploadId: UUID,
+        maxAttempts: Int = 30,                      // 30 × 2s = 60s total max wait
+        intervalNanoseconds: UInt64 = 2_000_000_000 // 2 seconds
+    ) async throws -> [ReceiptExtractedItem] {
+        // Attempt-based (not time-based) to avoid Clock dependency and be deterministic in tests.
+        for attempt in 1...maxAttempts {
+            try Task.checkCancellation()
+
+            let jobStatus: JobStatusResponse = try await client.request(APIRequest(
+                path: "jobs/\(jobId.uuidString)"
+            ))
+
+            switch jobStatus.status {
+            case "succeeded":
+                // Fetch extracted items via GET (read-only).
+                // Do NOT re-POST extract-items — that would trigger another OCR job.
+                let items: [ReceiptExtractedItem] = try await client.request(APIRequest(
+                    path: "receipts/\(receiptUploadId.uuidString)/extracted-items"
+                ))
+                print("[ShoppingService] ✅ OCR completed after \(attempt) poll(s), got \(items.count) items")
+                return items
+
+            case "failed":
+                // Surface the backend error message to the UI — don't leave the user in a spinner.
+                let errorMsg = jobStatus.lastError ?? "OCR processing failed"
+                print("[ShoppingService] ❌ OCR job failed: \(errorMsg)")
+                throw APIError.server(status: 422, message: errorMsg)
+
+            case "queued", "running":
+                print("[ShoppingService] ⏳ Poll \(attempt)/\(maxAttempts) — status: \(jobStatus.status)")
+                if attempt < maxAttempts {
+                    try await Task.sleep(nanoseconds: intervalNanoseconds)
+                }
+
+            default:
+                throw APIError.server(status: 500, message: "Unknown job status: \(jobStatus.status)")
+            }
+        }
+
+        throw APIError.server(status: 408, message: "OCR timed out after \(maxAttempts) attempts")
     }
     
     func getExtractedReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {
