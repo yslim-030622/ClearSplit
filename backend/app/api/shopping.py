@@ -4,11 +4,15 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.core.cache import invalidate_balances_cache
 from app.db.session import get_session
+from app.models.async_job import AsyncJob
+from app.schemas.jobs import JobAcceptedResponse
 from app.models.shopping_session import ShoppingSessionStatus
 from app.models.user import User
 from app.schemas.shopping import (
@@ -826,40 +830,30 @@ async def set_sharers(
 @router.post(
     "/receipts/{receipt_upload_id}/extract-items",
     response_model=list[ReceiptExtractedItemRead],
-    status_code=status.HTTP_200_OK,
+    responses={
+        200: {"model": list[ReceiptExtractedItemRead], "description": "Items already extracted"},
+        202: {"model": JobAcceptedResponse, "description": "OCR job enqueued"},
+    },
 )
 async def extract_items_from_receipt_endpoint(
     receipt_upload_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_session),
-) -> list[ReceiptExtractedItemRead]:
+):
     """Extract items from a receipt image using OCR.
-    
-    Only the receipt uploader can trigger extraction. This endpoint is idempotent:
-    if items have already been extracted, it returns the existing items
-    instead of re-running OCR.
-    
-    Args:
-        receipt_upload_id: Receipt upload UUID
-        current_user: Current authenticated user
-        db: Database session
-    
-    Returns:
-        List of extracted items
-    
-    Raises:
-        HTTPException: If not authorized or extraction fails
+
+    Returns 200 with items if already extracted.
+    Returns 202 with job info if OCR is enqueued.
     """
     from app.models.receipt_extracted_item import ReceiptExtractedItem
-    from app.services.shopping import extract_items_from_receipt_upload
     from sqlalchemy import select
-    
+
     # Get receipt
     receipt = await get_receipt_upload(db, receipt_upload_id)
-    
+
     # Get session to verify authorization
     shopping_session = await get_shopping_session(db, receipt.session_id)
-    
+
     # Verify user is a member and get their membership
     user_membership = await verify_user_is_group_member(
         db,
@@ -867,37 +861,90 @@ async def extract_items_from_receipt_endpoint(
         shopping_session.group_id,
         allow_viewer=False,
     )
-    
-    # Verify requester is the receipt uploader.
+
+    # Verify requester is the receipt uploader
     if user_membership.id != receipt.uploaded_by_membership_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the receipt uploader can extract items",
         )
-    
-    # Check if items already extracted (idempotency)
-    logger.info("[EXTRACT-ITEMS] Checking for existing extracted items")
+
+    # 1. Check if items already extracted → return 200 array
     result = await db.execute(
         select(ReceiptExtractedItem)
         .where(ReceiptExtractedItem.receipt_upload_id == receipt_upload_id)
         .order_by(ReceiptExtractedItem.created_at)
     )
     existing_items = list(result.scalars().all())
-    
+
     if existing_items:
-        # Return existing items
-        logger.info(f"[EXTRACT-ITEMS] Returning {len(existing_items)} existing items (idempotent)")
+        logger.info("[EXTRACT-ITEMS] Returning %d existing items (200)", len(existing_items))
         return [ReceiptExtractedItemRead.model_validate(item) for item in existing_items]
-    
-    # Extract items (OCR + parsing + DB save)
-    logger.info("[EXTRACT-ITEMS] Starting new extraction")
-    extracted_items = await extract_items_from_receipt_upload(db, receipt)
-    
-    logger.info(f"[EXTRACT-ITEMS] Committing {len(extracted_items)} items to database")
+
+    # 2. No items — create async job (or return existing active job)
+    new_job = AsyncJob(
+        job_type="receipt_ocr",
+        status="queued",
+        receipt_upload_id=receipt_upload_id,
+        created_by_user_id=current_user.id,
+    )
+    db.add(new_job)
+
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Partial unique index conflict → active job already exists.
+        # After rollback the AsyncSession is reusable for new queries.
+        await db.rollback()
+        active_result = await db.execute(
+            select(AsyncJob).where(
+                AsyncJob.job_type == "receipt_ocr",
+                AsyncJob.receipt_upload_id == receipt_upload_id,
+                AsyncJob.status.in_(["queued", "running"]),
+            )
+        )
+        existing_job = active_result.scalar_one_or_none()
+        if existing_job is None:
+            # Race: the conflicting job completed between our flush and this re-query.
+            # The items must now exist — return them as 200.
+            race_result = await db.execute(
+                select(ReceiptExtractedItem)
+                .where(ReceiptExtractedItem.receipt_upload_id == receipt_upload_id)
+                .order_by(ReceiptExtractedItem.created_at)
+            )
+            race_items = list(race_result.scalars().all())
+            if race_items:
+                logger.info("[EXTRACT-ITEMS] Race resolved — returning %d items (200)", len(race_items))
+                return [ReceiptExtractedItemRead.model_validate(item) for item in race_items]
+            # Items still not present (extremely unlikely): surface as 409 so the client retries.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Job dedup race — items not yet available, please retry",
+            )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=JobAcceptedResponse(
+                job_id=existing_job.id,
+                status=existing_job.status,
+                status_url=f"/jobs/{existing_job.id}",
+            ).model_dump(mode="json"),
+        )
+
     await db.commit()
-    
-    logger.info(f"[EXTRACT-ITEMS] Successfully completed extraction for receipt {receipt_upload_id}")
-    return [ReceiptExtractedItemRead.model_validate(item) for item in extracted_items]
+
+    # 3. Enqueue Celery task for newly created job
+    from app.worker.tasks import run_receipt_ocr
+    run_receipt_ocr.delay(str(new_job.id), str(receipt_upload_id))
+
+    logger.info("[EXTRACT-ITEMS] Enqueued OCR job %s (202)", new_job.id)
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=JobAcceptedResponse(
+            job_id=new_job.id,
+            status="queued",
+            status_url=f"/jobs/{new_job.id}",
+        ).model_dump(mode="json"),
+    )
 
 
 @router.get(
