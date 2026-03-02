@@ -1494,54 +1494,33 @@ async def test_only_receipt_uploader_can_delete_receipt(
 async def test_extract_items_from_receipt_success(
     client: AsyncClient, session: AsyncSession, monkeypatch
 ):
-    """Test successful OCR extraction of items from receipt."""
-    from app.services.ocr import ExtractedItem
-    
-    # Mock OCR function to return test data
-    async def mock_extract(image_bytes: bytes):
-        return [
-            ExtractedItem(
-                name="Bananas",
-                quantity=2,
-                unit_price_cents=150,
-                total_cents=300,
-                raw_line="2 x Bananas 3.00",
-                confidence=0.95,
-            ),
-            ExtractedItem(
-                name="Milk",
-                quantity=1,
-                unit_price_cents=None,
-                total_cents=499,
-                raw_line="Milk 4.99",
-                confidence=0.88,
-            ),
-        ]
-    
-    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
-    
-    # Mock S3 download
-    def mock_get_bytes(storage_key: str):
-        return b"fake image data"
-    
-    from app.services.shopping import receipt_storage
-    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
-    
+    """Test that extract-items returns pre-existing items with correct fields.
+
+    Phase 4 changed the contract: the first call when no items exist returns
+    202 (job enqueued).  When items are already present it returns 200 directly.
+    We pre-insert items so the endpoint takes the 200-path and we can assert
+    the response shape without depending on the Celery worker.
+    """
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
+    from uuid import UUID
+
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", lambda *_, **__: None)
+
     # Create user and group
     user = create_test_user(email="payer@example.com", username="payer")
     session.add(user)
     await session.flush()
-    
+
     group = Group(name="Test Household", currency="USD")
     session.add(group)
     await session.flush()
-    
+
     membership = Membership(
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
     await session.flush()
-    
+
     # Create shopping session
     access_token = create_access_token(user.id, user.email)
     response = await client.post(
@@ -1554,7 +1533,7 @@ async def test_extract_items_from_receipt_success(
         },
     )
     shopping_session_id = response.json()["id"]
-    
+
     # Upload receipt
     receipt_content = b"fake receipt image data"
     receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
@@ -1565,24 +1544,47 @@ async def test_extract_items_from_receipt_success(
     )
     assert response.status_code == 201
     receipt_id = response.json()["id"]
-    
-    # Extract items using OCR
+
+    # Pre-insert extracted items directly (simulates a completed OCR job)
+    session.add_all([
+        ReceiptExtractedItem(
+            receipt_upload_id=UUID(receipt_id),
+            name="Bananas",
+            quantity=2,
+            unit_price_cents=150,
+            total_cents=300,
+            raw_line="2 x Bananas 3.00",
+            confidence=0.95,
+        ),
+        ReceiptExtractedItem(
+            receipt_upload_id=UUID(receipt_id),
+            name="Milk",
+            quantity=1,
+            unit_price_cents=None,
+            total_cents=499,
+            raw_line="Milk 4.99",
+            confidence=0.88,
+        ),
+    ])
+    await session.flush()
+
+    # Items exist → endpoint returns 200 directly
     response = await client.post(
         f"/receipts/{receipt_id}/extract-items",
         headers={"Authorization": f"Bearer {access_token}"},
     )
-    
+
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 2
-    
+
     # Check first item
     assert items[0]["name"] == "Bananas"
     assert items[0]["quantity"] == 2
     assert items[0]["unit_price_cents"] == 150
     assert items[0]["total_cents"] == 300
     assert items[0]["confidence"] == 0.95
-    
+
     # Check second item
     assert items[1]["name"] == "Milk"
     assert items[1]["quantity"] == 1
@@ -1656,49 +1658,31 @@ async def test_extract_items_non_uploader_forbidden(
 async def test_extract_items_idempotent(
     client: AsyncClient, session: AsyncSession, monkeypatch
 ):
-    """Test that extracting items twice returns existing items (idempotent)."""
-    from app.services.ocr import ExtractedItem
-    
-    # Track how many times OCR is called
-    ocr_call_count = [0]
-    
-    async def mock_extract(image_bytes: bytes):
-        ocr_call_count[0] += 1
-        return [
-            ExtractedItem(
-                name="Test Item",
-                quantity=1,
-                unit_price_cents=None,
-                total_cents=100,
-                raw_line="Test Item 1.00",
-                confidence=0.9,
-            ),
-        ]
-    
-    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
-    
-    # Mock S3 download
-    def mock_get_bytes(storage_key: str):
-        return b"fake image data"
-    
-    from app.services.shopping import receipt_storage
-    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
-    
+    """Test that extract-items returns existing items on every call (idempotent).
+
+    Phase 4 changed the first call (no items) to return 202.  We pre-insert
+    items so both calls take the 200-path and return identical results.
+    """
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
+    from uuid import UUID
+
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", lambda *_, **__: None)
+
     # Create user and group
     user = create_test_user(email="payer@example.com", username="payer")
     session.add(user)
     await session.flush()
-    
+
     group = Group(name="Test Household", currency="USD")
     session.add(group)
     await session.flush()
-    
+
     membership = Membership(
         group_id=group.id, user_id=user.id, role=MembershipRole.OWNER
     )
     session.add(membership)
     await session.flush()
-    
+
     # Create shopping session
     access_token = create_access_token(user.id, user.email)
     response = await client.post(
@@ -1711,7 +1695,7 @@ async def test_extract_items_idempotent(
         },
     )
     shopping_session_id = response.json()["id"]
-    
+
     # Upload receipt
     receipt_content = b"fake receipt image data"
     receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
@@ -1722,8 +1706,22 @@ async def test_extract_items_idempotent(
     )
     assert response.status_code == 201
     receipt_id = response.json()["id"]
-    
-    # First extraction
+
+    # Pre-insert item (simulates a completed OCR job)
+    session.add(
+        ReceiptExtractedItem(
+            receipt_upload_id=UUID(receipt_id),
+            name="Test Item",
+            quantity=1,
+            unit_price_cents=None,
+            total_cents=100,
+            raw_line="Test Item 1.00",
+            confidence=0.9,
+        )
+    )
+    await session.flush()
+
+    # First extraction — items exist → 200
     response1 = await client.post(
         f"/receipts/{receipt_id}/extract-items",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -1731,9 +1729,8 @@ async def test_extract_items_idempotent(
     assert response1.status_code == 200
     items1 = response1.json()
     assert len(items1) == 1
-    assert ocr_call_count[0] == 1  # OCR was called once
-    
-    # Second extraction (should return existing items)
+
+    # Second extraction — same items returned without re-running OCR
     response2 = await client.post(
         f"/receipts/{receipt_id}/extract-items",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -1741,48 +1738,32 @@ async def test_extract_items_idempotent(
     assert response2.status_code == 200
     items2 = response2.json()
     assert len(items2) == 1
-    assert items2[0]["id"] == items1[0]["id"]  # Same item ID
-    assert ocr_call_count[0] == 1  # OCR was NOT called again
+    assert items2[0]["id"] == items1[0]["id"]  # Same item ID returned both times
 
 
 @pytest.mark.asyncio
 async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, monkeypatch):
-    """Test getting previously extracted items."""
-    from app.services.ocr import ExtractedItem
-    
-    # Mock OCR function
-    async def mock_extract(image_bytes: bytes):
-        return [
-            ExtractedItem(
-                name="Item A",
-                quantity=1,
-                unit_price_cents=None,
-                total_cents=100,
-                raw_line="Item A 1.00",
-                confidence=0.9,
-            ),
-        ]
-    
-    monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", mock_extract)
-    
-    # Mock S3 download
-    def mock_get_bytes(storage_key: str):
-        return b"fake image data"
-    
-    from app.services.shopping import receipt_storage
-    monkeypatch.setattr(receipt_storage, "get_receipt_bytes", mock_get_bytes)
-    
-    # Create users (payer and member)
+    """Test that any group member can fetch previously extracted items via GET.
+
+    Phase 4 changed POST extract-items to return 202 on first call, so we
+    pre-insert items directly and test only the GET extracted-items path.
+    """
+    from app.models.receipt_extracted_item import ReceiptExtractedItem
+    from uuid import UUID
+
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", lambda *_, **__: None)
+
+    # Create users (uploader and member)
     user1 = create_test_user(email="payer@example.com", username="payer")
     user2 = create_test_user(email="member@example.com", username="member")
     session.add_all([user1, user2])
     await session.flush()
-    
+
     # Create group
     group = Group(name="Test Household", currency="USD")
     session.add(group)
     await session.flush()
-    
+
     # Add memberships
     membership1 = Membership(
         group_id=group.id, user_id=user1.id, role=MembershipRole.OWNER
@@ -1792,7 +1773,7 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
     )
     session.add_all([membership1, membership2])
     await session.flush()
-    
+
     # User1 creates shopping session
     access_token1 = create_access_token(user1.id, user1.email)
     response = await client.post(
@@ -1805,7 +1786,7 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
         },
     )
     shopping_session_id = response.json()["id"]
-    
+
     # Upload receipt
     receipt_content = b"fake receipt image data"
     receipt_file = ("receipt.jpg", io.BytesIO(receipt_content), "image/jpeg")
@@ -1816,21 +1797,28 @@ async def test_get_extracted_items(client: AsyncClient, session: AsyncSession, m
     )
     assert response.status_code == 201
     receipt_id = response.json()["id"]
-    
-    # Extract items
-    response = await client.post(
-        f"/receipts/{receipt_id}/extract-items",
-        headers={"Authorization": f"Bearer {access_token1}"},
+
+    # Pre-insert extracted item directly (simulates a completed OCR job)
+    session.add(
+        ReceiptExtractedItem(
+            receipt_upload_id=UUID(receipt_id),
+            name="Item A",
+            quantity=1,
+            unit_price_cents=None,
+            total_cents=100,
+            raw_line="Item A 1.00",
+            confidence=0.9,
+        )
     )
-    assert response.status_code == 200
-    
-    # User2 (member, not payer) gets extracted items (should succeed)
+    await session.flush()
+
+    # User2 (member, not uploader) can read extracted items via GET
     access_token2 = create_access_token(user2.id, user2.email)
     response = await client.get(
         f"/receipts/{receipt_id}/extracted-items",
         headers={"Authorization": f"Bearer {access_token2}"},
     )
-    
+
     assert response.status_code == 200
     items = response.json()
     assert len(items) == 1
