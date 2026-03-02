@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
+from app.core.cache import invalidate_balances_cache
 from app.db.session import get_session
 from app.models.shopping_session import ShoppingSessionStatus
 from app.models.user import User
@@ -321,7 +322,9 @@ async def delete_shopping_session(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the payer can delete the shopping session",
         )
-    
+
+    session_group_id = shopping_session.group_id  # capture before object is deleted
+
     # Delete receipts from S3 and DB
     for receipt in shopping_session.receipts:
         try:
@@ -357,6 +360,7 @@ async def delete_shopping_session(
     # Delete session
     await db.delete(shopping_session)
     await db.commit()
+    await invalidate_balances_cache(session_group_id)
 
 
 @router.put(
@@ -599,6 +603,7 @@ async def create_item(
     )
 
     await db.commit()
+    await invalidate_balances_cache(shopping_session.group_id)
 
     return ShoppingItemRead.model_validate(item)
 
@@ -676,10 +681,11 @@ async def update_item(
     item.quantity = request.quantity
     item.total_cents = request.total_cents
     item.unit_price_cents = request.unit_price_cents
-    
+
     await db.commit()
+    await invalidate_balances_cache(shopping_session.group_id)
     await db.refresh(item)
-    
+
     return ShoppingItemRead.model_validate(item)
 
 
@@ -735,7 +741,9 @@ async def delete_item(
 
     if shopping_session.status == ShoppingSessionStatus.SETTLED:
         _reopen_session_after_settlement(shopping_session)
-    
+
+    item_group_id = shopping_session.group_id  # capture before object is deleted
+
     # Delete splits
     result = await db.execute(
         select(ShoppingItemSplit).where(ShoppingItemSplit.item_id == item_id)
@@ -743,10 +751,11 @@ async def delete_item(
     splits = result.scalars().all()
     for split in splits:
         await db.delete(split)
-    
+
     # Delete item
     await db.delete(item)
     await db.commit()
+    await invalidate_balances_cache(item_group_id)
 
 
 @router.put(
@@ -799,6 +808,7 @@ async def set_sharers(
     )
 
     await db.commit()
+    await invalidate_balances_cache(shopping_session.group_id)
 
     # Build response
     return SharersSetResponse(

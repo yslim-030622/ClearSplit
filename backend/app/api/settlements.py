@@ -26,6 +26,12 @@ from app.schemas.settlement import (
     SettlementSuggestionRead,
     SettlementUpdate,
 )
+from app.core.cache import (
+    balances_key,
+    cache_get_json,
+    cache_set_json,
+    invalidate_balances_cache,
+)
 from app.services.group import require_membership
 from app.services.settlement import (
     compute_group_balances,
@@ -76,6 +82,13 @@ async def get_group_balances(
     """Get live balances and transfer suggestions for a group."""
 
     await require_membership(session, group_id, current_user.id)
+
+    # 1. Try cache first
+    cached = await cache_get_json(balances_key(group_id))
+    if cached is not None:
+        return GroupBalancesRead.model_validate(cached)
+
+    # 2. Compute from DB
     memberships, balances, transfers = await compute_group_balances(session, group_id)
 
     balance_rows = [
@@ -90,12 +103,17 @@ async def get_group_balances(
         )
         for from_membership, to_membership, amount_cents in transfers
     ]
-    return GroupBalancesRead(
+    result = GroupBalancesRead(
         group_id=group_id,
         computed_at=datetime.now(tz=timezone.utc),
         balances=balance_rows,
         suggestions=suggestions,
     )
+
+    # 3. Populate cache (best-effort)
+    await cache_set_json(balances_key(group_id), result.model_dump(mode="json"))
+
+    return result
 
 
 @router.post(
@@ -200,6 +218,7 @@ async def create_payment(
         auto_confirm=request.auto_confirm,
     )
     await session.commit()
+    await invalidate_balances_cache(group_id)
     return _serialize_payment(payment)
 
 
@@ -236,6 +255,7 @@ async def confirm_payment(
         acting_membership=acting_membership,
     )
     await session.commit()
+    await invalidate_balances_cache(payment_group_id)
     return _serialize_payment(payment)
 
 
@@ -289,10 +309,12 @@ async def update_settlement_status(
         current_user.id,
         allow_viewer=False,
     )
+    settlement_group_id = settlement.group_id  # capture before commit expires the object
     updated = await update_settlement_status_to_paid(
         session,
         settlement_id=settlement_id,
         acting_user_membership=acting_membership,
     )
     await session.commit()
+    await invalidate_balances_cache(settlement_group_id)
     return SettlementRead.model_validate(updated)

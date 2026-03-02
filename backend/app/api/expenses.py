@@ -20,6 +20,7 @@ from app.services.expense import (
     create_expense_with_equal_splits,
     get_group_expenses,
 )
+from app.core.cache import invalidate_balances_cache
 from app.services.group import require_membership
 from app.services.settlement import compute_settlement_batch
 
@@ -123,6 +124,7 @@ async def create_expense(
         )
 
     await session.commit()
+    await invalidate_balances_cache(group_id)
     return expense_response
 
 
