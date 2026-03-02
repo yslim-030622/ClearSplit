@@ -16,6 +16,17 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ./backend
@@ -27,11 +38,40 @@ services:
       # API_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/db?sslmode=require
       DATABASE_URL: ${API_DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-clearsplit}:${POSTGRES_PASSWORD:-clearsplit}@db:5432/${POSTGRES_DB:-clearsplit}}
       ENV: local
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build:
+      context: ./backend
+    # Celery auto-discovers the `celery_app` attribute in the module.
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - .env
+    environment:
+      # Worker uses sync psycopg2 driver (NOT asyncpg).
+      # get_sync_database_url() converts this, but we set the correct
+      # driver here so `get_database_url()` also returns a usable URL.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-clearsplit}:${POSTGRES_PASSWORD:-clearsplit}@db:5432/${POSTGRES_DB:-clearsplit}
+      ENV: local
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./backend:/app
 

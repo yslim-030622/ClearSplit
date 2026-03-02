@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     max_receipt_pixels: int = Field(default=25000000, alias="MAX_RECEIPT_PIXELS")
     max_ocr_concurrency: int = Field(default=2, alias="MAX_OCR_CONCURRENCY")
 
+    # Redis / Celery / Caching
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
+    cache_default_ttl_seconds: int = Field(default=60, alias="CACHE_DEFAULT_TTL_SECONDS")
+    celery_broker_url: str = Field(default="", alias="CELERY_BROKER_URL")
+    celery_result_backend: str = Field(default="", alias="CELERY_RESULT_BACKEND")
+    celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
+    celery_task_eager_propagates: bool = Field(default=True, alias="CELERY_TASK_EAGER_PROPAGATES")
+
+    # Observability
+    prometheus_enabled: bool = Field(default=True, alias="PROMETHEUS_ENABLED")
+
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local", "../.env", "../.env.local"),
         case_sensitive=False,
@@ -82,6 +94,18 @@ class Settings(BaseSettings):
         if not raw:
             return []
         return [value.strip() for value in raw.split(",") if value.strip()]
+
+    def get_celery_broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    def get_celery_result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
+
+    def get_sync_database_url(self) -> str:
+        """Convert async DB URL to sync psycopg2 URL for Celery worker."""
+        return self.get_database_url().replace(
+            "postgresql+asyncpg://", "postgresql+psycopg2://", 1
+        )
 
 
 @lru_cache
