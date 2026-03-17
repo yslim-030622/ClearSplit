@@ -35,6 +35,8 @@ on:
         required: true
       JWT_SECRET:
         required: true
+      REDIS_URL:
+        required: false
       AWS_ACCESS_KEY_ID:
         required: false
       AWS_SECRET_ACCESS_KEY:
@@ -84,10 +86,16 @@ jobs:
           ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
           ACA_APP_NAME: ${{ vars.ACA_APP_NAME }}
           ACA_MIGRATION_JOB: ${{ vars.ACA_MIGRATION_JOB }}
+          ACA_WORKER_APP_NAME: ${{ vars.ACA_WORKER_APP_NAME }}
           CORS_ORIGINS: ${{ vars.CORS_ORIGINS }}
           S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+          CACHE_ENABLED: ${{ vars.CACHE_ENABLED }}
+          CACHE_KEY_PREFIX: ${{ vars.CACHE_KEY_PREFIX }}
+          CELERY_DEFAULT_QUEUE: ${{ vars.CELERY_DEFAULT_QUEUE }}
+          ASYNC_JOB_STALE_SECONDS: ${{ vars.ASYNC_JOB_STALE_SECONDS }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
         run: |
           set -euo pipefail
 
@@ -127,6 +135,31 @@ jobs:
               exit 1
             fi
           done
+
+          async_keys=(
+            ACA_WORKER_APP_NAME
+            REDIS_URL
+            CACHE_ENABLED
+            CACHE_KEY_PREFIX
+            CELERY_DEFAULT_QUEUE
+            ASYNC_JOB_STALE_SECONDS
+          )
+
+          async_present_count=0
+          for key in "${async_keys[@]}"; do
+            if [[ -n "${!key:-}" ]]; then
+              async_present_count=$((async_present_count + 1))
+            fi
+          done
+
+          if (( async_present_count > 0 )); then
+            for key in "${async_keys[@]}"; do
+              if [[ -z "${!key:-}" ]]; then
+                echo "Missing required async OCR deployment configuration: $key"
+                exit 1
+              fi
+            done
+          fi
 
           if [[ "$DATABASE_URL" != postgresql+asyncpg://* ]]; then
             echo "DATABASE_URL must start with postgresql+asyncpg://"
@@ -209,6 +242,7 @@ jobs:
           ACR_NAME="${{ vars.ACR_NAME }}"
           APP="${{ vars.ACA_APP_NAME }}"
           JOB="${{ vars.ACA_MIGRATION_JOB }}"
+          WORKER_APP="${{ vars.ACA_WORKER_APP_NAME }}"
           EXPECTED_LOGIN_SERVER="${{ vars.ACR_LOGIN_SERVER }}"
 
           az group show --name "$RG" --query id -o tsv >/dev/null
@@ -216,6 +250,10 @@ jobs:
           az acr show --name "$ACR_NAME" --query id -o tsv >/dev/null
           az containerapp show --resource-group "$RG" --name "$APP" --query id -o tsv >/dev/null
           az containerapp job show --resource-group "$RG" --name "$JOB" --query id -o tsv >/dev/null
+
+          if [[ -n "${WORKER_APP:-}" ]]; then
+            az containerapp show --resource-group "$RG" --name "$WORKER_APP" --query id -o tsv >/dev/null
+          fi
 
           ACTUAL_LOGIN_SERVER=$(az acr show \
             --name "$ACR_NAME" \
@@ -532,14 +570,21 @@ jobs:
           APP_AWS_REGION: ${{ vars.AWS_REGION }}
           APP_AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           APP_AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          APP_REDIS_URL: ${{ secrets.REDIS_URL }}
+          APP_CACHE_ENABLED: ${{ vars.CACHE_ENABLED }}
+          APP_CACHE_KEY_PREFIX: ${{ vars.CACHE_KEY_PREFIX }}
+          APP_CELERY_DEFAULT_QUEUE: ${{ vars.CELERY_DEFAULT_QUEUE }}
+          APP_ASYNC_JOB_STALE_SECONDS: ${{ vars.ASYNC_JOB_STALE_SECONDS }}
           APP_TRUST_PROXY_HEADERS: ${{ vars.TRUST_PROXY_HEADERS }}
           APP_TRUSTED_PROXY_IPS: ${{ vars.TRUSTED_PROXY_IPS }}
+          WORKER_APP_NAME: ${{ vars.ACA_WORKER_APP_NAME }}
           IMAGE: ${{ needs.resolve-image.outputs.image }}
           DEPLOY_SHA: ${{ needs.resolve-image.outputs.deploy_sha }}
         run: |
           set -euo pipefail
           RG="${{ vars.AZURE_RESOURCE_GROUP }}"
           APP="${{ vars.ACA_APP_NAME }}"
+          ASYNC_WORKER_ENABLED=false
 
           for key in APP_DATABASE_URL APP_JWT_SECRET APP_CORS_ORIGINS APP_S3_BUCKET_NAME; do
             if [[ -z "${!key:-}" ]]; then
@@ -555,6 +600,32 @@ jobs:
             fi
           fi
 
+          async_keys=(
+            WORKER_APP_NAME
+            APP_REDIS_URL
+            APP_CACHE_ENABLED
+            APP_CACHE_KEY_PREFIX
+            APP_CELERY_DEFAULT_QUEUE
+            APP_ASYNC_JOB_STALE_SECONDS
+          )
+
+          async_present_count=0
+          for key in "${async_keys[@]}"; do
+            if [[ -n "${!key:-}" ]]; then
+              async_present_count=$((async_present_count + 1))
+            fi
+          done
+
+          if (( async_present_count > 0 )); then
+            for key in "${async_keys[@]}"; do
+              if [[ -z "${!key:-}" ]]; then
+                echo "Missing required async OCR runtime value: $key"
+                exit 1
+              fi
+            done
+            ASYNC_WORKER_ENABLED=true
+          fi
+
           secret_args=(
             "database-url=${APP_DATABASE_URL}"
             "jwt-secret=${APP_JWT_SECRET}"
@@ -567,6 +638,17 @@ jobs:
             "CORS_ORIGINS=${APP_CORS_ORIGINS}"
             "S3_BUCKET_NAME=${APP_S3_BUCKET_NAME}"
           )
+
+          if [[ "$ASYNC_WORKER_ENABLED" == "true" ]]; then
+            secret_args+=("redis-url=${APP_REDIS_URL}")
+            env_args+=(
+              "REDIS_URL=secretref:redis-url"
+              "CACHE_ENABLED=${APP_CACHE_ENABLED}"
+              "CACHE_KEY_PREFIX=${APP_CACHE_KEY_PREFIX}"
+              "CELERY_DEFAULT_QUEUE=${APP_CELERY_DEFAULT_QUEUE}"
+              "ASYNC_JOB_STALE_SECONDS=${APP_ASYNC_JOB_STALE_SECONDS}"
+            )
+          fi
 
           if [[ -n "${APP_AWS_REGION:-}" ]]; then
             env_args+=("AWS_REGION=${APP_AWS_REGION}")
@@ -612,6 +694,67 @@ jobs:
             --resource-group "$RG" \
             --name "$APP" \
             --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          if [[ "$ASYNC_WORKER_ENABLED" == "true" ]]; then
+            worker_secret_args=(
+              "database-url=${APP_DATABASE_URL}"
+              "jwt-secret=${APP_JWT_SECRET}"
+              "redis-url=${APP_REDIS_URL}"
+            )
+
+            worker_env_args=(
+              "ENV=${TARGET_ENV}"
+              "DATABASE_URL=secretref:database-url"
+              "JWT_SECRET=secretref:jwt-secret"
+              "S3_BUCKET_NAME=${APP_S3_BUCKET_NAME}"
+              "REDIS_URL=secretref:redis-url"
+              "CACHE_ENABLED=false"
+              "CELERY_DEFAULT_QUEUE=${APP_CELERY_DEFAULT_QUEUE}"
+              "ASYNC_JOB_STALE_SECONDS=${APP_ASYNC_JOB_STALE_SECONDS}"
+            )
+
+            if [[ -n "${APP_AWS_REGION:-}" ]]; then
+              worker_env_args+=("AWS_REGION=${APP_AWS_REGION}")
+            fi
+
+            if [[ -n "${APP_AWS_ACCESS_KEY_ID:-}" ]]; then
+              worker_secret_args+=(
+                "aws-access-key-id=${APP_AWS_ACCESS_KEY_ID}"
+                "aws-secret-access-key=${APP_AWS_SECRET_ACCESS_KEY}"
+              )
+              worker_env_args+=(
+                "AWS_ACCESS_KEY_ID=secretref:aws-access-key-id"
+                "AWS_SECRET_ACCESS_KEY=secretref:aws-secret-access-key"
+              )
+            fi
+
+            az containerapp secret set \
+              --resource-group "$RG" \
+              --name "$WORKER_APP_NAME" \
+              --secrets "${worker_secret_args[@]}" >/dev/null
+
+            az containerapp update \
+              --resource-group "$RG" \
+              --name "$WORKER_APP_NAME" \
+              --image "$IMAGE" \
+              --set-env-vars "${worker_env_args[@]}" \
+              --command celery \
+              --args "-A" "app.worker.celery_app:celery_app" "worker" "--loglevel=info" "--concurrency=2"
+
+            WORKER_IMAGE=$(az containerapp show \
+              --resource-group "$RG" \
+              --name "$WORKER_APP_NAME" \
+              --query "properties.template.containers[0].image" -o tsv)
+
+            if [[ "$WORKER_IMAGE" != "$IMAGE" ]]; then
+              echo "Worker image mismatch after deploy. expected=$IMAGE actual=$WORKER_IMAGE"
+              exit 1
+            fi
+
+            echo "worker_image=${WORKER_IMAGE}" >> "$GITHUB_OUTPUT"
+          else
+            echo "worker_image=" >> "$GITHUB_OUTPUT"
+          fi
 
           echo "url=https://${FQDN}" >> "$GITHUB_OUTPUT"
           echo "previous_image=${PREVIOUS_IMAGE}" >> "$GITHUB_OUTPUT"
@@ -682,5 +825,10 @@ jobs:
             echo "- Source Tag: \`${{ needs.resolve-image.outputs.source_tag }}\`"
             echo "- Image Digest: \`${{ needs.resolve-image.outputs.image_digest }}\`"
             echo "- Image: \`${{ needs.resolve-image.outputs.image }}\`"
+            if [[ -n "${{ steps.deploy.outputs.worker_image }}" ]]; then
+              echo "- Worker Image: \`${{ steps.deploy.outputs.worker_image }}\`"
+            else
+              echo "- Worker Image: \`not configured\`"
+            fi
             echo "- App URL: \`${{ steps.deploy.outputs.url }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

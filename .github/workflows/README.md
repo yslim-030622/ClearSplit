@@ -33,6 +33,7 @@ What it does:
   - If production ACR is separate, it can import from staging ACR when `STAGING_ACR_NAME` and `STAGING_ACR_LOGIN_SERVER` are set in production environment vars
 - Runs migration precheck + `alembic upgrade head` via ACA job
 - Deploys new ACA revision
+- If worker/Redis vars are configured, also updates the worker Container App with the same image digest
 - Verifies `/health/live` and `/health/ready`
 - Rolls back to previous image if health verification fails
 - Publishes deployment summary
@@ -100,6 +101,21 @@ Common required variables (staging and production):
 - `CORS_ORIGINS`
 - `S3_BUCKET_NAME`
 
+Optional async OCR rollout variables:
+- `ACA_WORKER_APP_NAME`
+- `CACHE_ENABLED`
+- `CACHE_KEY_PREFIX`
+- `CELERY_DEFAULT_QUEUE`
+- `ASYNC_JOB_STALE_SECONDS`
+
+Optional async OCR rollout secrets:
+- `REDIS_URL`
+
+When `ACA_WORKER_APP_NAME` and `REDIS_URL` are configured, the reusable workflow:
+- validates the worker app exists
+- injects Redis/cache settings into the API app
+- updates the worker app with the same image digest as the API
+
 Staging environment:
 - `AZURE_RESOURCE_GROUP`: staging resource group
 - `ACR_NAME`: staging ACR name
@@ -107,6 +123,12 @@ Staging environment:
 - `ACA_APP_NAME`: staging Container App
 - `ACA_MIGRATION_JOB`: staging migration job
 - `S3_BUCKET_NAME`: staging bucket
+- `ACA_WORKER_APP_NAME`: staging worker Container App
+- `CACHE_ENABLED`: `true`
+- `CACHE_KEY_PREFIX`: `staging:`
+- `CELERY_DEFAULT_QUEUE`: `ocr-staging`
+- `ASYNC_JOB_STALE_SECONDS`: `900`
+- `REDIS_URL` (secret): staging Redis URL
 
 Production environment:
 - `AZURE_RESOURCE_GROUP`: production resource group
@@ -121,6 +143,7 @@ Production environment:
 Notes:
 - In production, `ACR_NAME` and `ACR_LOGIN_SERVER` must reference the production registry, not staging.
 - `STAGING_ACR_NAME` and `STAGING_ACR_LOGIN_SERVER` are required only when staging and production use separate ACRs. They are optional for shared-ACR setups.
+- If async OCR vars are omitted, the reusable workflow keeps the existing API-only deploy behavior.
 
 ## Required Checks Recommendation
 

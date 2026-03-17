@@ -215,7 +215,14 @@ Reusable workflow that both staging and production wrappers call.
 3. Trivy scan on resolved image digest
 4. Migration precheck + `alembic upgrade head`
 5. ACA deploy + health checks + rollback
-6. Deployment summary publication
+6. Optional worker update with the same image digest when async OCR env vars/secrets are configured
+7. Deployment summary publication
+
+**Async OCR extension**:
+- The reusable workflow stays API-only unless `ACA_WORKER_APP_NAME` and `REDIS_URL` are configured in the target GitHub Environment.
+- When enabled, it injects `REDIS_URL`, `CACHE_ENABLED`, `CACHE_KEY_PREFIX`, `CELERY_DEFAULT_QUEUE`, and `ASYNC_JOB_STALE_SECONDS` into the API app.
+- It also updates the worker Container App with the same image digest and the Celery command:
+  - `celery -A app.worker.celery_app:celery_app worker --loglevel=info --concurrency=2`
 
 ### Staging Deployment (`deploy-staging.yml`)
 
@@ -229,7 +236,8 @@ Reusable workflow that both staging and production wrappers call.
 1. Build and push image once to ACR
 2. Stamp immutable source tag (`staging-<sha>-<run_id>`)
 3. Run migration job
-4. Deploy + health checks + rollback on failure
+4. Deploy API, and if async OCR is configured, update the staging worker with the same digest
+5. Health checks + rollback on failure
 
 ### Production Deployment (`deploy-production.yml`)
 
@@ -249,6 +257,8 @@ Reusable workflow that both staging and production wrappers call.
 2. If target ACR does not have that immutable tag yet, import it from staging ACR (`STAGING_ACR_NAME` + `STAGING_ACR_LOGIN_SERVER` optional vars)
 3. Run migration job
 4. Deploy + health checks + rollback on failure
+
+Production can continue to run API-only until worker/Redis settings are explicitly added to the production GitHub Environment.
 
 **Production safety guards**:
 - `DATABASE_URL` must be `postgresql+asyncpg://` with explicit `ssl`/`sslmode`
