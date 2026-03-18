@@ -412,24 +412,25 @@ jobs:
           az acr login --name "$ACR_NAME"
           docker pull "$IMAGE" >/dev/null
 
-      - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@v0.2.5
-        with:
-          version: v0.68.2
-          cache: true
-          token: ${{ github.token }}
-
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.35.0
-        with:
-          scan-type: image
-          image-ref: ${{ steps.image.outputs.image }}
-          version: v0.68.2
-          skip-setup-trivy: true
-          format: table
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          TRIVY_VERSION: 0.69.3
+          TRIVY_CACHE_DIR: ${{ runner.temp }}/trivy-cache
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_CACHE_DIR"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$TRIVY_CACHE_DIR:/root/.cache/" \
+            "aquasec/trivy:${TRIVY_VERSION}" \
+            image \
+            --format table \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "$IMAGE"
 
   migrate:
     name: Run Alembic Migration Job
