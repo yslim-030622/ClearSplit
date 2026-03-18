@@ -129,6 +129,8 @@ Staging environment:
 - `CELERY_DEFAULT_QUEUE`: `ocr-staging`
 - `ASYNC_JOB_STALE_SECONDS`: `900`
 - `REDIS_URL` (secret): staging Redis URL
+  Use the internal TCP app name and port, for example `redis://:PASSWORD@redis-shared:6379/0`.
+  Do not use the ACA internal FQDN for this value; same-environment TCP traffic resolves through the app name.
 
 Production environment:
 - `AZURE_RESOURCE_GROUP`: production resource group

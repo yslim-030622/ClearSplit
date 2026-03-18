@@ -698,7 +698,7 @@ jobs:
             --name "$APP" \
             --image "$IMAGE" \
             --set-env-vars "${env_args[@]}" \
-            --revision-suffix "sha-${DEPLOY_SHA::7}"
+            --revision-suffix "sha-${DEPLOY_SHA::7}-${GITHUB_RUN_ID}"
 
           FQDN=$(az containerapp show \
             --resource-group "$RG" \
