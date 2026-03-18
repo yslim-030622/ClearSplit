@@ -412,11 +412,20 @@ jobs:
           az acr login --name "$ACR_NAME"
           docker pull "$IMAGE" >/dev/null
 
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@v0.2.5
+        with:
+          version: v0.68.2
+          cache: true
+          token: ${{ github.token }}
+
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: image
           image-ref: ${{ steps.image.outputs.image }}
+          version: v0.68.2
+          skip-setup-trivy: true
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true
