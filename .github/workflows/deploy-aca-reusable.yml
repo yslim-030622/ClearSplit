@@ -752,43 +752,34 @@ jobs:
               --name "$WORKER_APP_NAME" \
               -o json > "$worker_app_json"
 
-            python3 - <<'PY' "$worker_app_json" "$worker_env_file" "$IMAGE"
-            import json
-            import sys
+            worker_env_json=$(jq -Rn '
+              [inputs
+               | select(length > 0)
+               | capture("(?<name>[^=]+)=(?<value>.*)")
+               | if (.value | startswith("secretref:")) then
+                   {name: .name, secretRef: (.value | sub("^secretref:"; ""))}
+                 else
+                   {name: .name, value: .value}
+                 end]
+            ' < "$worker_env_file")
 
-            app_path, env_path, image = sys.argv[1:]
+            jq \
+              --arg image "$IMAGE" \
+              --argjson env "$worker_env_json" \
+              '
+              .properties.template.containers[0].image = $image
+              | .properties.template.containers[0].env = $env
+              | .properties.template.containers[0].command = ["celery"]
+              | .properties.template.containers[0].args = [
+                  "-A",
+                  "app.worker.celery_app:celery_app",
+                  "worker",
+                  "--loglevel=info",
+                  "--concurrency=2"
+                ]
+              ' "$worker_app_json" > "${worker_app_json}.tmp"
 
-            with open(app_path, encoding="utf-8") as app_file:
-                app = json.load(app_file)
-
-            container = app["properties"]["template"]["containers"][0]
-            env_items = []
-
-            with open(env_path, encoding="utf-8") as env_file:
-                for raw_line in env_file:
-                    item = raw_line.strip()
-                    if not item:
-                        continue
-                    key, value = item.split("=", 1)
-                    if value.startswith("secretref:"):
-                        env_items.append({"name": key, "secretRef": value[len("secretref:") :]})
-                    else:
-                        env_items.append({"name": key, "value": value})
-
-            container["image"] = image
-            container["env"] = env_items
-            container["command"] = ["celery"]
-            container["args"] = [
-                "-A",
-                "app.worker.celery_app:celery_app",
-                "worker",
-                "--loglevel=info",
-                "--concurrency=2",
-            ]
-
-            with open(app_path, "w", encoding="utf-8") as app_file:
-                json.dump(app, app_file)
-            PY
+            mv "${worker_app_json}.tmp" "$worker_app_json"
 
             az containerapp update \
               --resource-group "$RG" \
