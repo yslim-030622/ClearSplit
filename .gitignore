@@ -33,6 +33,8 @@ node_modules/
 
 # Local tooling
 .claude/
+.omx/
+AGENTS.md
 backend/venv
 tmp/
 

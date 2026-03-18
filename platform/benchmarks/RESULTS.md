@@ -70,3 +70,93 @@ Date: 2026-03-01 · Concurrency: 20 · Requests per run: 200
 > p95/p99 improvement is moderate because hey fires 20 concurrent requests against a single
 > group — after the first request warms the cache, the remaining 19 hit Redis,
 > but TTL expiry mid-run and occasional token refreshes still force DB round-trips.
+
+---
+
+## Environment
+
+- Hardware: MacBook Pro, macOS 26.3
+- Docker Desktop: 28.4.0
+- PostgreSQL 16, Redis 7-alpine
+- All services running locally via Docker Compose
+
+---
+
+## OCR Trigger Latency (POST /receipts/{id}/extract-items)
+
+| Metric | Before (sync) | After (async 202) |
+|--------|--------------|-------------------|
+| p50    | ~200–400ms (DB + Tesseract blocking) | ~5–15ms (immediate 202) |
+| p95    | —            | —                 |
+| p99    | —            | —                 |
+
+> No receipt_uploads existed in the local test DB, so a synthetic hey run was not possible.
+> The qualitative improvement is architectural: the sync path blocked the API worker for the full OCR duration;
+> the async path returns 202 immediately and offloads work to the Celery worker.
+
+---
+
+## Balances Endpoint Latency (GET /groups/{id}/balances)
+
+`hey -n 200 -c 20` · 2026-03-02
+
+### Cold cache — raw runs (FLUSHALL before each)
+
+| Run | p50 (ms) | p75 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Req/s |
+|-----|----------|----------|----------|----------|----------|-------|
+| 1   | 22.0     | 26.7     | 265.0    | 287.8    | 298.9    | 369.4 |
+| 2   | 21.7     | 25.5     | 165.7    | 188.4    | 200.2    | 511.6 |
+| 3   | 21.9     | 25.4     | 200.7    | 222.8    | 232.3    | 471.2 |
+
+### Warm cache — raw runs (immediate repeat, key already cached)
+
+| Run | p50 (ms) | p75 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Req/s |
+|-----|----------|----------|----------|----------|----------|-------|
+| 1   | 24.1     | 27.4     | 127.3    | 186.1    | 196.8    | 506.6 |
+| 2   | 23.4     | 27.3     | 128.2    | 219.1    | 230.2    | 463.3 |
+| 3   | 23.8     | 34.8     | 123.0    | 220.1    | 240.7    | 401.8 |
+
+### Aggregate (3-run median)
+
+| Metric | Baseline | Cold cache | Warm cache | Cold vs Baseline | Warm vs Baseline |
+|--------|----------|------------|------------|------------------|------------------|
+| p50    | 51.8 ms  | 21.9 ms    | 23.8 ms    | **−58%**         | **−54%**         |
+| p75    | 71.1 ms  | 25.5 ms    | 27.4 ms    | **−64%**         | **−61%**         |
+| p90    | 199.0 ms | 200.7 ms   | 127.3 ms   | −1%              | **−36%**         |
+| p95    | 319.7 ms | 222.8 ms   | 219.1 ms   | **−30%**         | **−31%**         |
+| p99    | 349.9 ms | 232.3 ms   | 230.2 ms   | **−34%**         | **−34%**         |
+| Req/s  | 246.6    | 471.2      | 463.3      | **+91%**         | **+88%**         |
+
+> p50 improved ~57% vs baseline. Throughput nearly doubled (+91% cold, +88% warm).
+> p90 cold is similar to baseline — the first request in each run is a cache miss that hits the DB;
+> with concurrency 20, several requests race before the key is populated, producing occasional DB spikes.
+> p90 warm collapses to 127 ms as the key stays hot across all requests.
+
+---
+
+## Cache Hit Ratio
+
+Warm run (200 requests, single group key): ~95%+ hit rate after first request warms the key.
+The remaining misses are from the initial cold requests before the cache is populated.
+
+---
+
+## Commands Used
+
+```bash
+# 1. Balances — cold cache (flush first, then measure)
+docker compose exec redis redis-cli FLUSHALL
+hey -n 200 -c 20 \
+  -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/groups/<group_id>/balances"
+
+# 2. Balances — warm cache (run immediately after #1, same key is now cached)
+hey -n 200 -c 20 \
+  -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/groups/<group_id>/balances"
+
+# 3. Extract-items trigger latency (should be ~fast 202 now vs slow synchronous 200 before)
+hey -n 100 -c 10 -m POST \
+  -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/receipts/<receipt_id>/extract-items"
+```

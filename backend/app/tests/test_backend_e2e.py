@@ -2,9 +2,15 @@
 
 from datetime import date
 import io
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.async_job import AsyncJob
+from app.models.receipt_extracted_item import ReceiptExtractedItem
 
 
 def _auth_header(token: str) -> dict[str, str]:
@@ -13,7 +19,11 @@ def _auth_header(token: str) -> dict[str, str]:
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
-async def test_backend_end_to_end_smoke(client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+async def test_backend_end_to_end_smoke(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Exercise auth, groups, expenses, settlements, shopping, and receipt OCR APIs."""
     from app.services.ocr import ExtractedItem
 
@@ -30,12 +40,20 @@ async def test_backend_end_to_end_smoke(client: AsyncClient, monkeypatch: pytest
         ]
 
     monkeypatch.setattr("app.services.ocr.extract_items_from_receipt", fake_ocr_extract)
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", lambda *_, **__: None)
+
+    live = await client.get("/health/live")
+    assert live.status_code == 200
+    assert live.json() == {"status": "ok"}
 
     health = await client.get("/health")
-    assert health.status_code == 200
+    assert health.status_code in {200, 503}
     health_payload = health.json()
     assert health_payload["database"] is True
     assert "s3" in health_payload
+    if health.status_code == 503:
+        assert health_payload["status"] == "degraded"
+        assert health_payload["redis"] is False
 
     owner_signup = await client.post(
         "/auth/signup",
@@ -225,10 +243,28 @@ async def test_backend_end_to_end_smoke(client: AsyncClient, monkeypatch: pytest
         f"/receipts/{receipt_id}/extract-items",
         headers=_auth_header(owner_token),
     )
-    assert extracted.status_code == 200, extracted.text
-    extracted_payload = extracted.json()
-    assert len(extracted_payload) == 1
-    assert extracted_payload[0]["name"] == "Milk"
+    assert extracted.status_code == 202, extracted.text
+    job_id = extracted.json()["job_id"]
+
+    job_result = await session.execute(select(AsyncJob).where(AsyncJob.id == UUID(job_id)))
+    job = job_result.scalar_one()
+    job.status = "succeeded"
+    session.add(
+        ReceiptExtractedItem(
+            receipt_upload_id=UUID(receipt_id),
+            name="Milk",
+            quantity=1,
+            unit_price_cents=499,
+            total_cents=499,
+            raw_line="Milk 4.99",
+            confidence=0.95,
+        )
+    )
+    await session.flush()
+
+    job_status = await client.get(f"/jobs/{job_id}", headers=_auth_header(owner_token))
+    assert job_status.status_code == 200, job_status.text
+    assert job_status.json()["status"] == "succeeded"
 
     extracted_for_member = await client.get(
         f"/receipts/{receipt_id}/extracted-items",

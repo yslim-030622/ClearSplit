@@ -127,8 +127,8 @@ final class ShoppingService: ShoppingServicing {
     private func pollForExtractedItems(
         jobId: UUID,
         receiptUploadId: UUID,
-        maxAttempts: Int = 30,                      // 30 × 2s = 60s total max wait
-        intervalNanoseconds: UInt64 = 2_000_000_000 // 2 seconds
+        maxAttempts: Int = 60,                      // 60 × 3s = 180s total max wait
+        intervalNanoseconds: UInt64 = 3_000_000_000 // 3 seconds
     ) async throws -> [ReceiptExtractedItem] {
         // Attempt-based (not time-based) to avoid Clock dependency and be deterministic in tests.
         for attempt in 1...maxAttempts {
@@ -165,7 +165,7 @@ final class ShoppingService: ShoppingServicing {
             }
         }
 
-        throw APIError.server(status: 408, message: "OCR timed out after \(maxAttempts) attempts")
+        throw APIError.server(status: 408, message: "Processing is taking longer than usual.")
     }
     
     func getExtractedReceiptItems(receiptUploadId: UUID) async throws -> [ReceiptExtractedItem] {

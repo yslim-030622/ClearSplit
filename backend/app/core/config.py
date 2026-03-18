@@ -40,10 +40,13 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
     cache_default_ttl_seconds: int = Field(default=60, alias="CACHE_DEFAULT_TTL_SECONDS")
+    cache_key_prefix: str = Field(default="", alias="CACHE_KEY_PREFIX")
     celery_broker_url: str = Field(default="", alias="CELERY_BROKER_URL")
     celery_result_backend: str = Field(default="", alias="CELERY_RESULT_BACKEND")
+    celery_default_queue: str = Field(default="", alias="CELERY_DEFAULT_QUEUE")
     celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
     celery_task_eager_propagates: bool = Field(default=True, alias="CELERY_TASK_EAGER_PROPAGATES")
+    async_job_stale_seconds: int = Field(default=900, alias="ASYNC_JOB_STALE_SECONDS")
 
     # Observability
     prometheus_enabled: bool = Field(default=True, alias="PROMETHEUS_ENABLED")
@@ -100,6 +103,15 @@ class Settings(BaseSettings):
 
     def get_celery_result_backend(self) -> str:
         return self.celery_result_backend or self.redis_url
+
+    def get_cache_key_prefix(self) -> str:
+        prefix = self.cache_key_prefix.strip() or self.env
+        if prefix.endswith(":"):
+            return prefix
+        return f"{prefix}:"
+
+    def get_celery_default_queue(self) -> str:
+        return self.celery_default_queue.strip() or f"ocr-{self.env}"
 
     def get_sync_database_url(self) -> str:
         """Convert async DB URL to sync psycopg2 URL for Celery worker."""

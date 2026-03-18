@@ -3,10 +3,13 @@
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.122-009688?logo=fastapi&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+![Celery](https://img.shields.io/badge/Celery-5.3-37814A?logo=celery&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
 ![Azure](https://img.shields.io/badge/Azure-Container_Apps-0078D4?logo=microsoftazure&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-CI/CD-2088FF?logo=githubactions&logoColor=white)
 ![Swift](https://img.shields.io/badge/Swift-SwiftUI-F05138?logo=swift&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)
 
 I built ClearSplit because splitting expenses with my college friend group was consistently painful. Bank apps let you request money, but they don't show what you're actually paying for — no receipt details, no item breakdown, no transparency. Someone does the math on their phone, everyone just trusts it, and mistakes happen. ClearSplit lets everyone in the group upload receipts, see every item, and know exactly what they owe and why.
 
@@ -46,9 +49,12 @@ I built ClearSplit because splitting expenses with my college friend group was c
 |-------|-----------|-----|
 | Backend | FastAPI + Uvicorn | Async API with automatic OpenAPI documentation |
 | Database | PostgreSQL + SQLAlchemy (async) | Strong transactional guarantees and concurrency support |
+| Cache | Redis 7 | Cache-aside on balance queries — p50 −58%, throughput +91% |
+| Task Queue | Celery + Redis broker | Offloads OCR from API workers; endpoint returns 202 in ~10ms |
 | Auth | JWT + refresh rotation | Stateless auth with replay protection |
 | Storage | AWS S3  | Direct client uploads/downloads without API proxying |
 | OCR | Tesseract | Local OCR without external service dependency |
+| Observability | Prometheus + Grafana | Request latency, cache hit/miss, job throughput metrics |
 | Infra | Docker + Azure Container Apps | Managed container deployment with scaling support |
 | CI/CD | GitHub Actions | Automated testing and deployment |
 | iOS | SwiftUI  | Native UI with structured state management |
@@ -56,12 +62,12 @@ I built ClearSplit because splitting expenses with my college friend group was c
 
 ## Data Model
 
-- **19 tables** across **6 domains**
+- **20 tables** across **6 domains**
   - Auth: users, refresh tokens, idempotency keys
   - Social: groups, memberships, friendships
   - Expenses: expenses, expense splits
   - Shopping: sessions, items, participants, splits
-  - Receipts: uploads, extracted items
+  - Receipts: uploads, extracted items, async jobs
   - Settlements: batches, settlements, payments, audit logs
 
 Full table details: `docs/backend-reference.md` 
@@ -74,28 +80,49 @@ Full table details: `docs/backend-reference.md`
 
 ## API Highlights
 
-**47 endpoints** across **6 domain** routers.
+**49 endpoints** across **7 domain** routers.
 
 Selected examples:
 
-
 - **Expense Management**
   - Deterministic integer-cent splits
-  - Live balance aggregation with transfer minimization
+  - Live balance aggregation with transfer minimization — Redis-cached, invalidated on every mutation
 
 - **Settlement**
   - Idempotent settlement computation
   - Immutable batch snapshots for audit consistency
 
-- **Receipts**
+- **Receipts & Async OCR**
   - Direct S3 uploads via presigned URLs
-  - OCR extraction for item splitting
+  - `POST /receipts/{id}/extract-items` returns 202 immediately; Celery worker runs Tesseract in the background
+  - iOS polls `GET /jobs/{id}` until complete, then fetches extracted items
 
 Full OpenAPI docs available at `/docs` in local development.
 
+## Performance
+
+Measured with `hey -n 200 -c 20` on local Docker Compose (PostgreSQL 16 + Redis 7).
+
+### Balance queries — before vs after Redis cache
+
+| Metric | Baseline (no cache) | With cache | Change |
+|--------|--------------------|-----------:|-------:|
+| p50 latency | 51.8 ms | 21.9 ms | **−58%** |
+| p75 latency | 71.1 ms | 25.5 ms | **−64%** |
+| p95 latency | 319.7 ms | 222.8 ms | **−30%** |
+| Throughput | 246.6 req/s | 471.2 req/s | **+91%** |
+
+### OCR endpoint — sync vs async
+
+| | Before (sync) | After (async 202) |
+|-|:---:|:---:|
+| `POST /receipts/{id}/extract-items` | ~200–400 ms (blocked on Tesseract) | ~10 ms (enqueue + return) |
+
+Full benchmark data: [`platform/benchmarks/RESULTS.md`](platform/benchmarks/RESULTS.md)
+
 ## Testing
 
-147 tests across 13 files. CI enforces an 80% coverage gate on every PR and push to main.
+153 tests across 14 files. CI enforces an 80% coverage gate on every PR and push to main.
 
 | Area | Tests | Notes |
 |------|------:|------|
@@ -103,6 +130,7 @@ Full OpenAPI docs available at `/docs` in local development.
 | Groups & expenses | 33 | CRUD, splits, balances |
 | Settlements | 16 | Batch computation and confirmations |
 | Auth | 17 | Login, token validation, refresh behavior |
+| Async jobs & caching | 5 | 202→poll→200 flow, dedup, cache invalidation |
 
 Testing practices:
 
@@ -119,10 +147,14 @@ backend/
 │   ├── models/     # SQLAlchemy ORM models
 │   ├── schemas/    # Pydantic request/response schemas
 │   ├── auth/       # JWT + authentication logic
-│   ├── core/       # Middleware, rate limiting, idempotency
+│   ├── core/       # Middleware, rate limiting, idempotency, Redis cache
+│   ├── worker/     # Celery app + OCR task
 │   ├── db/         # Database configuration
 │   └── main.py     # Application entry point
 ├── alembic/        # Database migrations
+├── platform/
+│   ├── benchmarks/ # hey load test results
+│   └── observability/ # Prometheus + Grafana compose overlay
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -142,7 +174,7 @@ docker compose up --build
 # Docs → http://localhost:8000/docs
 ```
 
-`docker-compose.yml` runs PostgreSQL 16 + the API with live reload (volume-mounted `./backend`).
+`docker-compose.yml` runs PostgreSQL 16, Redis 7, the API, and a Celery worker. The worker and API share the same image; only the entrypoint differs.
 
 ### Local Dev (No Docker)
 

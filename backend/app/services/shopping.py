@@ -475,6 +475,7 @@ async def get_shopping_session(
     result = await db.execute(
         select(ShoppingSession)
         .where(ShoppingSession.id == session_id)
+        .execution_options(populate_existing=True)
         .options(
             selectinload(ShoppingSession.participants),
             selectinload(ShoppingSession.receipts),
@@ -507,6 +508,7 @@ async def list_shopping_sessions(
         select(ShoppingSession)
         .where(ShoppingSession.group_id == group_id)
         .order_by(ShoppingSession.created_at.desc())
+        .execution_options(populate_existing=True)
         .options(
             selectinload(ShoppingSession.participants),
             selectinload(ShoppingSession.receipts),

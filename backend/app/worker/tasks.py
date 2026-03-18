@@ -3,12 +3,29 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 
+from app.api.metrics import JOB_COUNT, JOB_DURATION
 from app.worker.celery_app import celery_app
 from app.worker.db import SyncSessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _elapsed_seconds(
+    started_at: datetime | None,
+    finished_at: datetime,
+) -> float | None:
+    if started_at is None:
+        return None
+    return max((finished_at - started_at).total_seconds(), 0.0)
+
+
+def _record_job_metrics(job_type: str, outcome: str, duration_seconds: float | None) -> None:
+    JOB_COUNT.labels(type=job_type, outcome=outcome).inc()
+    if duration_seconds is not None:
+        JOB_DURATION.labels(type=job_type).observe(duration_seconds)
 
 
 @celery_app.task(
@@ -33,6 +50,7 @@ def run_receipt_ocr(self, job_id: str, receipt_upload_id: str) -> dict:
 
     job_uuid = uuid.UUID(job_id)
     receipt_uuid = uuid.UUID(receipt_upload_id)
+    started_perf = time.perf_counter()
 
     with SyncSessionLocal() as db:
         # Mark job as running
@@ -91,8 +109,17 @@ def run_receipt_ocr(self, job_id: str, receipt_upload_id: str) -> dict:
             db.commit()
             return {"status": "orphaned", "item_count": len(extracted_items_data)}
         job.status = "succeeded"
-        job.finished_at = datetime.now(tz=timezone.utc)
-        job.result_summary = {"item_count": len(extracted_items_data)}
+        finished_at = datetime.now(tz=timezone.utc)
+        duration_seconds = _elapsed_seconds(job.started_at, finished_at)
+        if duration_seconds is None:
+            duration_seconds = time.perf_counter() - started_perf
+        job.finished_at = finished_at
+        job.result_summary = {
+            "item_count": len(extracted_items_data),
+            "duration_seconds": round(duration_seconds, 3),
+            "outcome": "succeeded",
+        }
+        _record_job_metrics(job.job_type, "succeeded", duration_seconds)
 
         db.commit()
 
@@ -159,7 +186,18 @@ def _mark_job_failed(job_id, error_message: str, current_retry: int, max_retries
             ).scalar_one_or_none()
 
             if job:
+                finished_at = datetime.now(tz=timezone.utc)
+                duration_seconds = _elapsed_seconds(job.started_at, finished_at)
+                summary = dict(job.result_summary or {})
+                summary.update(
+                    {
+                        "duration_seconds": round(duration_seconds, 3) if duration_seconds is not None else None,
+                        "outcome": "failed",
+                    }
+                )
                 job.status = "failed"
-                job.finished_at = datetime.now(tz=timezone.utc)
+                job.finished_at = finished_at
                 job.last_error = error_message
+                job.result_summary = summary
+                _record_job_metrics(job.job_type, "failed", duration_seconds)
                 db.commit()

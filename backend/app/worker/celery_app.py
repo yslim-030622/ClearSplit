@@ -5,6 +5,7 @@ from celery import Celery
 from app.core.config import get_settings
 
 settings = get_settings()
+default_queue = settings.get_celery_default_queue()
 
 # NOTE: The instance is named `celery_app` (not `celery`) to avoid
 # shadowing the celery package and to match the `-A app.worker.celery_app`
@@ -21,6 +22,10 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    task_default_queue=default_queue,
+    task_routes={
+        "app.worker.tasks.run_receipt_ocr": {"queue": default_queue},
+    },
     task_always_eager=settings.celery_task_always_eager,
     task_eager_propagates=settings.celery_task_eager_propagates,
 )

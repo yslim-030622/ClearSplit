@@ -16,7 +16,7 @@ import time
 from app.api import auth, expenses, friends, groups, jobs, metrics, shopping
 from app.api import settlements
 from app.auth.dependencies import get_current_user
-from app.core.cache import close_redis
+from app.core.cache import close_redis, get_redis
 from app.core.config import get_settings
 from app.db.session import engine, get_session
 from app.models.membership import Membership
@@ -208,6 +208,7 @@ async def _build_health_payload(db: AsyncSession) -> tuple[dict[str, str | bool]
     response: dict[str, str | bool] = {
         "status": "ok",
         "database": False,
+        "redis": not settings.cache_enabled,
         "s3": False,
     }
     status_code = status.HTTP_200_OK
@@ -220,6 +221,19 @@ async def _build_health_payload(db: AsyncSession) -> tuple[dict[str, str | bool]
         logger.error(f"Database health check failed: {e}")
         response["status"] = "degraded"
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
+    if settings.cache_enabled:
+        redis_client = get_redis()
+        try:
+            if redis_client is None:
+                raise RuntimeError("Redis client unavailable while CACHE_ENABLED=true")
+            await redis_client.ping()
+            response["redis"] = True
+        except Exception as e:
+            logger.error(f"Redis health check failed: {e}")
+            response["redis"] = False
+            response["status"] = "degraded"
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
 
     # Check S3 configuration (lightweight availability signal)
     response["s3"] = bool(settings.s3_bucket_name)

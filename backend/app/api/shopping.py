@@ -1,20 +1,23 @@
 """Shopping API routes."""
 
+from datetime import datetime, timedelta, timezone
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.core.cache import invalidate_balances_cache
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.models.async_job import AsyncJob
-from app.schemas.jobs import JobAcceptedResponse
 from app.models.shopping_session import ShoppingSessionStatus
 from app.models.user import User
+from app.schemas.jobs import JobAcceptedResponse
 from app.schemas.shopping import (
     ParticipantSetRequest,
     ReceiptDownloadURLResponse,
@@ -58,6 +61,44 @@ def _reopen_session_after_settlement(shopping_session) -> None:
     shopping_session.status = ShoppingSessionStatus.ACTIVE
     shopping_session.settled_at = None
     shopping_session.finalized_at = None
+
+
+def _job_status_payload(job: AsyncJob) -> dict:
+    return JobAcceptedResponse(
+        job_id=job.id,
+        status=job.status,
+        status_url=f"/jobs/{job.id}",
+    ).model_dump(mode="json")
+
+
+def _is_stale_job(job: AsyncJob, stale_seconds: int) -> bool:
+    reference_time = job.started_at or job.created_at
+    if reference_time is None:
+        return False
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(seconds=stale_seconds)
+    return reference_time <= cutoff
+
+
+async def _fail_stale_job(db: AsyncSession, job: AsyncJob, stale_seconds: int) -> None:
+    previous_status = job.status
+    finished_at = datetime.now(tz=timezone.utc)
+    summary = dict(job.result_summary or {})
+    summary.update(
+        {
+            "outcome": "failed",
+            "failure_reason": "stale_recovered",
+            "previous_status": previous_status,
+            "stale_after_seconds": stale_seconds,
+        }
+    )
+    job.status = "failed"
+    job.finished_at = finished_at
+    job.last_error = (
+        "Stale OCR job recovered after "
+        f"{stale_seconds}s without reaching a terminal state"
+    )
+    job.result_summary = summary
+    await db.commit()
 
 
 # ============================================================================
@@ -846,7 +887,6 @@ async def extract_items_from_receipt_endpoint(
     Returns 202 with job info if OCR is enqueued.
     """
     from app.models.receipt_extracted_item import ReceiptExtractedItem
-    from sqlalchemy import select
 
     # Get receipt
     receipt = await get_receipt_upload(db, receipt_upload_id)
@@ -881,7 +921,27 @@ async def extract_items_from_receipt_endpoint(
         logger.info("[EXTRACT-ITEMS] Returning %d existing items (200)", len(existing_items))
         return [ReceiptExtractedItemRead.model_validate(item) for item in existing_items]
 
-    # 2. No items — create async job (or return existing active job)
+    # 2. No items — reuse a healthy active job or fail a stale one before requeueing.
+    settings = get_settings()
+    active_result = await db.execute(
+        select(AsyncJob).where(
+            AsyncJob.job_type == "receipt_ocr",
+            AsyncJob.receipt_upload_id == receipt_upload_id,
+            AsyncJob.status.in_(["queued", "running"]),
+        )
+    )
+    active_job = active_result.scalar_one_or_none()
+    if active_job is not None:
+        if _is_stale_job(active_job, settings.async_job_stale_seconds):
+            await _fail_stale_job(db, active_job, settings.async_job_stale_seconds)
+        else:
+            logger.info("[EXTRACT-ITEMS] Returning active job %s (202)", active_job.id)
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content=_job_status_payload(active_job),
+            )
+
+    # 3. No active job — create a new async job.
     new_job = AsyncJob(
         job_type="receipt_ocr",
         status="queued",
@@ -923,27 +983,39 @@ async def extract_items_from_receipt_endpoint(
             )
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
-            content=JobAcceptedResponse(
-                job_id=existing_job.id,
-                status=existing_job.status,
-                status_url=f"/jobs/{existing_job.id}",
-            ).model_dump(mode="json"),
+            content=_job_status_payload(existing_job),
         )
 
     await db.commit()
 
-    # 3. Enqueue Celery task for newly created job
+    # 4. Enqueue Celery task for the newly created job.
     from app.worker.tasks import run_receipt_ocr
-    run_receipt_ocr.delay(str(new_job.id), str(receipt_upload_id))
+
+    try:
+        run_receipt_ocr.delay(str(new_job.id), str(receipt_upload_id))
+    except Exception as exc:
+        logger.exception("[EXTRACT-ITEMS] Failed to enqueue OCR job %s", new_job.id)
+        summary = dict(new_job.result_summary or {})
+        summary.update(
+            {
+                "outcome": "failed",
+                "failure_reason": "enqueue_failed",
+            }
+        )
+        new_job.status = "failed"
+        new_job.finished_at = datetime.now(tz=timezone.utc)
+        new_job.last_error = f"Failed to enqueue OCR job: {exc}"
+        new_job.result_summary = summary
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OCR worker is temporarily unavailable. Please retry.",
+        ) from exc
 
     logger.info("[EXTRACT-ITEMS] Enqueued OCR job %s (202)", new_job.id)
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
-        content=JobAcceptedResponse(
-            job_id=new_job.id,
-            status="queued",
-            status_url=f"/jobs/{new_job.id}",
-        ).model_dump(mode="json"),
+        content=_job_status_payload(new_job),
     )
 
 

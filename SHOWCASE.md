@@ -164,9 +164,12 @@ At the bottom, **"+ Add Item"** lets you manually add anything the OCR missed, a
 
 **Backend integration:**
 
-- `POST /receipts/{id}/extract-items` runs Tesseract OCR with a concurrency cap (default 2 concurrent extractions).
+- `POST /receipts/{id}/extract-items` returns HTTP 202 immediately with a `job_id` — Tesseract runs in a Celery worker, not in the API process.
+- The app polls `GET /jobs/{job_id}` every 2 seconds (up to 60 seconds) until the job status flips to `succeeded`.
+- Once complete, it fetches `GET /receipts/{id}/extracted-items` to get the actual rows.
 - Each extracted item includes a confidence score and the raw line from the receipt.
-- Confirmed items are created via `POST /shopping-sessions/{id}/items`.
+- If items were already extracted on a previous call, the endpoint returns them directly as HTTP 200 — no job is created.
+- Confirmed items are added via `POST /shopping-sessions/{id}/items`.
 
 ---
 
@@ -277,7 +280,7 @@ For reference, here's a mapping of every screen to the backend endpoints it talk
 | Create Session | `POST /groups/{id}/shopping-sessions` |
 | Upload Receipt | `POST /shopping-sessions/{id}/receipt` |
 | Receipt Preview | (client-side only — image selected from camera/gallery) |
-| Review Items | `POST /receipts/{id}/extract-items`, `POST /shopping-sessions/{id}/items` |
+| Review Items | `POST /receipts/{id}/extract-items` (202), `GET /jobs/{id}` (poll), `GET /receipts/{id}/extracted-items`, `POST /shopping-sessions/{id}/items` |
 | Balances & Settlement | `GET /groups/{id}/balances`, `POST /groups/{id}/settlement-payments`, `POST /settlement-payments/{id}/confirm` |
 | Profile | `GET /auth/me` (cached in AppState) |
 

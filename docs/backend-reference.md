@@ -4,10 +4,13 @@
 
 - **Framework**: FastAPI 0.122.0 with Uvicorn 0.30.1
 - **Data**: PostgreSQL 16 with async SQLAlchemy 2.0+ (asyncpg driver)
-- **Migrations**: Alembic 1.13.1 (14 migrations)
+- **Cache**: Redis 7 — cache-aside on balance queries (`balances:{group_id}:v1`, TTL 60s)
+- **Task queue**: Celery 5.3 with Redis broker — async OCR pipeline
+- **Migrations**: Alembic 1.13.1 (15 migrations)
 - **Auth**: JWT access + rotating refresh tokens with bcrypt password hashing
 - **Storage**: S3-compatible object storage for receipt images
-- **OCR**: Tesseract via `pytesseract` + Pillow
+- **OCR**: Tesseract via `pytesseract` + Pillow, runs in Celery worker (not the API process)
+- **Observability**: Prometheus metrics at `GET /metrics` (request latency, cache hit/miss, job throughput)
 - **Entry point**: `backend/app/main.py`
 
 ## Environment Variables
@@ -47,6 +50,19 @@ The backend loads settings from `.env`, `.env.local`, `../.env`, and `../.env.lo
 | `MAX_RECEIPT_BYTES` | `10485760` | Max receipt file size (10 MB) |
 | `MAX_RECEIPT_PIXELS` | `25000000` | Max image pixel count (25M) |
 | `MAX_OCR_CONCURRENCY` | `2` | Concurrent OCR requests |
+
+### Redis / Celery / Cache
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL |
+| `CACHE_ENABLED` | `true` | Toggle Redis cache-aside globally |
+| `CACHE_DEFAULT_TTL_SECONDS` | `60` | Balance cache TTL |
+| `CELERY_BROKER_URL` | _(same as REDIS_URL)_ | Celery message broker |
+| `CELERY_RESULT_BACKEND` | _(same as REDIS_URL)_ | Celery result store |
+| `CELERY_TASK_ALWAYS_EAGER` | `false` | Run tasks inline (set `true` in test environment) |
+| `CELERY_TASK_EAGER_PROPAGATES` | `true` | Propagate exceptions in eager mode |
+| `PROMETHEUS_ENABLED` | `true` | Expose `/metrics` endpoint |
 
 ### CORS Behavior
 
@@ -158,8 +174,20 @@ All endpoints return JSON. Authenticated endpoints require `Authorization: Beare
 | POST | `/shopping-sessions/{session_id}/receipt` | Yes | Upload receipt image (participants only) |
 | GET | `/receipts/{receipt_upload_id}/download-url` | Yes | Get presigned S3 download URL |
 | DELETE | `/receipts/{receipt_upload_id}` | Yes | Delete receipt (uploader only) |
-| POST | `/receipts/{receipt_upload_id}/extract-items` | Yes | Trigger OCR extraction (uploader only) |
+| POST | `/receipts/{receipt_upload_id}/extract-items` | Yes | Trigger OCR (uploader only). Returns **200** with items if already extracted, **202** with `job_id` if enqueuing new job |
 | GET | `/receipts/{receipt_upload_id}/extracted-items` | Yes | View extracted items |
+
+### Async Jobs
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/jobs/{job_id}` | Yes | Poll job status (creator only). Returns `queued`, `running`, `succeeded`, or `failed` |
+
+### Observability
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/metrics` | No | Prometheus text format metrics. Returns 404 when `PROMETHEUS_ENABLED=false` |
 
 ## Authorization Rules
 
@@ -199,7 +227,7 @@ Behavior:
 - Key length capped at 255 characters
 - Scope: endpoint + user ID + key value
 
-## Data Model (18 Tables)
+## Data Model (20 Tables)
 
 ### Identity and Auth
 - `users` — account records with case-insensitive email/username indices
@@ -226,13 +254,14 @@ Behavior:
 - `shopping_item_splits` — per-sharer allocation with SUM invariant
 - `receipt_uploads` — S3 storage metadata with content type
 - `receipt_extracted_items` — OCR-extracted data with confidence scores
+- `async_jobs` — background job tracking (type, status, attempt count, result). Partial unique index prevents duplicate active jobs per receipt.
 
 ### Activity
 - `activity_logs` — audit trail for group activities
 
 ## Migrations
 
-14 Alembic migrations (December 2024 – February 2026):
+15 Alembic migrations (December 2024 – March 2026):
 
 | Migration | Description |
 |-----------|-------------|
@@ -250,6 +279,7 @@ Behavior:
 | 0012 | Remove extension dependencies (uuid-ossp) |
 | 0013 | Case-insensitive user identity uniqueness |
 | 0014 | Idempotency key header enforcement |
+| 0015 | Async jobs table with partial unique index |
 
 ## Operations
 

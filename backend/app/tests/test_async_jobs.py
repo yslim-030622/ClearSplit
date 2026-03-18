@@ -22,6 +22,7 @@ connection.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import io
 from datetime import date
 from uuid import UUID
@@ -42,6 +43,16 @@ from app.tests.conftest import create_test_user
 # ---------------------------------------------------------------------------
 # Shared setup helper
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clear_settings_cache():
+    """Keep cached settings isolated when tests mutate env-driven config."""
+    import app.core.config as cfg
+
+    cfg.get_settings.cache_clear()
+    yield cfg
+    cfg.get_settings.cache_clear()
 
 
 async def _create_receipt(
@@ -376,3 +387,138 @@ async def test_celery_eager_writes_extracted_items(
     items = items_result.scalars().all()
     assert len(items) > 0, "Items must be persisted and readable after task fires"
     assert items[0].name == "Eager Item"
+
+
+def test_balances_key_uses_cache_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+    clear_settings_cache,
+) -> None:
+    """Cache keys must be namespaced per environment."""
+    monkeypatch.setenv("CACHE_KEY_PREFIX", "staging")
+
+    from app.core.cache import balances_key
+
+    assert balances_key("abc") == "staging:balances:abc:v1"
+
+
+def test_celery_app_routes_receipt_jobs_to_default_queue(
+    monkeypatch: pytest.MonkeyPatch,
+    clear_settings_cache,
+) -> None:
+    """Receipt OCR tasks must be routed to the environment-specific default queue."""
+    monkeypatch.setenv("CELERY_DEFAULT_QUEUE", "ocr-staging")
+
+    import app.worker.celery_app as celery_module
+
+    reloaded = importlib.reload(celery_module)
+    try:
+        assert reloaded.celery_app.conf.task_default_queue == "ocr-staging"
+        assert (
+            reloaded.celery_app.conf.task_routes["app.worker.tasks.run_receipt_ocr"]["queue"]
+            == "ocr-staging"
+        )
+    finally:
+        monkeypatch.delenv("CELERY_DEFAULT_QUEUE", raising=False)
+        clear_settings_cache.get_settings.cache_clear()
+        importlib.reload(celery_module)
+
+
+@pytest.mark.asyncio
+async def test_extract_items_requeues_after_stale_job_recovery(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+    clear_settings_cache,
+) -> None:
+    """A stale queued job should be failed and replaced by a new queued job."""
+    monkeypatch.setenv("ASYNC_JOB_STALE_SECONDS", "0")
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", lambda *_, **__: None)
+
+    headers, receipt_id, _ = await _create_receipt(
+        client, session, email="stale-job@example.com", username="stalejob"
+    )
+    receipt_uuid = UUID(receipt_id)
+
+    first = await client.post(f"/receipts/{receipt_id}/extract-items", headers=headers)
+    assert first.status_code == 202
+    stale_job_id = UUID(first.json()["job_id"])
+
+    second = await client.post(f"/receipts/{receipt_id}/extract-items", headers=headers)
+    assert second.status_code == 202
+    new_job_id = UUID(second.json()["job_id"])
+
+    assert new_job_id != stale_job_id
+
+    result = await session.execute(
+        select(AsyncJob)
+        .where(AsyncJob.receipt_upload_id == receipt_uuid)
+        .order_by(AsyncJob.created_at)
+    )
+    jobs = list(result.scalars().all())
+
+    assert len(jobs) == 2
+    stale_job = next(job for job in jobs if job.id == stale_job_id)
+    replacement_job = next(job for job in jobs if job.id == new_job_id)
+
+    assert stale_job.status == "failed"
+    assert stale_job.result_summary["failure_reason"] == "stale_recovered"
+    assert replacement_job.status == "queued"
+
+
+@pytest.mark.asyncio
+async def test_extract_items_enqueue_failure_marks_job_failed(
+    client: AsyncClient,
+    session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Broker enqueue failures must surface as 503 and leave the job terminal."""
+
+    def raise_enqueue_error(*_, **__) -> None:
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr("app.worker.tasks.run_receipt_ocr.delay", raise_enqueue_error)
+
+    headers, receipt_id, _ = await _create_receipt(
+        client, session, email="enqueue-fail@example.com", username="enqueuefail"
+    )
+    receipt_uuid = UUID(receipt_id)
+
+    response = await client.post(f"/receipts/{receipt_id}/extract-items", headers=headers)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "OCR worker is temporarily unavailable. Please retry."
+
+    result = await session.execute(
+        select(AsyncJob).where(AsyncJob.receipt_upload_id == receipt_uuid)
+    )
+    jobs = list(result.scalars().all())
+
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.status == "failed"
+    assert "broker down" in (job.last_error or "")
+    assert job.result_summary["failure_reason"] == "enqueue_failed"
+    assert job.result_summary["outcome"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_health_ready_returns_503_when_redis_ping_fails(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Readiness should fail when cache is enabled but Redis is unavailable."""
+    import app.main as app_main
+
+    class BrokenRedis:
+        async def ping(self) -> bool:
+            raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(app_main.settings, "cache_enabled", True)
+    monkeypatch.setattr(app_main, "get_redis", lambda: BrokenRedis())
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["status"] == "degraded"
+    assert payload["redis"] is False
